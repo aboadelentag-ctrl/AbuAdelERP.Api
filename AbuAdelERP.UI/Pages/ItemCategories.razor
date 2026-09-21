@@ -1,0 +1,274 @@
+﻿@page "/item-categories"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-warning m-0 mb-1" style="color:#d39e00 !important;">🏷️ تصنيفات الأصناف</h3>
+            <span class="text-muted">إدارة مجموعات وتصنيفات المواد الخام والمنتجات التامة</span>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- نموذج الإضافة / التعديل -->
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm border-0 border-top border-warning border-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="text-warning m-0 fw-bold" style="color:#d39e00 !important;">@(isEditMode ? "تعديل بيانات التصنيف" : "إضافة تصنيف جديد")</h5>
+                </div>
+                <div class="card-body bg-light">
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger fw-bold shadow-sm">@errorMessage</div>
+                    }
+                    @if (!string.IsNullOrEmpty(successMessage))
+                    {
+                        <div class="alert alert-success fw-bold shadow-sm">@successMessage</div>
+                    }
+
+                    <!-- القائمة المنسدلة للشركات (الحل الجذري) -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">الشركة التابع لها التصنيف</label>
+                        <select class="form-select border-warning" @bind="currentCategory.CompanyId">
+                            <option value="0">-- اختر الشركة --</option>
+                            @foreach (var comp in companiesList)
+                            {
+                                <option value="@comp.Id">@comp.CompanyName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">كود التصنيف</label>
+                        <input type="text" class="form-control border-warning" @bind="currentCategory.CategoryCode" placeholder="مثال: CAT-01" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">اسم التصنيف</label>
+                        <input type="text" class="form-control border-warning" @bind="currentCategory.CategoryName" placeholder="مثال: خامات التعبئة / حلويات شرقية" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">نوع الأصناف في هذا التصنيف</label>
+                        <select class="form-select border-warning" @bind="currentCategory.ItemType">
+                            <option value="">-- اختر النوع --</option>
+                            <option value="منتج تام">منتج تام</option>
+                            <option value="خامات">خامات (مواد أولية)</option>
+                            <option value="مواد تعبئة">مواد تعبئة وتغليف</option>
+                            <option value="نصف مصنع">نصف مصنع</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">الوصف / ملاحظات</label>
+                        <textarea class="form-control" @bind="currentCategory.Description" rows="2"></textarea>
+                    </div>
+
+                    <div class="mb-4 form-check mt-3">
+                        <input type="checkbox" class="form-check-input border-warning" id="isActive" @bind="currentCategory.Active" style="transform: scale(1.4); margin-left: 10px;" />
+                        <label class="form-check-label fw-bold text-dark" for="isActive">التصنيف مفعل ومتاح للاستخدام</label>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-warning fw-bold shadow text-dark" @onclick="SaveCategory">
+                            @(isEditMode ? "💾 حفظ التعديلات" : "➕ إضافة التصنيف")
+                        </button>
+                        @if (isEditMode)
+                        {
+                            <button class="btn btn-outline-secondary fw-bold" @onclick="ResetForm">❌ إلغاء التعديل</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- جدول العرض -->
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-0 table-responsive">
+                    @if (isLoading)
+                    {
+                        <div class="p-5 text-center text-warning fw-bold">⏳ جاري تحميل البيانات...</div>
+                    }
+                    else if (categories == null || !categories.Any())
+                    {
+                        <div class="p-5 text-center text-muted fw-bold">⚠️ لا توجد تصنيفات مسجلة حالياً.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>رقم (ID)</th>
+                                    <th>الكود</th>
+                                    <th>الاسم</th>
+                                    <th>النوع المرتبط</th>
+                                    <th>الحالة</th>
+                                    <th>إجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var cat in categories)
+                                {
+                                    <tr class="@(cat.Active ? "" : "bg-light text-muted")">
+                                        <td class="fw-bold text-danger">@cat.Id</td>
+                                        <td class="fw-bold">@cat.CategoryCode</td>
+                                        <td class="fw-bold" style="color:#d39e00 !important;">@cat.CategoryName</td>
+                                        <td><span class="badge bg-secondary">@cat.ItemType</span></td>
+                                        <td>
+                                            @if (cat.Active)
+                                            {
+                                                <span class="badge bg-success">مفعل</span>
+                                            }
+                                            else
+                                            {
+
+                                                <span class="badge bg-danger">موقوف</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-warning text-dark fw-bold m-1" @onclick="() => EditCategory(cat)">✏️ تعديل</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ItemCategoryDto> categories = new();
+    private List<CompanyDropdownDto> companiesList = new(); // قائمة الشركات
+
+    private ItemCategoryDto currentCategory = new ItemCategoryDto { Active = true };
+    private bool isLoading = true;
+    private bool isEditMode = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string apiCategoriesUrl = "https://localhost:7273/api/ItemCategories";
+    private string apiCompaniesUrl = "https://localhost:7273/api/Companies";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCompanies();
+        await LoadCategories();
+    }
+
+    private async Task LoadCompanies()
+    {
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<CompanyDropdownDto>>(apiCompaniesUrl);
+            if (result != null) companiesList = result;
+
+            // اختيار أول شركة افتراضياً إذا كانت القائمة غير فارغة
+            if (companiesList.Any() && currentCategory.CompanyId == 0)
+            {
+                currentCategory.CompanyId = companiesList.First().Id;
+            }
+        }
+        catch { /* تجاهل أخطاء تحميل الشركات حالياً */ }
+    }
+
+    private async Task LoadCategories()
+    {
+        isLoading = true;
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<ItemCategoryDto>>(apiCategoriesUrl);
+            if (result != null) categories = result;
+        }
+        catch (Exception ex) { errorMessage = "خطأ في الاتصال: " + ex.Message; }
+        isLoading = false;
+    }
+
+    private async Task SaveCategory()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (currentCategory.CompanyId == 0)
+        {
+            errorMessage = "الرجاء اختيار الشركة أولاً.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentCategory.CategoryName) || string.IsNullOrWhiteSpace(currentCategory.CategoryCode) || string.IsNullOrWhiteSpace(currentCategory.ItemType))
+        {
+            errorMessage = "الرجاء إدخال الكود والاسم ونوع التصنيف.";
+            return;
+        }
+
+        try
+        {
+            HttpResponseMessage response;
+            if (isEditMode)
+            {
+                response = await Http.PutAsJsonAsync($"{apiCategoriesUrl}/{currentCategory.Id}", currentCategory);
+            }
+            else
+            {
+                response = await Http.PostAsJsonAsync(apiCategoriesUrl, currentCategory);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "✅ تم الحفظ بنجاح!";
+                await LoadCategories();
+                ResetForm();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex) { errorMessage = "خطأ: " + ex.Message; }
+    }
+
+    private void EditCategory(ItemCategoryDto cat)
+    {
+        currentCategory = new ItemCategoryDto
+        {
+            Id = cat.Id,
+            CompanyId = cat.CompanyId,
+            CategoryCode = cat.CategoryCode,
+            CategoryName = cat.CategoryName,
+            ItemType = cat.ItemType,
+            Description = cat.Description,
+            Active = cat.Active
+        };
+        isEditMode = true;
+        errorMessage = "";
+        successMessage = "";
+    }
+
+    private void ResetForm()
+    {
+        currentCategory = new ItemCategoryDto { Active = true };
+        if (companiesList.Any()) currentCategory.CompanyId = companiesList.First().Id;
+        isEditMode = false;
+    }
+
+    public class ItemCategoryDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
+        public string CategoryCode { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public bool Active { get; set; }
+    }
+
+    public class CompanyDropdownDto
+    {
+        public long Id { get; set; }
+        public string CompanyName { get; set; } = string.Empty;
+    }
+}

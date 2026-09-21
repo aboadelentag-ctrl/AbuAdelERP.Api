@@ -1,0 +1,323 @@
+﻿@page "/suppliers"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">🤝 إدارة الموردين واعتماد الجودة</h3>
+            <span class="text-muted">التحكم في الموردين النشطين والمعتمدين لضمان سلامة التوريدات وإصدار أوامر الشراء</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm">✅ @successMessage</div>
+    }
+
+    <!-- نموذج إضافة مورد جديد -->
+    <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="m-0 fw-bold text-dark">➕ إضافة مورد جديد</h5>
+        </div>
+        <div class="card-body bg-light">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">كود المورد *</label>
+                    <input class="form-control fw-bold border-primary" @bind="newSupplier.SupplierCode" placeholder="مثال: SUP-010" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-dark">اسم المورد أو الشركة *</label>
+                    <input class="form-control fw-bold" @bind="newSupplier.SupplierName" placeholder="اسم الشركة / المصنع المورد" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">حد الائتمان (ج.م)</label>
+                    <input type="number" class="form-control fw-bold text-center" @bind="newSupplier.CreditLimit" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">رقم الهاتف</label>
+                    <input class="form-control" @bind="newSupplier.Phone" placeholder="01xxxxxxxxx" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">اعتماد الجودة</label>
+                    <select class="form-select fw-bold" @bind="newSupplier.IsApproved">
+                        <option value="false">تحت التقييم (غير معتمد)</option>
+                        <option value="true">مورد معتمد (Approved)</option>
+                    </select>
+                </div>
+                <div class="col-md-10 mt-3">
+                    <label class="form-label fw-bold text-dark">ملاحظات والتزامات الجودة</label>
+                    <input class="form-control" @bind="newSupplier.Notes" placeholder="شهادات الجودة (ISO/HACCP)، أصناف التوريد الأساسية..." />
+                </div>
+                <div class="col-md-2 mt-3 d-flex align-items-end">
+                    <button class="btn btn-primary fw-bold w-100 shadow py-2" @onclick="SaveSupplier" disabled="@isSubmitting">
+                        @(isSubmitting ? "⏳ جاري الحفظ..." : "💾 حفظ المورد")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- كروت الفلترة السريعة للموردين -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-4 border-primary cursor-pointer p-3 @(filterApproval == "all" && filterStatus == "all" ? "bg-white border-3" : "bg-light")"
+                 style="cursor:pointer;" @onclick="@(() => ApplyQuickFilter("all", "all"))">
+                <span class="text-muted fw-bold small">إجمالي الموردين</span>
+                <h3 class="fw-bold text-primary mb-0 mt-1">@(suppliers?.Count ?? 0)</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-4 border-success cursor-pointer p-3 @(filterApproval == "approved" ? "bg-white" : "bg-light")"
+                 style="cursor:pointer;" @onclick="@(() => ApplyQuickFilter("all", "approved"))">
+                <span class="text-muted fw-bold small">الموردين المعتمدين (Approved)</span>
+                <h3 class="fw-bold text-success mb-0 mt-1">@(suppliers?.Count(s => s.IsApproved) ?? 0)</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-4 border-warning cursor-pointer p-3 @(filterApproval == "unapproved" ? "bg-white" : "bg-light")"
+                 style="cursor:pointer;" @onclick="@(() => ApplyQuickFilter("all", "unapproved"))">
+                <span class="text-muted fw-bold small">قيد التقييم / غير معتمدين</span>
+                <h3 class="fw-bold text-warning mb-0 mt-1">@(suppliers?.Count(s => !s.IsApproved) ?? 0)</h3>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-4 border-danger cursor-pointer p-3 @(filterStatus == "inactive" ? "bg-white" : "bg-light")"
+                 style="cursor:pointer;" @onclick="@(() => ApplyQuickFilter("inactive", "all"))">
+                <span class="text-muted fw-bold small">موردين موقوفين (غير نشط)</span>
+                <h3 class="fw-bold text-danger mb-0 mt-1">@(suppliers?.Count(s => !s.Active) ?? 0)</h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول عرض الموردين وعمليات التحكم -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="m-0 fw-bold text-dark">📋 سجل الموردين</h5>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="LoadSuppliers">🔄 تحديث البيانات</button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle mb-0 text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th>الكود</th>
+                            <th class="text-start ps-3">اسم المورد</th>
+                            <th>الهاتف</th>
+                            <th>حد الائتمان</th>
+                            <th>حالة التعامل</th>
+                            <th>اعتماد الجودة</th>
+                            <th>الملاحظات</th>
+                            <th>إجراءات سريعة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (filteredList == null)
+                        {
+                            <tr>
+                                <td colspan="8" class="text-center py-4">⏳ جاري تحميل الموردين...</td>
+                            </tr>
+                        }
+                        else if (!filteredList.Any())
+                        {
+                            <tr>
+                                <td colspan="8" class="text-center text-muted py-4">لا توجد بيانات مطابقة لخيارات الفلترة الحالية.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var sup in filteredList)
+                            {
+                                <tr>
+                                    <td class="fw-bold">@sup.SupplierCode</td>
+                                    <td class="text-start ps-3 fw-bold">@sup.SupplierName</td>
+                                    <td>@(string.IsNullOrEmpty(sup.Phone) ? "-" : sup.Phone)</td>
+                                    <td class="fw-bold">@sup.CreditLimit.ToString("N2") ج.م</td>
+                                    <td>
+                                        <span class="badge @(sup.Active ? "bg-success" : "bg-danger") px-3 py-2">
+                                            @(sup.Active ? "نشط" : "موقوف")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(sup.IsApproved ? "bg-primary" : "bg-warning text-dark") px-3 py-2">
+                                            @(sup.IsApproved ? "🛡️ مورد معتمد" : "⏳ غير معتمد")
+                                        </span>
+                                    </td>
+                                    <td class="small text-muted text-truncate" style="max-width: 150px;">@(sup.Notes ?? "-")</td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button class="btn @(sup.IsApproved ? "btn-outline-warning" : "btn-outline-primary") fw-bold"
+                                                    @onclick="() => ToggleApproval(sup.Id)" title="تبديل حالة الاعتماد">
+                                                @(sup.IsApproved ? "إلغاء الاعتماد" : "اعتماد المورد")
+                                            </button>
+                                            <button class="btn @(sup.Active ? "btn-outline-danger" : "btn-outline-success") fw-bold"
+                                                    @onclick="() => ToggleActive(sup.Id)" title="تبديل حالة النشاط">
+                                                @(sup.Active ? "إيقاف" : "تنشيط")
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<SupplierDto>? suppliers;
+    private List<SupplierDto>? filteredList;
+    private SupplierCreateDto newSupplier = new() { Active = true, IsApproved = false };
+
+    private string filterStatus = "all";
+    private string filterApproval = "all";
+
+    private bool isSubmitting = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string apiBase = "https://localhost:7273/api/Suppliers";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSuppliers();
+    }
+
+    private async Task LoadSuppliers()
+    {
+        errorMessage = "";
+        try
+        {
+            suppliers = await Http.GetFromJsonAsync<List<SupplierDto>>(apiBase);
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "خطأ أثناء تحميل بيانات الموردين: " + ex.Message;
+        }
+    }
+
+    private void ApplyQuickFilter(string status, string approval)
+    {
+        filterStatus = status;
+        filterApproval = approval;
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (suppliers == null) return;
+
+        var query = suppliers.AsEnumerable();
+
+        if (filterStatus == "active") query = query.Where(s => s.Active);
+        else if (filterStatus == "inactive") query = query.Where(s => !s.Active);
+
+        if (filterApproval == "approved") query = query.Where(s => s.IsApproved);
+        else if (filterApproval == "unapproved") query = query.Where(s => !s.IsApproved);
+
+        filteredList = query.ToList();
+    }
+
+    private async Task SaveSupplier()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (string.IsNullOrWhiteSpace(newSupplier.SupplierCode) || string.IsNullOrWhiteSpace(newSupplier.SupplierName))
+        {
+            errorMessage = "يرجى ملء كود المورد واسمه.";
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(apiBase, newSupplier);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "تم حفظ بيانات المورد بنجاح!";
+                newSupplier = new SupplierCreateDto { Active = true, IsApproved = false };
+                await LoadSuppliers();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "تعذر الحفظ: " + ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task ToggleApproval(long id)
+    {
+        try
+        {
+            var response = await Http.PatchAsync($"{apiBase}/{id}/toggle-approval", null);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadSuppliers();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "حدث خطأ أثناء تعديل حالة الاعتماد: " + ex.Message;
+        }
+    }
+
+    private async Task ToggleActive(long id)
+    {
+        try
+        {
+            var response = await Http.PatchAsync($"{apiBase}/{id}/toggle-active", null);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadSuppliers();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "حدث خطأ أثناء تعديل حالة النشاط: " + ex.Message;
+        }
+    }
+
+    public class SupplierDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; }
+        public string SupplierCode { get; set; } = string.Empty;
+        public string SupplierName { get; set; } = string.Empty;
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public decimal CreditLimit { get; set; }
+        public bool Active { get; set; }
+        public bool IsApproved { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class SupplierCreateDto
+    {
+        public string SupplierCode { get; set; } = string.Empty;
+        public string SupplierName { get; set; } = string.Empty;
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public decimal CreditLimit { get; set; } = 0;
+        public bool Active { get; set; } = true;
+        public bool IsApproved { get; set; } = false;
+        public string? Notes { get; set; }
+    }
+}

@@ -1,0 +1,156 @@
+﻿@page "/crates-tracking"
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">📦 إدارة حركة الإسبات (العبوات البلاستيكية)</h3>
+            <span class="text-muted">تسجيل منصرف ومرتجع الإسبات للعملاء، ومتابعة الأرصدة المتأخرة</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm">✅ @successMessage</div>
+    }
+
+    <div class="row">
+        <!-- نموذج تسجيل حركة جديدة -->
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm border-0 border-top border-warning border-4 h-100">
+                <div class="card-header bg-white py-3 border-bottom">
+                    <h6 class="text-primary m-0 fw-bold">🔄 تسجيل حركة إسبات جديدة</h6>
+                </div>
+                <div class="card-body bg-light">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">تاريخ الحركة</label>
+                        <input type="date" class="form-control border-primary" @bind="newMovement.MovementDate" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">العميل / المندوب</label>
+                        <select class="form-select border-primary fw-bold" @bind="newMovement.CustomerId">
+                            <option value="0">-- اختر العميل --</option>
+                            <option value="1">شركة التوزيع المتحدة</option>
+                            <option value="2">محلات الأمانة</option>
+                            <option value="3">مندوب خط الساحل (أحمد)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">نوع الحركة</label>
+                        <div class="d-flex gap-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="moveType" id="typeOut" value="منصرف للعميل" checked="@(newMovement.MovementType == "منصرف للعميل")" @onchange="@(() => newMovement.MovementType = "منصرف للعميل")">
+                                <label class="form-check-label text-danger fw-bold" for="typeOut">📤 صرف للعميل</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="moveType" id="typeIn" value="مرتجع للمصنع" checked="@(newMovement.MovementType == "مرتجع للمصنع")" @onchange="@(() => newMovement.MovementType = "مرتجع للمصنع")">
+                                <label class="form-check-label text-success fw-bold" for="typeIn">📥 استلام من العميل</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">عدد الإسبات</label>
+                        <input type="number" class="form-control fw-bold fs-5 text-center" @bind="newMovement.Quantity" min="1" />
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small">ملاحظات (رقم إذن التسليم)</label>
+                        <input type="text" class="form-control" @bind="newMovement.Notes" placeholder="مثال: إذن تسليم رقم 5042" />
+                    </div>
+                    <button class="btn btn-warning fw-bold w-100 shadow" @onclick="SaveMovement">
+                        💾 حفظ الحركة
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- أرصدة العملاء وسجل الحركات -->
+        <div class="col-md-8 mb-4">
+            <!-- كروت الإحصائيات السريعة -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card bg-danger text-white shadow-sm border-0">
+                        <div class="card-body d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1 opacity-75">إجمالي الإسبات لدى العملاء</h6>
+                                <h3 class="fw-bold mb-0">125 <span class="fs-6 fw-normal">سَبَت</span></h3>
+                            </div>
+                            <h1 class="opacity-50 m-0">📤</h1>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card bg-success text-white shadow-sm border-0">
+                        <div class="card-body d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1 opacity-75">إسبات تم استردادها هذا الشهر</h6>
+                                <h3 class="fw-bold mb-0">80 <span class="fs-6 fw-normal">سَبَت</span></h3>
+                            </div>
+                            <h1 class="opacity-50 m-0">📥</h1>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- جدول أرصدة العملاء -->
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-white py-2 border-bottom d-flex justify-content-between align-items-center">
+                    <h6 class="text-primary m-0 fw-bold">⚠️ كشف أرصدة الإسبات المتأخرة لدى العملاء</h6>
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-hover mb-0 text-center align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>اسم العميل / المندوب</th>
+                                <th>إجمالي المنصرف</th>
+                                <th>إجمالي المرتجع</th>
+                                <th>الرصيد المتبقي (عُهدة)</th>
+                                <th>حالة الحساب</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="fw-bold">شركة التوزيع المتحدة</td>
+                                <td class="text-danger">150</td>
+                                <td class="text-success">100</td>
+                                <td class="fw-bold fs-5">50</td>
+                                <td><span class="badge bg-danger">متأخرات عالية</span></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold">محلات الأمانة</td>
+                                <td class="text-danger">60</td>
+                                <td class="text-success">55</td>
+                                <td class="fw-bold fs-5">5</td>
+                                <td><span class="badge bg-warning text-dark">حد آمن</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private CrateMovementDto newMovement = new() { MovementDate = DateOnly.FromDateTime(DateTime.Now), MovementType = "منصرف للعميل", Quantity = 1 };
+    private string successMessage = "";
+
+    private void SaveMovement()
+    {
+        // سيتم ربط هذه الدالة بالـ API لاحقاً لحفظ البيانات الحقيقية
+        successMessage = $"تم تسجيل حركة ({newMovement.MovementType}) لعدد {newMovement.Quantity} إسبات بنجاح.";
+
+        // تفريغ الحقول بعد الحفظ
+        newMovement = new CrateMovementDto { MovementDate = DateOnly.FromDateTime(DateTime.Now), MovementType = "منصرف للعميل", Quantity = 1 };
+
+        // إخفاء رسالة النجاح بعد 3 ثواني
+        Task.Delay(3000).ContinueWith(_ => { successMessage = ""; InvokeAsync(StateHasChanged); });
+    }
+
+    public class CrateMovementDto
+    {
+        public DateOnly MovementDate { get; set; }
+        public int CustomerId { get; set; }
+        public string MovementType { get; set; } = string.Empty;
+        public int Quantity { get; set; }
+        public string Notes { get; set; } = string.Empty;
+    }
+}

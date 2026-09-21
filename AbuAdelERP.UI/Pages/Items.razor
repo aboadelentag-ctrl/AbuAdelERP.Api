@@ -1,0 +1,774 @@
+﻿@page "/items"
+@inject HttpClient Http
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-success m-0 mb-1">📦 إدارة الأصناف وضوابط المخزون</h3>
+            <span class="text-muted">تعريف الأصناف، تحديد حدود الأمان والطلب، والربط بالهيكل الإداري والأقسام ونظام كيان</span>
+        </div>
+        <div>
+            <button class="btn btn-primary fw-bold px-3 shadow" @onclick="OpenBulkModal">
+                📋 إضافة سريعة (Bulk Import)
+            </button>
+        </div>
+    </div>
+
+    <!-- قسم استيراد الإكسيل -->
+    <div class="card shadow-sm mb-4 border-0 bg-light">
+        <div class="card-body d-flex align-items-end gap-3 p-3">
+            <div class="flex-grow-1">
+                <div class="d-flex justify-content-between mb-2 align-items-center">
+                    <label class="fw-bold text-success m-0">📥 استيراد قائمة أصناف من ملف Excel:</label>
+                    <a href="@($"{apiItemsUrl}/download-template")" class="btn btn-sm btn-outline-success fw-bold px-3" target="_blank" download>
+                        ⬇️ تحميل القالب القياسي (Template)
+                    </a>
+                </div>
+                <InputFile OnChange="LoadExcelFile" class="form-control border-success" accept=".xlsx, .xls" />
+            </div>
+            <button class="btn btn-success fw-bold px-4 shadow" @onclick="UploadExcel" disabled="@(selectedFile == null || isUploading)">
+                @(isUploading ? "⏳ جاري الاستيراد..." : "🚀 استيراد الملف")
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- نموذج الإضافة / التعديل -->
+        <div class="col-md-5 mb-4">
+            <div class="card shadow-sm border-0 border-top border-success border-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="text-success m-0 fw-bold">@(isEditMode ? "تعديل بيانات الصنف وضوابط المخزون" : "إضافة صنف جديد وضبط حدوده")</h5>
+                </div>
+                <div class="card-body bg-light">
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger fw-bold shadow-sm" style="font-size: 0.9rem;">@errorMessage</div>
+                    }
+                    @if (!string.IsNullOrEmpty(successMessage))
+                    {
+                        <div class="alert alert-success fw-bold shadow-sm">@successMessage</div>
+                    }
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary small">الشركة *</label>
+                            <select class="form-select border-success" @bind="currentItem.CompanyId">
+                                <option value="0">-- اختر الشركة --</option>
+                                @foreach (var comp in companiesList)
+                                {
+                                    <option value="@comp.Id">@comp.CompanyName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary small">التصنيف *</label>
+                            <select class="form-select border-success" @bind="currentItem.CategoryId">
+                                <option value="0">-- اختر التصنيف --</option>
+                                @foreach (var cat in categoriesList)
+                                {
+                                    <option value="@cat.Id">@cat.CategoryName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-primary small">الإدارة المسؤولة</label>
+                            <select class="form-select border-primary" @bind="selectedParentDeptId" @bind:after="OnParentDeptChanged">
+                                <option value="0">-- اختر الإدارة --</option>
+                                @foreach (var pDept in parentDepartments)
+                                {
+                                    <option value="@pDept.Id">@pDept.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-primary small">القسم الفرعي / الصالة</label>
+                            <select class="form-select border-primary" @bind="currentItem.DepartmentId">
+                                <option value="">-- اختر القسم --</option>
+                                @foreach (var subDept in filteredSubDepartments)
+                                {
+                                    <option value="@subDept.Id">@subDept.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold text-secondary small">كود الصنف *</label>
+                            <input type="text" class="form-control border-success" @bind="currentItem.ItemCode" placeholder="مثال: 304001" />
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label fw-bold text-secondary small">اسم الصنف / الخامة *</label>
+                            <input type="text" class="form-control border-success" @bind="currentItem.ItemName" placeholder="مثال: فطيرة سادة" />
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary small">نوع الصنف *</label>
+                            <select class="form-select border-success" @bind="currentItem.ItemType" @bind:after="OnItemTypeChanged">
+                                <option value="">-- اختر النوع --</option>
+                                <option value="خامات">خامات (مواد أولية)</option>
+                                <option value="منتج وسيط">منتج وسيط (عجائن/حشوات)</option>
+                                <option value="منتج تام">منتج تام</option>
+                                <option value="مواد تعبئة">مواد تعبئة وتغليف</option>
+                                <option value="أصول ومهمات">أصول ومهمات تشغيل</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary small">وحدة القياس *</label>
+                            <select class="form-select border-success" @bind="currentItem.Unit">
+                                <option value="">-- اختر الوحدة --</option>
+                                <option value="كجم">كجم</option>
+                                <option value="جرام">جرام</option>
+                                <option value="طن">طن</option>
+                                <option value="قطعة">قطعة</option>
+                                <option value="علبة">علبة</option>
+                                <option value="كيس">كيس</option>
+                                <option value="بلكة">بلكة</option>
+                                <option value="صاج">صاج</option>
+                                <option value="لتر">لتر</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- السعر الأساسي والباركود -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary small">سعر البيع الأساسي (ج.م)</label>
+                            <input type="number" step="0.01" class="form-control border-success" @bind="currentItem.BasePrice" placeholder="0.00" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary small">الباركود</label>
+                            <input type="text" class="form-control border-success" @bind="currentItem.Barcode" placeholder="الباركود إن وجد" />
+                        </div>
+                    </div>
+
+                    <!-- إعدادات وخصائص كيان التشغيلية -->
+                    <div class="p-3 bg-white rounded border border-primary mb-3 shadow-sm">
+                        <h6 class="fw-bold text-primary m-0 mb-2">⚙️ خصائص التشغيل والمطابقة مع نظام كيان</h6>
+                        <div class="row g-2">
+                            <div class="col-md-6 form-check">
+                                <input class="form-check-input" type="checkbox" id="isContainerCheck" @bind="currentItem.IsContainer" />
+                                <label class="form-check-label small fw-bold" for="isContainerCheck">صنف حاوية (أسبات / صواني)</label>
+                            </div>
+                            <div class="col-md-6 form-check">
+                                <input class="form-check-input" type="checkbox" id="isMergedCheck" @bind="currentItem.IsMerged" />
+                                <label class="form-check-label small fw-bold" for="isMergedCheck">مدمج (صاجات مشكلة)</label>
+                            </div>
+                            <div class="col-md-6 form-check">
+                                <input class="form-check-input" type="checkbox" id="isVariantCheck" @bind="currentItem.IsVariant" />
+                                <label class="form-check-label small fw-bold" for="isVariantCheck">صنف متنوع (له نكهات وتفريعات)</label>
+                            </div>
+                            <div class="col-md-6 form-check">
+                                <input class="form-check-input" type="checkbox" id="multiUomCheck" @bind="currentItem.MultiUom" />
+                                <label class="form-check-label small fw-bold" for="multiUomCheck">متعدد الوحدات (قطعة/كيلو)</label>
+                            </div>
+                            <div class="col-md-12 form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="hideDetailPrintCheck" @bind="currentItem.HideDetailPrint" />
+                                <label class="form-check-label small fw-bold" for="hideDetailPrintCheck">بدون طباعة تفاصيل بالفاتورة المجمعة</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- قسم محددات حدود المخزون والطلب -->
+                    <div class="p-3 bg-white rounded border border-warning mb-3 shadow-sm">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="fw-bold text-dark m-0">🎯 محددات إعادة الطلب ومستويات الأمان</h6>
+                            <small class="badge bg-warning text-dark">نظام التنبيه التلقائي</small>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger small">حد الأمان (Safety)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm border-danger fw-bold" @bind="currentItem.SafetyStock" />
+                                <small class="text-muted" style="font-size: 0.72rem;">أدنى رصيد حرج</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-warning small">حد الطلب (ROP)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm border-warning fw-bold" @bind="currentItem.ReorderLevel" />
+                                <small class="text-muted" style="font-size: 0.72rem;">إطلاق إشعار الشراء</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-secondary small">الحد الأقصى (Max)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm fw-bold" @bind="currentItem.MaxStock" />
+                                <small class="text-muted" style="font-size: 0.72rem;">سعة التخزين القصوى</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- إعدادات نظام الصلاحية وتتبع اللوطات -->
+                    <div class="p-3 bg-white rounded border border-success mb-3 shadow-sm">
+                        <div class="form-check form-switch mb-1">
+                            <input class="form-check-input" type="checkbox" id="hasExpiryCheck" @bind="currentItem.HasExpiryDate" style="cursor: pointer;" />
+                            <label class="form-check-label fw-bold text-dark" for="hasExpiryCheck">
+                                هل الصنف خاضع لتاريخ الصلاحية وتتبع اللوطات؟
+                            </label>
+                        </div>
+
+                        @if (currentItem.HasExpiryDate)
+                        {
+                            <div class="mt-2">
+                                <label class="form-label fw-bold text-secondary small">مدة الصلاحية الافتراضية (بالأيام)</label>
+                                <input type="number" class="form-control form-control-sm border-success" placeholder="مثلاً: 365 للخامات، 4 للحلويات" @bind="currentItem.ShelfLifeDays" />
+                            </div>
+                        }
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input border-success" id="isActive" @bind="currentItem.Active" style="transform: scale(1.3); margin-left: 10px;" />
+                        <label class="form-check-label fw-bold text-dark" for="isActive">الصنف مفعّل وجاهز للاستخدام المخزني</label>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success fw-bold shadow py-2" @onclick="SaveItem">
+                            @(isEditMode ? "💾 حفظ تعديلات الصنف" : "➕ إضافة الصنف لقاعدة البيانات")
+                        </button>
+                        @if (isEditMode)
+                        {
+                            <button class="btn btn-outline-secondary fw-bold" @onclick="ResetForm">❌ إلغاء التعديل</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- جدول استعراض الأصناف المسجلة -->
+        <div class="col-md-7">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-0 table-responsive">
+                    @if (isLoading)
+                    {
+                        <div class="p-5 text-center text-success fw-bold">⏳ جاري تحميل قائمة الأصناف...</div>
+                    }
+                    else if (items == null || !items.Any())
+                    {
+                        <div class="p-5 text-center text-muted fw-bold">⚠️ لا توجد أصناف مسجلة حالياً.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>الكود</th>
+                                    <th>اسم الصنف</th>
+                                    <th>النوع</th>
+                                    <th>السعر</th>
+                                    <th>حد الأمان</th>
+                                    <th>حد الطلب</th>
+                                    <th>الوحدة</th>
+                                    <th>الحالة</th>
+                                    <th>إجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in items)
+                                {
+                                    <tr class="@(item.Active ? "" : "bg-light text-muted")">
+                                        <td class="fw-bold">@item.ItemCode</td>
+                                        <td class="text-success fw-bold text-start ps-2">
+                                            @item.ItemName
+                                            @if (item.IsContainer)
+                                            {
+                                                <span class="badge bg-warning text-dark ms-1">حاوية</span>
+                                            }
+                                            @if (item.IsMerged)
+                                            {
+                                                <span class="badge bg-info text-dark ms-1">مدمج</span>
+                                            }
+                                            @if (item.IsVariant)
+                                            {
+                                                <span class="badge bg-primary ms-1">متنوع</span>
+                                            }
+                                        </td>
+                                        <td><span class="badge bg-secondary">@item.ItemType</span></td>
+                                        <td class="fw-bold text-primary">@(item.BasePrice > 0 ? item.BasePrice.ToString("N2") : "-")</td>
+                                        <td class="text-danger fw-bold">@(item.SafetyStock > 0 ? item.SafetyStock.ToString("N0") : "-")</td>
+                                        <td class="text-warning fw-bold text-dark">@(item.ReorderLevel > 0 ? item.ReorderLevel.ToString("N0") : "-")</td>
+                                        <td>@item.Unit</td>
+                                        <td>
+                                            @if (item.Active)
+                                            {
+                                                <span class="badge bg-success">مفعل</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger">موقوف</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-success py-0 px-2" @onclick="() => EditItem(item)">✏️ تعديل</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- نافذة الإضافة السريعة المنبثقة (Bulk Import Modal) المطابقة لنظام كيان -->
+@if (showBulkModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6); z-index: 1050;">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content text-end shadow-lg border-0">
+                <div class="modal-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="modal-title fw-bold m-0">📋 الإضافة السريعة (Bulk Import) للأصناف</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showBulkModal = false"></button>
+                </div>
+                <div class="modal-body bg-light">
+                    <div class="alert alert-info py-2" style="font-size: 0.85rem;">
+                        <strong>ℹ️ تعليمات اللصق المباشر:</strong><br />
+                        * انسخ البيانات من جدول الإكسيل أو نظام كيان والصقها في المربع أدناه.<br />
+                        * <strong>ترتيب الأعمدة المطلوب:</strong> اسم الصنف | كود الصنف | القسم | النوع | الوحدة | معامل التحويل | السعر | الباركود
+                    </div>
+                    <textarea class="form-control font-monospace border-primary" rows="8" placeholder="الصق البيانات هنا..." @bind="bulkRawData"></textarea>
+
+                    @if (!string.IsNullOrEmpty(bulkStatusMessage))
+                    {
+                        <div class="alert alert-success mt-2 fw-bold py-2">@bulkStatusMessage</div>
+                    }
+                    @if (!string.IsNullOrEmpty(bulkErrorMessage))
+                    {
+                        <div class="alert alert-danger mt-2 fw-bold py-2">@bulkErrorMessage</div>
+                    }
+                </div>
+                <div class="modal-footer bg-white d-flex justify-content-between">
+                    <button class="btn btn-secondary fw-bold" @onclick="() => showBulkModal = false">إلغاء</button>
+                    <button class="btn btn-success fw-bold px-4" @onclick="ExecuteBulkImport" disabled="@(string.IsNullOrWhiteSpace(bulkRawData) || isBulkProcessing)">
+                        @(isBulkProcessing ? "⏳ جاري المعالجة والحفظ..." : "💾 تحليل وحفظ الكل")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ItemDto> items = new();
+    private List<DropdownDto> companiesList = new();
+    private List<DropdownDto> categoriesList = new();
+
+    private List<DepartmentLookupDto> allDepartments = new();
+    private List<DepartmentLookupDto> parentDepartments = new();
+    private List<DepartmentLookupDto> filteredSubDepartments = new();
+
+    private long selectedParentDeptId = 0;
+
+    private ItemDto currentItem = new ItemDto
+    {
+        Active = true,
+        HasExpiryDate = true,
+        ShelfLifeDays = 365,
+        SafetyStock = 0,
+        ReorderLevel = 0,
+        MaxStock = 0,
+        BasePrice = 0,
+        IsVariant = false,
+        IsMerged = false,
+        IsContainer = false,
+        MultiUom = false,
+        HideDetailPrint = false
+    };
+
+    private bool isLoading = true;
+    private bool isEditMode = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    // متغيرات نافذة الإضافة السريعة
+    private bool showBulkModal = false;
+    private string bulkRawData = "";
+    private string bulkStatusMessage = "";
+    private string bulkErrorMessage = "";
+    private bool isBulkProcessing = false;
+
+    private string apiItemsUrl = "https://localhost:7273/api/Items";
+    private string apiCompaniesUrl = "https://localhost:7273/api/Companies";
+    private string apiCategoriesUrl = "https://localhost:7273/api/ItemCategories";
+    private string apiDepartmentsUrl = "https://localhost:7273/api/Departments";
+
+    private IBrowserFile? selectedFile;
+    private bool isUploading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDropdowns();
+        await LoadItems();
+    }
+
+    private void OpenBulkModal()
+    {
+        showBulkModal = true;
+        bulkErrorMessage = string.Empty;
+        bulkStatusMessage = string.Empty;
+    }
+
+    private async Task LoadDropdowns()
+    {
+        try
+        {
+            var comps = await Http.GetFromJsonAsync<List<DropdownDto>>(apiCompaniesUrl);
+            if (comps != null) companiesList = comps;
+
+            var cats = await Http.GetFromJsonAsync<List<DropdownDto>>(apiCategoriesUrl);
+            if (cats != null) categoriesList = cats;
+
+            var depts = await Http.GetFromJsonAsync<List<DepartmentLookupDto>>(apiDepartmentsUrl);
+            if (depts != null && depts.Any())
+            {
+                allDepartments = depts;
+                parentDepartments = allDepartments
+                    .Where(d => !d.DisplayName.Contains("العليا") && !d.DisplayName.StartsWith("قسم"))
+                    .ToList();
+
+                if (!parentDepartments.Any())
+                {
+                    parentDepartments = allDepartments
+                        .Where(d => d.ParentDepartmentId == 1 || d.ParentId == 1)
+                        .ToList();
+                }
+            }
+
+            if (companiesList.Any()) currentItem.CompanyId = companiesList.First().Id;
+            if (categoriesList.Any()) currentItem.CategoryId = categoriesList.First().Id;
+        }
+        catch { }
+    }
+
+    private void OnItemTypeChanged()
+    {
+        if (!isEditMode && currentItem.ReorderLevel == 0 && currentItem.SafetyStock == 0)
+        {
+            if (currentItem.ItemType == "خامات")
+            {
+                currentItem.SafetyStock = 200m;
+                currentItem.ReorderLevel = 500m;
+                currentItem.MaxStock = 2000m;
+                currentItem.HasExpiryDate = true;
+                currentItem.ShelfLifeDays = 365;
+            }
+            else if (currentItem.ItemType == "مواد تعبئة")
+            {
+                currentItem.SafetyStock = 500m;
+                currentItem.ReorderLevel = 1500m;
+                currentItem.MaxStock = 10000m;
+                currentItem.HasExpiryDate = false;
+                currentItem.ShelfLifeDays = null;
+            }
+            else if (currentItem.ItemType == "منتج تام")
+            {
+                currentItem.SafetyStock = 50m;
+                currentItem.ReorderLevel = 100m;
+                currentItem.MaxStock = 500m;
+                currentItem.HasExpiryDate = true;
+                currentItem.ShelfLifeDays = 5;
+            }
+        }
+    }
+
+    private void OnParentDeptChanged()
+    {
+        if (selectedParentDeptId > 0)
+        {
+            filteredSubDepartments = allDepartments
+                .Where(d => d.ParentDepartmentId == selectedParentDeptId || d.ParentId == selectedParentDeptId)
+                .ToList();
+
+            if (!filteredSubDepartments.Any())
+            {
+                var self = allDepartments.FirstOrDefault(d => d.Id == selectedParentDeptId);
+                if (self != null)
+                {
+                    filteredSubDepartments.Add(self);
+                    currentItem.DepartmentId = self.Id;
+                }
+            }
+        }
+        else
+        {
+            filteredSubDepartments.Clear();
+            currentItem.DepartmentId = null;
+        }
+    }
+
+    private async Task LoadItems()
+    {
+        isLoading = true;
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<ItemDto>>(apiItemsUrl);
+            if (result != null) items = result;
+        }
+        catch (Exception ex) { errorMessage = "خطأ في الاتصال: " + ex.Message; }
+        isLoading = false;
+    }
+
+    private async Task SaveItem()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (currentItem.CompanyId == 0 || currentItem.CategoryId == 0)
+        {
+            errorMessage = "الرجاء اختيار الشركة والتصنيف أولاً.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentItem.ItemName) || string.IsNullOrWhiteSpace(currentItem.ItemCode))
+        {
+            errorMessage = "الرجاء إدخال اسم وكود الصنف.";
+            return;
+        }
+
+        if (!currentItem.HasExpiryDate)
+        {
+            currentItem.ShelfLifeDays = null;
+        }
+
+        try
+        {
+            HttpResponseMessage response;
+            if (isEditMode)
+            {
+                response = await Http.PutAsJsonAsync($"{apiItemsUrl}/{currentItem.Id}", currentItem);
+            }
+            else
+            {
+                response = await Http.PostAsJsonAsync(apiItemsUrl, currentItem);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = isEditMode ? "✅ تم تعديل بيانات الصنف وضوابط المخزون بنجاح!" : "✅ تمت إضافة الصنف ومستويات الأمان بنجاح!";
+                await LoadItems();
+                ResetForm();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex) { errorMessage = "خطأ: " + ex.Message; }
+    }
+
+    private async Task ExecuteBulkImport()
+    {
+        if (string.IsNullOrWhiteSpace(bulkRawData)) return;
+
+        isBulkProcessing = true;
+        bulkStatusMessage = "";
+        bulkErrorMessage = "";
+
+        try
+        {
+            var request = new
+            {
+                RawData = bulkRawData,
+                CompanyId = currentItem.CompanyId > 0 ? currentItem.CompanyId : 1,
+                DefaultCategoryId = currentItem.CategoryId > 0 ? currentItem.CategoryId : 1
+            };
+
+            var response = await Http.PostAsJsonAsync($"{apiItemsUrl}/bulk-quick-import", request);
+            if (response.IsSuccessStatusCode)
+            {
+                var res = await response.Content.ReadFromJsonAsync<BulkResponseDto>();
+                bulkStatusMessage = res?.Message ?? "✅ تم تحليل واستيراد الأصناف بنجاح!";
+                bulkRawData = "";
+                await LoadItems();
+            }
+            else
+            {
+                bulkErrorMessage = "❌ فشلت المعالجة: " + await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            bulkErrorMessage = "خطأ: " + ex.Message;
+        }
+        finally
+        {
+            isBulkProcessing = false;
+        }
+    }
+
+    private void EditItem(ItemDto item)
+    {
+        currentItem = new ItemDto
+        {
+            Id = item.Id,
+            ItemCode = item.ItemCode,
+            ItemName = item.ItemName,
+            ItemType = item.ItemType,
+            Unit = item.Unit,
+            CompanyId = item.CompanyId,
+            CategoryId = item.CategoryId,
+            DepartmentId = item.DepartmentId,
+            DepartmentName = item.DepartmentName,
+            Active = item.Active,
+            HasExpiryDate = item.HasExpiryDate,
+            ShelfLifeDays = item.ShelfLifeDays,
+            ReorderLevel = item.ReorderLevel,
+            SafetyStock = item.SafetyStock,
+            MaxStock = item.MaxStock,
+            BasePrice = item.BasePrice,
+            Barcode = item.Barcode,
+            IsVariant = item.IsVariant,
+            IsMerged = item.IsMerged,
+            IsContainer = item.IsContainer,
+            MultiUom = item.MultiUom,
+            HideDetailPrint = item.HideDetailPrint,
+            ParentItemId = item.ParentItemId
+        };
+
+        if (item.DepartmentId.HasValue && item.DepartmentId.Value > 0)
+        {
+            var currentDept = allDepartments.FirstOrDefault(d => d.Id == item.DepartmentId.Value);
+            if (currentDept != null)
+            {
+                long parentId = currentDept.ParentDepartmentId ?? currentDept.ParentId ?? 0;
+                selectedParentDeptId = (parentId > 0 && parentId != 1) ? parentId : currentDept.Id;
+                OnParentDeptChanged();
+            }
+        }
+        else
+        {
+            selectedParentDeptId = 0;
+            filteredSubDepartments.Clear();
+        }
+
+        isEditMode = true;
+        errorMessage = "";
+        successMessage = "";
+    }
+
+    private void ResetForm()
+    {
+        currentItem = new ItemDto
+        {
+            Active = true,
+            HasExpiryDate = true,
+            ShelfLifeDays = 365,
+            SafetyStock = 0,
+            ReorderLevel = 0,
+            MaxStock = 0,
+            BasePrice = 0,
+            IsVariant = false,
+            IsMerged = false,
+            IsContainer = false,
+            MultiUom = false,
+            HideDetailPrint = false
+        };
+        selectedParentDeptId = 0;
+        filteredSubDepartments.Clear();
+        if (companiesList.Any()) currentItem.CompanyId = companiesList.First().Id;
+        if (categoriesList.Any()) currentItem.CategoryId = categoriesList.First().Id;
+        isEditMode = false;
+    }
+
+    private void LoadExcelFile(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        errorMessage = "";
+        successMessage = "";
+    }
+
+    private async Task UploadExcel()
+    {
+        if (selectedFile == null) return;
+        isUploading = true;
+        errorMessage = "";
+        successMessage = "";
+
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var fileContent = new StreamContent(selectedFile.OpenReadStream(maxAllowedSize: 15 * 1024 * 1024));
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(selectedFile.ContentType);
+            content.Add(fileContent, "file", selectedFile.Name);
+
+            var response = await Http.PostAsync($"{apiItemsUrl}/import-excel", content);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "✅ تم استيراد الملف بنجاح!";
+                await LoadItems();
+                selectedFile = null;
+            }
+            else
+            {
+                errorMessage = "❌ فشل الاستيراد: " + await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex) { errorMessage = $"خطأ أثناء الرفع: {ex.Message}"; }
+        finally { isUploading = false; }
+    }
+
+    public class ItemDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public long CategoryId { get; set; }
+        public long? DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
+        public string Unit { get; set; } = string.Empty;
+        public bool Active { get; set; } = true;
+        public bool HasExpiryDate { get; set; } = true;
+        public int? ShelfLifeDays { get; set; }
+
+        public decimal ReorderLevel { get; set; } = 0;
+        public decimal SafetyStock { get; set; } = 0;
+        public decimal MaxStock { get; set; } = 0;
+
+        public decimal BasePrice { get; set; } = 0;
+        public string? Barcode { get; set; }
+        public bool IsVariant { get; set; } = false;
+        public bool IsMerged { get; set; } = false;
+        public bool IsContainer { get; set; } = false;
+        public bool MultiUom { get; set; } = false;
+        public bool HideDetailPrint { get; set; } = false;
+        public long? ParentItemId { get; set; }
+    }
+
+    public class BulkResponseDto
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
+    public class DropdownDto
+    {
+        public long Id { get; set; }
+        public string CompanyName { get; set; } = string.Empty;
+        public string CategoryName { get; set; } = string.Empty;
+    }
+
+    public class DepartmentLookupDto
+    {
+        public long Id { get; set; }
+        public string? Code { get; set; }
+        public string? DepartmentCode { get; set; }
+        public string? Name { get; set; }
+        public string? DepartmentName { get; set; }
+        public long? ParentDepartmentId { get; set; }
+        public long? ParentId { get; set; }
+
+        public string DisplayName => !string.IsNullOrWhiteSpace(DepartmentName)
+            ? DepartmentName
+            : (!string.IsNullOrWhiteSpace(Name) ? Name : "قسم");
+
+        public string DisplayCode => !string.IsNullOrWhiteSpace(DepartmentCode)
+            ? DepartmentCode
+            : (!string.IsNullOrWhiteSpace(Code) ? Code : Id.ToString());
+    }
+}

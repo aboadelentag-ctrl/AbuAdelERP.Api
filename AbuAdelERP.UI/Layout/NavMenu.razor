@@ -1,0 +1,196 @@
+﻿<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/">AbuAdelERP</a>
+        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+    </div>
+</div>
+
+<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
+    <nav class="flex-column">
+        <!-- 1. لوحة التحكم والإعدادات الإدارية -->
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                <span class="oi oi-home" aria-hidden="true"></span> الرئيسية
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/companies">
+                <span class="oi oi-briefcase" aria-hidden="true"></span> إدارة الشركات
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/departments">
+                <span class="oi oi-layers" aria-hidden="true"></span> إدارة الأقسام والصالات
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/employees-management">
+                <span class="oi oi-people" aria-hidden="true"></span> إدارة العمال والورديات
+            </NavLink>
+        </div>
+
+        <!-- فاصل تنظيمي: إدارة الأصناف والمنتجات التامة -->
+        <div class="px-3 pt-2 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+            ── هيكل الأصناف والمنتجات ──
+        </div>
+        
+        <!-- الشاشة الموحدة الجديدة للمنتجات التامة والحلويات -->
+        <div class="nav-item px-3">
+            <NavLink class="nav-link text-warning fw-bold" href="/finished-goods">
+                <span class="bi bi-cake2 me-2" aria-hidden="true"></span> 🍰 كتالوج الحلويات والتام
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/items">
+                <span class="oi oi-box" aria-hidden="true"></span> 🌾 دليل الخامات ومواد التعبئة
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/item-categories">
+                <span class="oi oi-tags" aria-hidden="true"></span> تصنيفات الأصناف
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/item-hierarchy">
+                <span class="bi bi-diagram-3 me-2" aria-hidden="true"></span> شجرة الوحدات والتفريعات
+            </NavLink>
+        </div>
+
+        <!-- فاصل تنظيمي: المشتريات والموردين (تمهيداً لدمجها في المحطة الشاملة) -->
+        <div class="px-3 pt-2 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+            ── المشتريات والموردين ──
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/suppliers">
+                <span class="bi bi-people me-2" aria-hidden="true"></span> إدارة الموردين
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/supplier-prices">
+                <span class="bi bi-tags me-2" aria-hidden="true"></span> قوائم أسعار التوريد
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/purchase-orders">
+                <span class="bi bi-cart-check me-2" aria-hidden="true"></span> أوامر الشراء (PO)
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/purchase-invoices">
+                <span class="bi bi-receipt me-2" aria-hidden="true"></span> فواتير الشراء والتسعير
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/vendor-qc-rating">
+                <span class="bi bi-shield-check me-2" aria-hidden="true"></span> تقييم جودة الموردين
+            </NavLink>
+        </div>
+
+        <!-- فاصل تنظيمي: المخازن والتشغيل -->
+        <div class="px-3 pt-2 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+            ── المخازن واللوجستيات ──
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/material-receipt">
+                <span class="oi oi-cart" aria-hidden="true"></span> فحص واستلام الخامات
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/warehouses">
+                <span class="oi oi-layers" aria-hidden="true"></span> إدارة المخازن
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/stock-card">
+                <span class="bi bi-card-checklist me-2" aria-hidden="true"></span> كارت الصنف وتتبع اللوطات
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/stock-balances">
+                <span class="oi oi-box" aria-hidden="true"></span> أرصدة المخازن اللحظية
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/fg-transfers">
+                <span class="bi bi-arrow-left-right me-2" aria-hidden="true"></span> تحويل واستلام التام
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/asset-management">
+                <span class="oi oi-monitor" aria-hidden="true"></span> تتبع الأصول والصواني
+            </NavLink>
+        </div>
+
+        <!-- فاصل تنظيمي: التصنيع والإنتاج -->
+        <div class="px-3 pt-2 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+            ── الإنتاج والتصنيع ──
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/recipes-management">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> وصفات التصنيع (BOM)
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/material-requisitions">
+                <span class="bi bi-box-arrow-right me-2" aria-hidden="true"></span> 📋 طلب وصرف خامات الصالة
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/production-orders">
+                <span class="oi oi-cog" aria-hidden="true"></span> خطة وأوامر التشغيل
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/production-execution">
+                <span class="oi oi-check" aria-hidden="true"></span> تقفيل الإنتاج الفعلي
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/productivity-entry">
+                <span class="oi oi-person" aria-hidden="true"></span> تسجيل إنتاجية العمال
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/batch-costing">
+                <span class="bi bi-cash-coin me-2" aria-hidden="true"></span> تكلفة الدفعة (Batch Costing)
+            </NavLink>
+        </div>
+
+        <!-- فاصل تنظيمي: الجودة والتقارير -->
+        <div class="px-3 pt-2 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+            ── الجودة والتقارير ──
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/dynamic-forms">
+                <span class="oi oi-document" aria-hidden="true"></span> تصميم نماذج التفتيش
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/form-viewer">
+                <span class="oi oi-task" aria-hidden="true"></span> تعبئة تقارير الفحص
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/department-kpi">
+                <span class="oi oi-bar-chart" aria-hidden="true"></span> مؤشرات الأداء (KPIs)
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/reports-archive">
+                <span class="oi oi-folder" aria-hidden="true"></span> أرشيف التقارير الشامل
+            </NavLink>
+        </div>
+    </nav>
+</div>
+
+@code {
+    private bool collapseNavMenu = true;
+    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+}

@@ -1,0 +1,297 @@
+﻿@page "/supplier-prices"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">🏷️ قوائم أسعار التوريد (Supplier Price Lists)</h3>
+            <span class="text-muted">إدارة عروض وأسعار التوريد للأصناف وربطها بالموردين المعتمدين ومدة التوريد</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm">✅ @successMessage</div>
+    }
+
+    <!-- بطاقة إضافة عرض / سعر توريد -->
+    <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="m-0 fw-bold text-dark">➕ تسجيل سعر توريد جديد</h5>
+        </div>
+        <div class="card-body bg-light">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold text-dark">المورد *</label>
+                    <select class="form-select fw-bold border-primary" @bind="newPrice.SupplierId">
+                        <option value="0">-- اختر المورد --</option>
+                        @foreach (var sup in suppliers)
+                        {
+                            <option value="@sup.Id">@sup.SupplierName (@(sup.IsApproved ? "🛡️ معتمد" : "غير معتمد"))</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold text-dark">الصنف / الخامة *</label>
+                    <select class="form-select fw-bold border-primary" @bind="newPrice.ItemId">
+                        <option value="0">-- اختر الصنف --</option>
+                        @foreach (var item in items)
+                        {
+                            <option value="@item.Id">@item.ItemName (@item.ItemCode)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">سعر التوريد *</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control fw-bold text-center border-primary" @bind="newPrice.Price" min="0.01" step="0.5" />
+                        <span class="input-group-text bg-white fw-bold">ج.م</span>
+                    </div>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">مدة التوريد (أيام)</label>
+                    <input type="number" class="form-control fw-bold text-center" @bind="newPrice.LeadTimeDays" min="1" />
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">تاريخ السريان</label>
+                    <input type="date" class="form-control fw-bold" @bind="newPrice.EffectiveDate" />
+                </div>
+
+                <div class="col-md-8 mt-2">
+                    <label class="form-label fw-bold text-dark">ملاحظات العرض / شروط التسليم</label>
+                    <input class="form-control" @bind="newPrice.Notes" placeholder="مثال: شامل النقل والتوصيل حتى مخزن المصنع..." />
+                </div>
+
+                <div class="col-md-2 mt-2">
+                    <div class="form-check mt-4 pt-1">
+                        <input class="form-check-input" type="checkbox" id="preferredCheck" @bind="newPrice.IsPreferred">
+                        <label class="form-check-label fw-bold text-primary" for="preferredCheck">
+                            ⭐ مورد مفضل للصنف
+                        </label>
+                    </div>
+                </div>
+
+                <div class="col-md-2 mt-2">
+                    <button class="btn btn-primary fw-bold w-100 shadow py-2" @onclick="SavePrice" disabled="@isSubmitting">
+                        @(isSubmitting ? "⏳ جاري الحفظ..." : "💾 تسجيل السعر")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول عرض قائمة الأسعار -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="m-0 fw-bold text-dark">📋 سجل الأسعار وعروض التوريد المسجلة</h5>
+            <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="LoadPrices">🔄 تحديث</button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle mb-0 text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-3">المورد</th>
+                            <th class="text-start ps-3">الصنف / المادة الخام</th>
+                            <th>الوحدة</th>
+                            <th>سعر التوريد</th>
+                            <th>مدة التوريد</th>
+                            <th>تاريخ السريان</th>
+                            <th>التفضيل</th>
+                            <th>ملاحظات</th>
+                            <th>إجراء</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (prices == null)
+                        {
+                            <tr><td colspan="9" class="py-4">⏳ جاري التحميل...</td></tr>
+                        }
+                        else if (!prices.Any())
+                        {
+                            <tr><td colspan="9" class="text-muted py-4">لا توجد أسعار توريد مسجلة حتى الآن.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var p in prices)
+                            {
+                                <tr>
+                                    <td class="text-start ps-3 fw-bold text-dark">@p.SupplierName</td>
+                                    <td class="text-start ps-3 fw-bold text-primary">@p.ItemName</td>
+                                    <td><span class="badge bg-light text-dark border">@p.Unit</span></td>
+                                    <td class="fw-bold text-success fs-6">@p.Price.ToString("N2") @p.Currency</td>
+                                    <td>@p.LeadTimeDays يوم</td>
+                                    <td>@p.EffectiveDate.ToString("yyyy-MM-dd")</td>
+                                    <td>
+                                        @if (p.IsPreferred)
+                                        {
+                                            <span class="badge bg-success px-2 py-1">⭐ المورد المفضل</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary px-2 py-1">بديل</span>
+                                        }
+                                    </td>
+                                    <td class="small text-muted text-truncate" style="max-width: 150px;">@(p.Notes ?? "-")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeletePrice(p.Id)" title="حذف">🗑️</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<SupplierItemPriceDto>? prices;
+    private List<SupplierLookupDto> suppliers = new();
+    private List<ItemLookupDto> items = new();
+
+    private CreateSupplierPriceDto newPrice = new() { LeadTimeDays = 1, EffectiveDate = DateOnly.FromDateTime(DateTime.UtcNow) };
+
+    private bool isSubmitting = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string apiBase = "https://localhost:7273/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadPrices(), LoadLookups());
+    }
+
+    private async Task LoadPrices()
+    {
+        try
+        {
+            prices = await Http.GetFromJsonAsync<List<SupplierItemPriceDto>>($"{apiBase}/SupplierPrices");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "خطأ في تحميل الأسعار: " + ex.Message;
+        }
+    }
+
+    private async Task LoadLookups()
+    {
+        try
+        {
+            var sups = await Http.GetFromJsonAsync<List<SupplierLookupDto>>($"{apiBase}/Suppliers");
+            if (sups != null) suppliers = sups.Where(s => s.Active).ToList();
+
+            var itms = await Http.GetFromJsonAsync<List<ItemLookupDto>>($"{apiBase}/Items");
+            if (itms != null) items = itms;
+        }
+        catch { }
+    }
+
+    private async Task SavePrice()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (newPrice.SupplierId <= 0 || newPrice.ItemId <= 0 || newPrice.Price <= 0)
+        {
+            errorMessage = "يرجى ملء المورد والصنف وسعر التوريد بشكل صحيح.";
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"{apiBase}/SupplierPrices", newPrice);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "تم تسجيل السعر بنجاح!";
+                newPrice = new CreateSupplierPriceDto { LeadTimeDays = 1, EffectiveDate = DateOnly.FromDateTime(DateTime.UtcNow) };
+                await LoadPrices();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "حدث خطأ: " + ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task DeletePrice(long id)
+    {
+        try
+        {
+            var response = await Http.DeleteAsync($"{apiBase}/SupplierPrices/{id}");
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadPrices();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "تعذر الحذف: " + ex.Message;
+        }
+    }
+
+    public class SupplierItemPriceDto
+    {
+        public long Id { get; set; }
+        public long SupplierId { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public string SupplierCode { get; set; } = string.Empty;
+        public long ItemId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public decimal Price { get; set; }
+        public string Currency { get; set; } = "EGP";
+        public int LeadTimeDays { get; set; }
+        public DateOnly EffectiveDate { get; set; }
+        public bool IsPreferred { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class CreateSupplierPriceDto
+    {
+        public long SupplierId { get; set; }
+        public long ItemId { get; set; }
+        public decimal Price { get; set; }
+        public string Currency { get; set; } = "EGP";
+        public int LeadTimeDays { get; set; } = 1;
+        public DateOnly EffectiveDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+        public bool IsPreferred { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class SupplierLookupDto
+    {
+        public long Id { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public bool Active { get; set; }
+        public bool IsApproved { get; set; }
+    }
+
+    public class ItemLookupDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+    }
+}

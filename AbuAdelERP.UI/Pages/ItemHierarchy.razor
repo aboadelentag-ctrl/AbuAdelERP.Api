@@ -1,0 +1,334 @@
+﻿@page "/item-hierarchy"
+@using AbuAdelERP.UI.Models
+@inject HttpClient Http
+
+<div class="container-fluid p-0">
+    <div class="mb-4">
+        <h3 class="fw-bold mb-1">شجرة الوحدات وتفريعات الأصناف</h3>
+        <p class="text-muted small mb-0">إدارة مصفوفة تحويل الأوزان والمقاييس وتفريعات الأصناف لمصانع الحلويات والمخابز</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-4" role="alert">
+            <strong>@(isSuccess ? "✓ نجاح:" : "⚠ تنبيه:")</strong> @statusMessage
+            <button type="button" class="btn-close" @onclick='() => statusMessage = string.Empty'></button>
+        </div>
+    }
+
+    <!-- التبويبات الرئيسية -->
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "variants" ? "active fw-bold" : "")" @onclick='() => activeTab = "variants"'>
+                تفريعات الأصناف والنكهات (Variants)
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "uom" ? "active fw-bold" : "")" @onclick='() => activeTab = "uom"'>
+                شجرة معاملات تحويل الوحدات (UoM Matrix)
+            </button>
+        </li>
+    </ul>
+
+    @if (activeTab == "variants")
+    {
+        <div class="row g-4">
+            <!-- كارت إضافة تفريع صنف -->
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-primary text-white py-3">
+                        <h6 class="mb-0 fw-bold">إضافة تفرع / نكهة جديدة</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">الصنف الأساسي (الأب) *</label>
+                            <select class="form-select form-select-sm" @bind="newVariant.ParentItemId">
+                                <option value="0">-- اختر الصنف الأب (مثل: جاتوه إسبشيال) --</option>
+                                @if (parentItems != null)
+                                {
+                                    @foreach (var p in parentItems)
+                                    {
+                                        <option value="@p.Id">[@p.ItemCode] @p.ItemName</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">اسم التفرع / النكهة *</label>
+                            <input class="form-control form-control-sm" placeholder="مثال: جاتوه إسبشيال - كريمة" @bind="newVariant.VariantName" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">كود التفرع الفريد</label>
+                            <input class="form-control form-control-sm" placeholder="توليد تلقائي إن ترك فارغاً" @bind="newVariant.VariantCode" />
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">وحدة الأساس</label>
+                                <input class="form-control form-control-sm" @bind="newVariant.Unit" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">وحدة التعبئة</label>
+                                <input class="form-control form-control-sm" placeholder="مثال: بلكة" @bind="newVariant.PackingUnit" />
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">عدد الوحدات بالبلكة / العبوة</label>
+                            <input type="number" class="form-control form-control-sm" @bind="newVariant.PackingFactor" />
+                            <small class="text-muted">مثلاً: 48 (أي أن 1 بلكة = 48 قطعة)</small>
+                        </div>
+
+                        <button class="btn btn-primary w-100 btn-sm" @onclick="SaveVariant">
+                            حفظ واعتماد التفرع
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- جدول استعراض الأصناف المتفرعة -->
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-light py-3">
+                        <h6 class="mb-0 fw-bold">سجل تفريعات الأصناف المسجلة</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped table-hover mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>كود التفرع</th>
+                                    <th>اسم الصنف المتفرع</th>
+                                    <th>الصنف الأساسي (الأب)</th>
+                                    <th>الوحدة</th>
+                                    <th>الحالة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (variantsList == null || variantsList.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted py-3">لا توجد تفريعات مسجلة حتى الآن.</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var v in variantsList)
+                                    {
+                                        <tr>
+                                            <td><code>@v.ItemCode</code></td>
+                                            <td class="fw-bold">@v.ItemName</td>
+                                            <td><span class="badge bg-secondary">@v.ParentItemName</span></td>
+                                            <td>@v.Unit</td>
+                                            <td><span class="badge bg-success">نشط</span></td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row g-4">
+            <!-- إضافة معامل تحويل -->
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-success text-white py-3">
+                        <h6 class="mb-0 fw-bold">إضافة معامل تحويل جديد</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">تطبيق المعامل على صنف محدد؟</label>
+                            <select class="form-select form-select-sm" @bind="newConversion.ItemId">
+                                <option value="0">-- تحويل عام للمصنع (بدون صنف محدد) --</option>
+                                @if (parentItems != null)
+                                {
+                                    @foreach (var itm in parentItems)
+                                    {
+                                        <option value="@itm.Id">@itm.ItemName</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">من وحدة (الكبرى) *</label>
+                                <input class="form-control form-control-sm" placeholder="مثال: طن أو بلكة أو شيكارة" @bind="newConversion.FromUnit" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">إلى وحدة (الصغرى) *</label>
+                                <input class="form-control form-control-sm" placeholder="مثال: كجم أو قطعة" @bind="newConversion.ToUnit" />
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">معامل التحويل (القيمة الرياضية) *</label>
+                            <input type="number" step="0.001" class="form-control form-control-sm" @bind="newConversion.ConversionFactor" />
+                            <small class="text-muted">مثال: 1000 للطن، 48 للبلكة، 50 للشيكارة</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">ملاحظات توضيحية</label>
+                            <input class="form-control form-control-sm" placeholder="مثال: وزن شيكارة الدقيق الفاخر" @bind="newConversion.Notes" />
+                        </div>
+
+                        <button class="btn btn-success w-100 btn-sm" @onclick="SaveConversion">
+                            حفظ معامل التحويل
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- جدول معاملات التحويل -->
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-light py-3">
+                        <h6 class="mb-0 fw-bold">مصفوفة معاملات تحويل الوحدات في المصنع</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped table-hover mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>نطاق المعامل</th>
+                                    <th>الصنف المطبق عليه</th>
+                                    <th>معادلة التحويل</th>
+                                    <th>ملاحظات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (conversionsList == null || conversionsList.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="4" class="text-center text-muted py-3">لا توجد معاملات مسجلة.</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var c in conversionsList)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <span class="badge @(c.IsGlobal ? "bg-info text-dark" : "bg-warning text-dark")">
+                                                    @(c.IsGlobal ? "قياسي عام" : "خاص بالصنف")
+                                                </span>
+                                            </td>
+                                            <td class="fw-bold">@c.ItemName</td>
+                                            <td>
+                                                <span class="badge bg-light text-dark border">1 @c.FromUnit</span> =
+                                                <span class="badge bg-success">@c.ConversionFactor.ToString("G29") @c.ToUnit</span>
+                                            </td>
+                                            <td class="small text-muted">@c.Notes</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string activeTab = "uom";
+    private List<ParentItemLookupDto>? parentItems;
+    private List<ItemVariantDto>? variantsList;
+    private List<UomConversionDto>? conversionsList;
+
+    private ItemVariantCreateDto newVariant = new();
+    private UomConversionCreateDto newConversion = new();
+    private string statusMessage = string.Empty;
+    private bool isSuccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            parentItems = await Http.GetFromJsonAsync<List<ParentItemLookupDto>>("api/itemhierarchy/parents");
+            variantsList = await Http.GetFromJsonAsync<List<ItemVariantDto>>("api/itemhierarchy/variants");
+            conversionsList = await Http.GetFromJsonAsync<List<UomConversionDto>>("api/itemhierarchy/conversions");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading hierarchy data: {ex.Message}");
+        }
+    }
+
+    private async Task SaveVariant()
+    {
+        if (newVariant.ParentItemId <= 0 || string.IsNullOrWhiteSpace(newVariant.VariantName))
+        {
+            isSuccess = false;
+            statusMessage = "يرجى اختيار الصنف الأساسي وإدخال اسم التفرع.";
+            return;
+        }
+
+        try
+        {
+            var res = await Http.PostAsJsonAsync("api/itemhierarchy/variants", newVariant);
+            if (res.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                statusMessage = "تم إنشاء تفريع الصنف بنجاح!";
+                newVariant = new ItemVariantCreateDto();
+                await LoadData();
+            }
+            else
+            {
+                isSuccess = false;
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = !string.IsNullOrWhiteSpace(err) ? err : $"فشل الحفظ (كود: {res.StatusCode})";
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+    }
+
+    private async Task SaveConversion()
+    {
+        if (string.IsNullOrWhiteSpace(newConversion.FromUnit) || string.IsNullOrWhiteSpace(newConversion.ToUnit) || newConversion.ConversionFactor <= 0)
+        {
+            isSuccess = false;
+            statusMessage = "يرجى إدخال الوحدة الكبرى والصغرى وتحديد معامل تحويل أكبر من الصفر.";
+            return;
+        }
+
+        try
+        {
+            var res = await Http.PostAsJsonAsync("api/itemhierarchy/conversions", newConversion);
+            if (res.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                statusMessage = "تم حفظ معامل التحويل بنجاح في قاعدة البيانات!";
+                newConversion = new UomConversionCreateDto();
+                await LoadData();
+            }
+            else
+            {
+                isSuccess = false;
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = !string.IsNullOrWhiteSpace(err) ? err : $"فشل الحفظ (كود: {res.StatusCode})";
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+    }
+}

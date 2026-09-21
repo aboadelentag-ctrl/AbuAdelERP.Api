@@ -1,0 +1,255 @@
+﻿@page "/dynamic-forms"
+@inject HttpClient Http
+@using System.Text.Json
+@using System.Net.Http.Json
+
+<div class="container mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">🛠️ مُنشئ النماذج الديناميكية (النسخة الشاملة)</h3>
+            <span class="text-muted">تصميم قوالب إدخال البيانات وربطها بكيانات المصنع والوسائط</span>
+        </div>
+        <button class="btn btn-success fw-bold shadow-sm" @onclick="ShowAddForm">
+            ➕ تصميم نموذج جديد
+        </button>
+    </div>
+
+    @if (forms == null)
+    {
+        <div class="alert alert-info shadow-sm">جاري تحميل النماذج...</div>
+    }
+    else if (!forms.Any())
+    {
+        <div class="alert alert-warning shadow-sm">لم يتم تصميم أي نماذج حتى الآن.</div>
+    }
+    else
+    {
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 text-center align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>م</th>
+                            <th>اسم النموذج</th>
+                            <th>كود الربط (Form Code)</th>
+                            <th>تاريخ الإنشاء</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var form in forms)
+                        {
+                            <tr>
+                                <td>@form.Id</td>
+                                <td class="fw-bold">@form.FormName</td>
+                                <td dir="ltr" class="text-primary fw-bold">@form.FormCode</td>
+                                <td dir="ltr">@form.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                <td>
+                                    <span class="badge @(form.IsActive ? "bg-success" : "bg-danger") fs-6">
+                                        @(form.IsActive ? "مفعل" : "معطل")
+                                    </span>
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm @(form.IsActive ? "btn-outline-danger" : "btn-outline-success") mx-1 fw-bold"
+                                            @onclick="() => ToggleFormStatus(form.Id)">
+                                        @(form.IsActive ? "إيقاف ⏸️" : "تفعيل ▶️")
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    @if (showBuilderModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);">
+            <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content border-primary">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title fw-bold">🎨 تصميم نموذج بيانات جديد متقدم</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                    </div>
+                    <div class="modal-body bg-light">
+                        @if (!string.IsNullOrEmpty(errorMessage))
+                        {
+                            <div class="alert alert-danger py-2 fw-bold shadow-sm">@errorMessage</div>
+                        }
+
+                        <div class="row bg-white p-3 rounded shadow-sm mb-3">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">اسم النموذج (عربي/إنجليزي) <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control border-primary" @bind="newForm.FormName" placeholder="مثال: تقرير هالك المخبوزات اليومي" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">كود النموذج (إنجليزي بدون مسافات) <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control border-primary" dir="ltr" @bind="newForm.FormCode" placeholder="مثال: Waste_Bakery_01" />
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-3 rounded shadow-sm">
+                            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
+                                <h5 class="m-0 text-secondary fw-bold">📋 حقول النموذج</h5>
+                                <button class="btn btn-sm btn-primary fw-bold" @onclick="AddField">➕ إضافة حقل جديد</button>
+                            </div>
+
+                            @if (!formFields.Any())
+                            {
+                                <div class="text-center text-muted p-3">اضغط على "إضافة حقل جديد" للبدء في تصميم النموذج.</div>
+                            }
+
+                            @foreach (var field in formFields)
+                            {
+                                <div class="row align-items-end mb-3 pb-3 border-bottom border-light">
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-muted">اسم الحقل (Label)</label>
+                                        <input type="text" class="form-control" @bind="field.Label" placeholder="ماذا سيقرأ الموظف؟" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold text-muted">نوع البيانات المتقدم (Type)</label>
+                                        <select class="form-select border-info" @bind="field.Type">
+                                            <optgroup label="إدخال أساسي">
+                                                <option value="text">نص (Text)</option>
+                                                <option value="number">رقم (Number)</option>
+                                                <option value="date">تاريخ (Date)</option>
+                                                <option value="checkbox">مربع اختيار (نعم/لا)</option>
+                                            </optgroup>
+                                            <optgroup label="ربط ببيانات المؤسسة (ERP)">
+                                                <option value="departments">قائمة أقسام الإنتاج</option>
+                                                <option value="branches">قائمة الفروع</option>
+                                                <option value="warehouses">قائمة المخازن</option>
+                                                <option value="items">قائمة الأصناف التامة</option>
+                                                <option value="materials">الخامات ومواد التعبئة والتغليف</option>
+                                                <option value="equipment">قائمة الآلات والمعدات</option>
+                                            </optgroup>
+                                            <optgroup label="الموارد البشرية (HR)">
+                                                <option value="employees">أسماء الموظفين</option>
+                                                <option value="job_roles">المسمى الوظيفي (شيف، جودة، صيانة...)</option>
+                                            </optgroup>
+                                            <optgroup label="وسائط وإثباتات (Media)">
+                                                <option value="image">التقاط / رفع صورة 📷</option>
+                                                <option value="video">تسجيل فيديو 🎥</option>
+                                                <option value="audio">ملاحظة صوتية 🎤</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 text-start">
+                                        <button class="btn btn-danger w-100 fw-bold" @onclick="() => RemoveField(field)">🗑️ حذف</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-white">
+                        <button type="button" class="btn btn-secondary fw-bold" @onclick="CloseModal">إلغاء</button>
+                        <button type="button" class="btn btn-success fw-bold px-4" @onclick="SaveForm">💾 حفظ التصميم المتقدم</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<DynamicFormDto>? forms;
+    private bool showBuilderModal = false;
+    private DynamicFormDto newForm = new DynamicFormDto();
+    private List<FormField> formFields = new List<FormField>();
+    private string errorMessage = "";
+    private string apiUrl = "https://localhost:7273/api/DynamicForms";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadForms();
+    }
+
+    private async Task LoadForms()
+    {
+        try
+        {
+            forms = await Http.GetFromJsonAsync<List<DynamicFormDto>>(apiUrl);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"خطأ: {ex.Message}");
+        }
+    }
+
+    private void ShowAddForm()
+    {
+        newForm = new DynamicFormDto { IsActive = true };
+        formFields = new List<FormField>();
+        errorMessage = "";
+        showBuilderModal = true;
+    }
+
+    private void CloseModal() { showBuilderModal = false; }
+
+    private void AddField()
+    {
+        formFields.Add(new FormField { Label = "", Type = "text" });
+    }
+
+    private void RemoveField(FormField field)
+    {
+        formFields.Remove(field);
+    }
+
+    private async Task SaveForm()
+    {
+        errorMessage = "";
+        if (string.IsNullOrWhiteSpace(newForm.FormName) || string.IsNullOrWhiteSpace(newForm.FormCode))
+        {
+            errorMessage = "⚠️ يرجى إدخال اسم وكود النموذج."; return;
+        }
+        if (!formFields.Any() || formFields.Any(f => string.IsNullOrWhiteSpace(f.Label)))
+        {
+            errorMessage = "⚠️ يرجى إضافة حقل واحد على الأقل، والتأكد من كتابة أسماء كل الحقول."; return;
+        }
+
+        newForm.FieldsSchema = JsonSerializer.Serialize(formFields);
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync(apiUrl, newForm);
+            if (response.IsSuccessStatusCode)
+            {
+                showBuilderModal = false;
+                await LoadForms();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ اتصال: {ex.Message}";
+        }
+    }
+
+    private async Task ToggleFormStatus(long id)
+    {
+        await Http.PatchAsync($"{apiUrl}/toggle-active/{id}", null);
+        await LoadForms();
+    }
+
+    public class DynamicFormDto
+    {
+        public long Id { get; set; }
+        public string FormName { get; set; } = string.Empty;
+        public string FormCode { get; set; } = string.Empty;
+        public string FieldsSchema { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class FormField
+    {
+        public string Label { get; set; } = string.Empty;
+        public string Type { get; set; } = "text";
+    }
+}

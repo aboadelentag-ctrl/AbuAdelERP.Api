@@ -1,0 +1,268 @@
+﻿@page "/batch-costing"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">💰 احتساب وتحليل تكلفة الدفعة (Batch Costing)</h3>
+            <span class="text-muted">ربط تكاليف الخامات وأجور ساعات العمل والمصاريف غير المباشرة لتحديد تكلفة الوحدة بدقة</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+    }
+
+    <!-- بطاقة معايير الحساب -->
+    <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="m-0 fw-bold text-dark">⚙️ إعدادات تشغيل الحساب للدفعة</h5>
+        </div>
+        <div class="card-body bg-light">
+            <div class="row g-3 align-items-end">
+                <!-- اختيار أمر الإنتاج -->
+                <div class="col-md-5">
+                    <label class="form-label fw-bold text-dark">أمر التشغيل المراد حساب تكلفته *</label>
+                    <select class="form-select fw-bold border-primary" @bind="costRequest.ProductionOrderId">
+                        <option value="0">-- اختر أمر التشغيل --</option>
+                        @foreach (var order in productionOrders)
+                        {
+                            <option value="@order.Id">@order.OrderNumber @(!string.IsNullOrEmpty(order.Notes) ? $"({order.Notes})" : "")</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- معدل أجر ساعة العمل -->
+                <div class="col-md-3">
+                    <label class="form-label fw-bold text-dark">معدل تكلفة ساعة العمل (ج.م) *</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control fw-bold text-center border-primary" @bind="costRequest.LaborCostPerHour" min="1" step="5" />
+                        <span class="input-group-text bg-white fw-bold">ج.م/ساعة</span>
+                    </div>
+                </div>
+
+                <!-- المصاريف الصناعية غير المباشرة للدفعة -->
+                <div class="col-md-2">
+                    <label class="form-label fw-bold text-dark">مصاريف غير مباشرة (Overhead)</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control fw-bold text-center border-secondary" @bind="costRequest.OverheadCostPerBatch" min="0" step="10" />
+                        <span class="input-group-text bg-white fw-bold">ج.م</span>
+                    </div>
+                </div>
+
+                <!-- زر التنفيذ -->
+                <div class="col-md-2">
+                    <button class="btn btn-primary fw-bold w-100 shadow py-2" @onclick="CalculateCost" disabled="@isCalculating">
+                        @(isCalculating ? "⏳ جاري الحساب..." : "📊 احتساب التكلفة")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (costResult != null)
+    {
+        <!-- كروت النتائج الإجمالية -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-4 border-primary h-100">
+                    <div class="card-body">
+                        <span class="text-muted small fw-bold d-block mb-1">إجمالي تكلفة الدفعة</span>
+                        <h3 class="fw-bold text-primary mb-0">@costResult.TotalBatchCost.ToString("N2") <small class="fs-6">ج.م</small></h3>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-4 border-success h-100">
+                    <div class="card-body">
+                        <span class="text-muted small fw-bold d-block mb-1">تكلفة الوحدة المنتجة الفردية</span>
+                        <h3 class="fw-bold text-success mb-0">@costResult.UnitCost.ToString("N2") <small class="fs-6">ج.م</small></h3>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-4 border-info h-100">
+                    <div class="card-body">
+                        <span class="text-muted small fw-bold d-block mb-1">الكمية الإجمالية المنتجة</span>
+                        <h3 class="fw-bold text-info mb-0">@costResult.ProducedQuantity.ToString("N2")</h3>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-4 border-warning h-100">
+                    <div class="card-body">
+                        <span class="text-muted small fw-bold d-block mb-1">ساعات العمل الفعلية المستهلكة</span>
+                        <h3 class="fw-bold text-warning mb-0">@costResult.ActualHoursWorked.ToString("N2") <small class="fs-6">ساعة</small></h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- تفاصيل بنود التكلفة -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3">
+                <h5 class="m-0 fw-bold text-dark">📋 هيكل تفقيط التكاليف (Cost Breakdown) لأمر: @costResult.OrderNumber</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped align-middle mb-0 text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th>بند التكلفة</th>
+                                <th>القيمة المالية (ج.م)</th>
+                                <th>النسبة من إجمالي التكلفة</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="fw-bold text-start ps-4">🧱 الخامات المباشرة المستهلكة (Direct Materials)</td>
+                                <td class="fw-bold">@costResult.CostBreakdown.TotalMaterialsCost.ToString("N2")</td>
+                                <td>
+                                    <span class="badge bg-secondary">
+                                        @(costResult.TotalBatchCost > 0 ? Math.Round((costResult.CostBreakdown.TotalMaterialsCost / costResult.TotalBatchCost) * 100, 1) : 0)%
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold text-start ps-4">👷‍♂️ أجور العمالة المباشرة (Direct Labor)</td>
+                                <td class="fw-bold text-primary">@costResult.CostBreakdown.TotalLaborCost.ToString("N2")</td>
+                                <td>
+                                    <span class="badge bg-primary">
+                                        @(costResult.TotalBatchCost > 0 ? Math.Round((costResult.CostBreakdown.TotalLaborCost / costResult.TotalBatchCost) * 100, 1) : 0)%
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold text-start ps-4">⚡ المصاريف الصناعية غير المباشرة (Overheads)</td>
+                                <td class="fw-bold text-dark">@costResult.CostBreakdown.OverheadCost.ToString("N2")</td>
+                                <td>
+                                    <span class="badge bg-dark">
+                                        @(costResult.TotalBatchCost > 0 ? Math.Round((costResult.CostBreakdown.OverheadCost / costResult.TotalBatchCost) * 100, 1) : 0)%
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr class="table-primary fw-bold fs-6">
+                                <td class="text-start ps-4">الإجمالي النهائي للتشغيل</td>
+                                <td>@costResult.TotalBatchCost.ToString("N2") ج.م</td>
+                                <td>100%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private BatchCostRequestDto costRequest = new()
+    {
+        LaborCostPerHour = 50m,
+        OverheadCostPerBatch = 0m
+    };
+
+    private List<OrderLookupDto> productionOrders = new();
+    private CostingResultDto? costResult;
+
+    private bool isCalculating = false;
+    private string errorMessage = "";
+
+    private string apiBaseUrl = "https://localhost:7273/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrders();
+    }
+
+    private async Task LoadOrders()
+    {
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<OrderLookupDto>>($"{apiBaseUrl}/Productivity/lookup/orders");
+            if (result != null)
+            {
+                productionOrders = result;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "تعذر تحميل قائمة أوامر التشغيل: " + ex.Message;
+        }
+    }
+
+    private async Task CalculateCost()
+    {
+        errorMessage = "";
+        costResult = null;
+
+        if (costRequest.ProductionOrderId <= 0)
+        {
+            errorMessage = "يرجى اختيار أمر تشغيل معتمد للبدء في الحساب.";
+            return;
+        }
+
+        isCalculating = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"{apiBaseUrl}/Costing/calculate-batch", costRequest);
+
+            if (response.IsSuccessStatusCode)
+            {
+                costResult = await response.Content.ReadFromJsonAsync<CostingResultDto>();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "خطأ أثناء الاتصال بحساب التكاليف: " + ex.Message;
+        }
+        finally
+        {
+            isCalculating = false;
+        }
+    }
+
+    // ==========================================
+    // DTOs الخاصة بالشاشة
+    // ==========================================
+    public class BatchCostRequestDto
+    {
+        public long ProductionOrderId { get; set; }
+        public decimal LaborCostPerHour { get; set; }
+        public decimal OverheadCostPerBatch { get; set; }
+    }
+
+    public class OrderLookupDto
+    {
+        public long Id { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public string? Notes { get; set; }
+    }
+
+    public class CostingResultDto
+    {
+        public long OrderId { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public string? Notes { get; set; }
+        public decimal ProducedQuantity { get; set; }
+        public decimal ActualHoursWorked { get; set; }
+        public CostBreakdownDto CostBreakdown { get; set; } = new();
+        public decimal TotalBatchCost { get; set; }
+        public decimal UnitCost { get; set; }
+    }
+
+    public class CostBreakdownDto
+    {
+        public decimal TotalMaterialsCost { get; set; }
+        public decimal TotalLaborCost { get; set; }
+        public decimal OverheadCost { get; set; }
+    }
+}

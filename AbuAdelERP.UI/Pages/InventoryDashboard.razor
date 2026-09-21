@@ -1,0 +1,246 @@
+﻿@page "/inventory-dashboard"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">📦 أرصدة المخازن وبطاقة الصنف</h3>
+            <span class="text-muted">مراقبة حية للمخزون وتتبع حركات الأصناف (Item Ledger)</span>
+        </div>
+        @if (isViewingLedger)
+        {
+            <button class="btn btn-outline-secondary fw-bold shadow-sm" @onclick="BackToBalances">
+                ⬅️ عودة لقائمة الأرصدة
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-outline-primary fw-bold shadow-sm" @onclick="LoadBalances">
+                🔄 تحديث الأرصدة
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+    }
+
+    @if (!isViewingLedger)
+    {
+        <!-- الشاشة الرئيسية: الأرصدة الحالية -->
+        <div class="card shadow-sm border-0 border-top border-primary border-4">
+            <div class="card-header bg-white py-3">
+                <h6 class="text-primary m-0 fw-bold">الأرصدة الحالية بالمخازن</h6>
+            </div>
+            <div class="card-body p-0 table-responsive">
+                @if (isLoading)
+                {
+                    <div class="p-5 text-center"><h5 class="text-muted">⏳ جاري تحميل الأرصدة...</h5></div>
+                }
+                else if (balances == null || !balances.Any())
+                {
+                    <div class="p-5 text-center fw-bold text-muted">لا توجد أرصدة مسجلة في المخازن حالياً.</div>
+                }
+                else
+                {
+                    <table class="table table-hover mb-0 text-center align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>كود الصنف</th>
+                                <th>اسم الصنف / الخامة</th>
+                                <th>الرصيد الحالي</th>
+                                <th>تاريخ آخر حركة</th>
+                                <th>إجراءات الإدارة</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var balance in balances)
+                            {
+                                <tr>
+                                    <td class="text-muted fw-bold">@balance.ItemId</td>
+                                    <td class="fw-bold text-primary">@balance.ItemName</td>
+                                    <td>
+                                        <span class="badge @(balance.Quantity < 0 ? "bg-danger" : balance.Quantity == 0 ? "bg-secondary" : "bg-success") fs-6 px-3 py-2 rounded-pill shadow-sm">
+                                            @balance.Quantity
+                                        </span>
+                                    </td>
+                                    <td class="small text-muted">@balance.LastUpdatedAt.ToString("yyyy-MM-dd hh:mm tt")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-dark fw-bold px-3" @onclick="() => ViewLedger(balance.ItemId, balance.ItemName)">
+                                            🔍 كشف حركة الصنف
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- الشاشة الفرعية: بطاقة حركة الصنف (Item Ledger) -->
+        <div class="card shadow-sm border-0 border-top border-dark border-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h6 class="text-dark m-0 fw-bold">📋 كشف حركة تفصيلي للصنف: <span class="text-primary">@selectedItemName</span></h6>
+            </div>
+            <div class="card-body p-0 table-responsive">
+                @if (isLoadingLedger)
+                {
+                    <div class="p-5 text-center"><h5 class="text-muted">⏳ جاري استخراج الحركات...</h5></div>
+                }
+                else if (movements == null || !movements.Any())
+                {
+                    <div class="p-5 text-center fw-bold text-muted">لم يتم تسجيل أي حركات لهذا الصنف.</div>
+                }
+                else
+                {
+                    <table class="table table-bordered table-hover mb-0 text-center align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>التاريخ والوقت</th>
+                                <th>نوع الحركة</th>
+                                <th>المستند المرجعي</th>
+                                <th>الكمية (وارد / منصرف)</th>
+                                <th>البيان / ملاحظات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var mov in movements)
+                            {
+                                <tr>
+                                    <td class="small fw-bold">@mov.MovementDate.ToString("yyyy-MM-dd hh:mm tt")</td>
+                                    <td>
+                                        <span class="badge bg-secondary">@TranslateMovementType(mov.MovementType)</span>
+                                    </td>
+                                    <td class="text-primary fw-bold">
+                                        @if (mov.ReferenceId.HasValue)
+                                        {
+                                            @($"{TranslateReferenceType(mov.ReferenceType)} #{mov.ReferenceId}")
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">--</span>
+                                        }
+                                    </td>
+                                    <td dir="ltr">
+                                        <span class="fw-bold fs-6 @(mov.Quantity > 0 ? "text-success" : "text-danger")">
+                                            @(mov.Quantity > 0 ? $"+{mov.Quantity}" : $"{mov.Quantity}")
+                                        </span>
+                                    </td>
+                                    <td class="small text-start">@mov.Notes</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<StockBalanceDto> balances = new();
+    private List<StockMovementDto> movements = new();
+
+    private bool isLoading = false;
+    private bool isLoadingLedger = false;
+    private bool isViewingLedger = false;
+
+    private string errorMessage = "";
+    private string selectedItemName = "";
+
+    // استخدام مسار نسبي ليعمل على أي بورت ديناميكياً
+    private string apiUrl = "api/Inventory";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBalances();
+    }
+
+    private async Task LoadBalances()
+    {
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            balances = await Http.GetFromJsonAsync<List<StockBalanceDto>>($"{apiUrl}/balances") ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في جلب الأرصدة: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ViewLedger(long itemId, string itemName)
+    {
+        isViewingLedger = true;
+        isLoadingLedger = true;
+        errorMessage = "";
+        selectedItemName = itemName;
+
+        try
+        {
+            movements = await Http.GetFromJsonAsync<List<StockMovementDto>>($"{apiUrl}/ledger/{itemId}") ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في جلب كشف الحركة: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingLedger = false;
+        }
+    }
+
+    private void BackToBalances()
+    {
+        isViewingLedger = false;
+        movements.Clear();
+        selectedItemName = "";
+    }
+
+    private string TranslateMovementType(string type) => type switch
+    {
+        "PRODUCTION_IN" => "إضافة إنتاج تام",
+        "PRODUCTION_OUT" => "صرف خامات",
+        "MANUAL_IN" => "إضافة يدوية",
+        "MANUAL_OUT" => "تسوية عجز",
+        _ => type
+    };
+
+    private string TranslateReferenceType(string refType) => refType switch
+    {
+        "PRODUCTION_ORDER" => "أمر تشغيل",
+        "PURCHASE_INVOICE" => "فاتورة مشتريات",
+        _ => refType
+    };
+
+    public class StockBalanceDto
+    {
+        public long Id { get; set; }
+        public long ItemId { get; set; }
+        public string ItemName { get; set; } = string.Empty;
+        public long WarehouseId { get; set; }
+        public decimal Quantity { get; set; }
+        public DateTime LastUpdatedAt { get; set; }
+    }
+
+    public class StockMovementDto
+    {
+        public long Id { get; set; }
+        public DateTime MovementDate { get; set; }
+        public string MovementType { get; set; } = string.Empty;
+        public decimal Quantity { get; set; }
+        public string ReferenceType { get; set; } = string.Empty;
+        public long? ReferenceId { get; set; }
+        public string? Notes { get; set; }
+    }
+}

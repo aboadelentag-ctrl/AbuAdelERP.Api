@@ -1,0 +1,385 @@
+﻿@page "/recipes-management"
+@page "/recipe-management"
+@using System.Net.Http.Json
+@using AbuAdelERP.UI.Models
+@inject HttpClient Http
+
+<div class="container-fluid p-0" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="fw-bold mb-1 text-primary">📋 معايير وبطاقات خلطات التصنيع (BOM / Recipes)</h4>
+            <small class="text-muted">ربط المنتجات التامة بالخامات، حساب تكلفة الصاج/البلكة، وتحديد فواقد التشغيل</small>
+        </div>
+        <button class="btn btn-primary fw-bold shadow-sm" @onclick="CreateNewRecipe">
+            ➕ إنشاء معيار تشغيل / خلطة جديدة
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-3" role="alert">
+            <strong>@(isSuccess ? "✓ نجاح: " : "⚠️ تنبيه: ")</strong> @statusMessage
+            <button type="button" class="btn-close" @onclick='() => statusMessage = string.Empty'></button>
+        </div>
+    }
+
+    @if (isEditing)
+    {
+        <!-- لوحة تحرير وإنشاء معايير الخلطة -->
+        <div class="card shadow border-primary mb-4">
+            <div class="card-header bg-primary text-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fs-6 fw-bold">@(activeRecipe.Id == 0 ? "إنشاء بطاقة تشغيل جديدة" : $"تعديل بطاقة خلطة: {activeRecipe.RecipeName}")</h5>
+                <button class="btn btn-sm btn-light text-primary fw-bold" @onclick="() => isEditing = false">إلغاء والعودة للقائمة</button>
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">المنتج التام أو الوسيط *</label>
+                        <select class="form-select" @bind="activeRecipe.ProductItemId">
+                            <option value="0">-- اختر المنتج المستهدف --</option>
+                            @if (finishedProducts != null)
+                            {
+                                @foreach (var p in finishedProducts)
+                                {
+                                    <option value="@p.Id">@p.ItemName (@p.ItemCode)</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">اسم الخلطة / المعيار *</label>
+                        <input class="form-control" placeholder="مثال: خلطة صاج بسبوسة سادة سوبر" @bind="activeRecipe.RecipeName" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">كود الوصفة</label>
+                        <input class="form-control" placeholder="BOM-..." @bind="activeRecipe.RecipeCode" />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4 bg-light p-3 rounded border">
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">حجم الوجبة (عجين)</label>
+                        <input type="number" step="0.01" class="form-control" @bind="activeRecipe.BatchQuantity" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">وحدة الوجبة</label>
+                        <select class="form-select" @bind="activeRecipe.BatchUnit">
+                            <option value="صاج">صاج</option>
+                            <option value="بلكة">بلكة</option>
+                            <option value="كجم">كجم</option>
+                            <option value="حلة">حلة</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">الخرج الصافي (Yield)</label>
+                        <input type="number" step="0.01" class="form-control" @bind="activeRecipe.YieldQuantity" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">عدد القطع الناتجة</label>
+                        <input type="number" class="form-control" placeholder="مثال: 48 قطعة" @bind="activeRecipe.PiecesPerBatch" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">فاقد تشغيل/خبز (%)</label>
+                        <input type="number" step="0.1" class="form-control" @bind="activeRecipe.WastePercentage" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">وقت التحضير (دقيقة)</label>
+                        <input type="number" class="form-control" placeholder="60" @bind="activeRecipe.PreparationTimeMinutes" />
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="fw-bold mb-0">🧂 مقادير الخامات المعيارية للوجبة:</h6>
+                    <button class="btn btn-outline-success btn-sm fw-bold" @onclick="AddIngredientLine">
+                        ➕ إضافة خامة للخلطة
+                    </button>
+                </div>
+
+                <table class="table table-bordered table-sm align-middle mb-3">
+                    <thead class="table-secondary text-center">
+                        <tr>
+                            <th style="width: 35%;">اسم الخامة *</th>
+                            <th style="width: 15%;">الكمية المعيارية</th>
+                            <th style="width: 15%;">الوحدة</th>
+                            <th style="width: 15%;">فاقد تشغيل الخامة (%)</th>
+                            <th style="width: 10%;">ملاحظات</th>
+                            <th style="width: 10%;">حذف</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (activeRecipe.Lines.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-3">
+                                    اضغط «إضافة خامة للخلطة» لتحديد المقادير.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var line in activeRecipe.Lines)
+                            {
+                                <tr>
+                                    <td>
+                                        <select class="form-select form-select-sm" @bind="line.ComponentItemId" @bind:after="() => UpdateLineItemInfo(line)">
+                                            <option value="0">-- اختر الخامة --</option>
+                                            @if (rawMaterials != null)
+                                            {
+                                                @foreach (var rm in rawMaterials)
+                                                {
+                                                    <option value="@rm.Id">@rm.ItemName (@rm.ItemCode)</option>
+                                                }
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.001" class="form-control form-control-sm text-center fw-bold text-primary" @bind="line.Quantity" />
+                                    </td>
+                                    <td>
+                                        <input class="form-control form-control-sm text-center bg-white" readonly value="@line.Unit" />
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.1" class="form-control form-control-sm text-center" @bind="line.WastePercentage" />
+                                    </td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm" placeholder="نخل / تسييح..." @bind="line.Notes" />
+                                    </td>
+                                    <td class="text-center">
+                                        <button class="btn btn-outline-danger btn-sm px-2 py-0" @onclick="() => activeRecipe.Lines.Remove(line)">❌</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+
+                <div class="d-flex justify-content-between align-items-center mt-4">
+                    <button class="btn btn-outline-secondary" @onclick="() => isEditing = false">إلغاء</button>
+                    <button class="btn btn-success px-5 fw-bold shadow-sm" @onclick="SaveRecipe">
+                        💾 حفظ واعتماد بطاقة المعايير (BOM)
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- جدول استعراض بطاقات الخلطات المسجلة -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-light py-3 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold">سجل معايير ووصفات الإنتاج المسجلة</h6>
+            <span class="badge bg-secondary">@(recipesList?.Count ?? 0) وصفات معتمدة</span>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover table-striped mb-0 align-middle">
+                <thead class="table-dark text-center">
+                    <tr>
+                        <th>كود الوصفة</th>
+                        <th>اسم الخلطة / المعيار</th>
+                        <th>المنتج المستهدف</th>
+                        <th>حجم الوجبة المعياري</th>
+                        <th>عدد الخامات</th>
+                        <th>التكلفة التقديرية للوجبة</th>
+                        <th>تكلفة القطعة</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (recipesList == null || recipesList.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="9" class="text-center text-muted py-4">
+                                لا توجد وصفات تصنيع مسجلة حالياً. اضغط على «إنشاء معيار تشغيل / خلطة جديدة» للبدء.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var r in recipesList)
+                        {
+                            <tr>
+                                <td class="text-center"><code>@r.RecipeCode</code></td>
+                                <td class="fw-bold text-primary">@r.RecipeName</td>
+                                <td class="fw-bold">@r.ProductItemName</td>
+                                <td class="text-center">@r.BatchQuantity @r.BatchUnit</td>
+                                <td class="text-center"><span class="badge bg-info text-dark">@r.LinesCount خامات</span></td>
+                                <td class="text-center fw-bold text-success">@r.TotalEstimatedCost.ToString("N2") ج.م</td>
+                                <td class="text-center fw-bold text-dark">
+                                    @(r.CostPerPiece > 0 ? $"{r.CostPerPiece:N2} ج.م" : "غير محدد")
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge @(r.Active ? "bg-success" : "bg-danger")">
+                                        @(r.Active ? "نشطة" : "معطلة")
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <button class="btn btn-outline-primary btn-sm px-2 py-1" @onclick="() => EditRecipe(r.Id)">✏️ تفاصيل وتعديل</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    public class ItemLookupDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+    }
+
+    private List<RecipeDto>? recipesList;
+    private List<ItemLookupDto>? allItems;
+    private List<ItemLookupDto>? finishedProducts;
+    private List<ItemLookupDto>? rawMaterials;
+
+    private SaveRecipeDto activeRecipe = new();
+    private bool isEditing = false;
+    private string statusMessage = string.Empty;
+    private bool isSuccess = false;
+
+    private string apiBase = "https://localhost:7273/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            recipesList = await Http.GetFromJsonAsync<List<RecipeDto>>($"{apiBase}/recipes");
+            allItems = await Http.GetFromJsonAsync<List<ItemLookupDto>>($"{apiBase}/items");
+
+            if (allItems != null)
+            {
+                finishedProducts = allItems.Where(i => i.ItemType == "منتج تام" || i.ItemType == "منتج وسيط").ToList();
+                rawMaterials = allItems.Where(i => i.ItemType == "خامات" || i.ItemType == "منتج وسيط").ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading data: {ex.Message}");
+        }
+    }
+
+    private void CreateNewRecipe()
+    {
+        activeRecipe = new SaveRecipeDto
+        {
+            BatchQuantity = 1,
+            BatchUnit = "صاج",
+            YieldQuantity = 1,
+            YieldUnit = "صاج",
+            PiecesPerBatch = 48,
+            WastePercentage = 5,
+            Active = true,
+            Lines = new List<RecipeLineDto>()
+        };
+        AddIngredientLine();
+        isEditing = true;
+    }
+
+    private async Task EditRecipe(long id)
+    {
+        try
+        {
+            var full = await Http.GetFromJsonAsync<RecipeDto>($"{apiBase}/recipes/{id}");
+            if (full != null)
+            {
+                activeRecipe = new SaveRecipeDto
+                {
+                    Id = full.Id,
+                    CompanyId = full.CompanyId,
+                    ProductItemId = full.ProductItemId,
+                    RecipeCode = full.RecipeCode,
+                    RecipeName = full.RecipeName,
+                    BatchQuantity = full.BatchQuantity,
+                    BatchUnit = full.BatchUnit,
+                    YieldQuantity = full.YieldQuantity,
+                    YieldUnit = full.YieldUnit,
+                    PiecesPerBatch = full.PiecesPerBatch,
+                    WastePercentage = full.WastePercentage,
+                    PreparationTimeMinutes = full.PreparationTimeMinutes,
+                    Active = full.Active,
+                    Notes = full.Notes,
+                    Lines = full.Lines
+                };
+                isEditing = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في جلب تفاصيل الوصفة: {ex.Message}";
+        }
+    }
+
+    private void AddIngredientLine()
+    {
+        activeRecipe.Lines.Add(new RecipeLineDto
+        {
+            Quantity = 1,
+            Unit = "كجم",
+            WastePercentage = 0
+        });
+    }
+
+    private void UpdateLineItemInfo(RecipeLineDto line)
+    {
+        var item = rawMaterials?.FirstOrDefault(m => m.Id == line.ComponentItemId);
+        if (item != null)
+        {
+            line.ComponentItemCode = item.ItemCode;
+            line.ComponentItemName = item.ItemName;
+            line.Unit = !string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "كجم";
+        }
+    }
+
+    private async Task SaveRecipe()
+    {
+        if (activeRecipe.ProductItemId <= 0 || string.IsNullOrWhiteSpace(activeRecipe.RecipeName))
+        {
+            isSuccess = false;
+            statusMessage = "يرجى تحديد المنتج المستهدف واسم الخلطة.";
+            return;
+        }
+
+        if (activeRecipe.Lines.Count == 0 || activeRecipe.Lines.Any(l => l.ComponentItemId <= 0 || l.Quantity <= 0))
+        {
+            isSuccess = false;
+            statusMessage = "يجب إضافة خامة واحدة على الأقل وتحديد مقادير صالحة أكبر من الصفر.";
+            return;
+        }
+
+        try
+        {
+            var res = await Http.PostAsJsonAsync($"{apiBase}/recipes", activeRecipe);
+            if (res.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                statusMessage = "تم حفظ واعتماد بطاقة معايير الخلطة بنجاح!";
+                isEditing = false;
+                await LoadData();
+            }
+            else
+            {
+                isSuccess = false;
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = !string.IsNullOrWhiteSpace(err) ? err : $"فشل الحفظ (كود: {res.StatusCode})";
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+    }
+}

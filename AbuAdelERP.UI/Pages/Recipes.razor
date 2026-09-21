@@ -1,0 +1,446 @@
+﻿@page "/recipes"
+@inject HttpClient Http
+@using System.Net.Http.Json
+@using System.Text.Json.Serialization
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">📜 وصفات التصنيع (BOM)</h3>
+            <span class="text-muted">تعريف التركيبات القياسية لمنتجات حلواني أبو عادل</span>
+        </div>
+    </div>
+
+    <!-- استيراد وتصدير الإكسيل -->
+    <div class="card shadow-sm mb-4 border-0 bg-light">
+        <div class="card-body d-flex align-items-end gap-3 p-3">
+            <div class="flex-grow-1">
+                <div class="d-flex justify-content-between mb-2 align-items-center">
+                    <label class="fw-bold text-primary m-0">📥 استيراد وصفات من ملف Excel:</label>
+                    <a href="@($"{apiRecipesUrl}/download-template")" class="btn btn-sm btn-outline-primary fw-bold px-3" target="_blank" download>
+                        ⬇️ تحميل القالب القياسي للوصفات
+                    </a>
+                </div>
+                <InputFile OnChange="LoadExcelFile" class="form-control border-primary" accept=".xlsx, .xls" />
+            </div>
+            <button class="btn btn-primary fw-bold px-4 shadow" @onclick="UploadExcel" disabled="@(selectedFile == null || isUploading)">
+                @(isUploading ? "⏳ جاري الاستيراد..." : "🚀 استيراد الملف")
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">@errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm">@successMessage</div>
+    }
+
+    <div class="row">
+        <!-- نموذج الإضافة / التعديل (Master & Details) -->
+        <div class="col-md-12 mb-4">
+            <div class="card shadow-sm border-0 border-top border-primary border-4">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="text-primary m-0 fw-bold">@(isEditMode ? "تعديل الوصفة" : "إنشاء وصفة جديدة")</h5>
+                    <div>
+                        <button class="btn btn-success fw-bold shadow me-2" @onclick="SaveRecipe">💾 حفظ الوصفة بالكامل</button>
+                        <button class="btn btn-outline-secondary fw-bold" @onclick="ResetForm">🔄 جديد</button>
+                    </div>
+                </div>
+                <div class="card-body bg-light">
+                    <!-- الرأس (Header) -->
+                    <div class="row mb-4">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold">كود الوصفة</label>
+                            <input type="text" class="form-control" @bind="currentRecipe.RecipeCode" />
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold">اسم الوصفة</label>
+                            <input type="text" class="form-control" @bind="currentRecipe.RecipeName" />
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label fw-bold">المنتج التام</label>
+                            <select class="form-select" @bind="currentRecipe.ProductItemId" @bind:after="OnProductSelected">
+                                <option value="0">-- اختر المنتج --</option>
+                                @foreach (var item in itemsList.Where(i => i.ItemType != "خامات"))
+                                {
+                                    <option value="@item.Id">@item.ItemName (@item.ItemCode)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            <label class="form-label fw-bold">كمية التشغيلة (Batch)</label>
+                            <input type="number" step="0.01" class="form-control" @bind="currentRecipe.BatchQuantity" />
+                        </div>
+                        <div class="col-md-1 mb-3">
+                            <label class="form-label fw-bold">الوحدة</label>
+                            <input type="text" class="form-control" @bind="currentRecipe.BatchUnit" />
+                        </div>
+                    </div>
+
+                    <!-- التفاصيل (Lines) -->
+                    <h6 class="fw-bold text-secondary border-bottom pb-2 mb-3">📦 مكونات الوصفة (الخامات)</h6>
+                    <table class="table table-bordered bg-white text-center align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>م</th>
+                                <th style="width: 40%">الخامة / المكون</th>
+                                <th>الكمية</th>
+                                <th>الوحدة</th>
+                                <th>إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < currentRecipe.Lines.Count; i++)
+                            {
+                                var line = currentRecipe.Lines[i];
+                                <tr>
+                                    <td>@(i + 1)</td>
+                                    <td>
+                                        <select class="form-select form-select-sm" @bind="line.ComponentItemId" @bind:after="() => OnComponentSelected(line)">
+                                            <option value="0">-- اختر الخامة --</option>
+                                            @foreach (var item in itemsList)
+                                            {
+                                                <option value="@item.Id">@item.ItemName (@item.ItemCode)</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.001" class="form-control form-control-sm" @bind="line.Quantity" />
+                                    </td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm" @bind="line.Unit" />
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => RemoveLine(line)">🗑️</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <button class="btn btn-sm btn-outline-primary fw-bold" @onclick="AddLine">➕ إضافة خامة جديدة</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- جدول عرض الوصفات المحفوظة -->
+        <div class="col-md-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-0 table-responsive">
+                    @if (recipes == null || !recipes.Any())
+                    {
+                        <div class="p-5 text-center text-muted fw-bold">⚠️ لا توجد وصفات مسجلة حالياً.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>كود الوصفة</th>
+                                    <th>اسم الوصفة</th>
+                                    <th>المنتج التام</th>
+                                    <th>التشغيلة القياسية</th>
+                                    <th>الحالة</th>
+                                    <th>إجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in recipes)
+                                {
+                                    <tr>
+                                        <td class="fw-bold">@r.RecipeCode</td>
+                                        <td class="text-primary fw-bold">@r.RecipeName</td>
+                                        <td>@r.ProductName</td>
+                                        <td>@r.BatchQuantity @r.BatchUnit</td>
+                                        <td>
+                                            @if (r.Active)
+                                            {
+                                                <span class="badge bg-success">مفعل</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger">موقوف</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => EditRecipe(r.Id)">✏️ تعديل / عرض</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<RecipeSummaryDto> recipes = new();
+    private List<ItemDropdownDto> itemsList = new();
+
+    private RecipeDto currentRecipe = new RecipeDto
+    {
+        Active = true,
+        EffectiveFrom = DateOnly.FromDateTime(DateTime.Now),
+        BatchQuantity = 10,
+        BatchUnit = "كجم"
+    };
+
+    private bool isEditMode = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string apiRecipesUrl = "https://localhost:7273/api/Recipes";
+    private string apiItemsUrl = "https://localhost:7273/api/Items";
+
+    private IBrowserFile? selectedFile;
+    private bool isUploading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadItems();
+        await LoadRecipes();
+        EnsureInitialLines();
+    }
+
+    private void EnsureInitialLines()
+    {
+        if (currentRecipe.Lines.Count == 0)
+        {
+            AddLine();
+        }
+    }
+
+    private async Task LoadItems()
+    {
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<ItemDropdownDto>>(apiItemsUrl);
+            if (result != null) itemsList = result;
+        }
+        catch { }
+    }
+
+    private async Task LoadRecipes()
+    {
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<RecipeSummaryDto>>(apiRecipesUrl);
+            if (result != null) recipes = result;
+        }
+        catch (Exception ex) { errorMessage = "خطأ في تحميل الوصفات: " + ex.Message; }
+    }
+
+    private void OnProductSelected()
+    {
+        var product = itemsList.FirstOrDefault(i => i.Id == currentRecipe.ProductItemId);
+        if (product != null)
+        {
+            if (string.IsNullOrWhiteSpace(currentRecipe.RecipeCode))
+                currentRecipe.RecipeCode = product.ItemCode;
+
+            if (string.IsNullOrWhiteSpace(currentRecipe.RecipeName))
+                currentRecipe.RecipeName = product.ItemName;
+
+            if (!string.IsNullOrWhiteSpace(product.Unit))
+                currentRecipe.BatchUnit = product.Unit;
+        }
+    }
+
+    private void OnComponentSelected(RecipeLineDto line)
+    {
+        var component = itemsList.FirstOrDefault(i => i.Id == line.ComponentItemId);
+        if (component != null && !string.IsNullOrWhiteSpace(component.Unit))
+        {
+            line.Unit = component.Unit;
+        }
+    }
+
+    private void AddLine()
+    {
+        currentRecipe.Lines.Add(new RecipeLineDto { Unit = "كجم", Quantity = 1 });
+    }
+
+    private void RemoveLine(RecipeLineDto line)
+    {
+        currentRecipe.Lines.Remove(line);
+        if (!currentRecipe.Lines.Any())
+        {
+            AddLine();
+        }
+    }
+
+    private async Task SaveRecipe()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (currentRecipe.ProductItemId <= 0)
+        {
+            errorMessage = "يرجى اختيار المنتج التام المراد تصنيعه.";
+            return;
+        }
+
+        // استبعاد أي سطور فارغة لم يُحدد لها صنف
+        var validLines = currentRecipe.Lines.Where(l => l.ComponentItemId > 0 && l.Quantity > 0).ToList();
+        if (!validLines.Any())
+        {
+            errorMessage = "تعذر حفظ الوصفة. تأكد من اختيار خامة واحدة على الأقل وتحديد كميتها.";
+            return;
+        }
+
+        currentRecipe.Lines = validLines;
+
+        // ضبط ومزامنة قيم الإنتاج والهالك المطلوبة في السيرفر
+        currentRecipe.YieldQuantity = currentRecipe.BatchQuantity;
+        currentRecipe.YieldUnit = currentRecipe.BatchUnit;
+        if (string.IsNullOrWhiteSpace(currentRecipe.RecipeCode)) currentRecipe.RecipeCode = $"BOM-{currentRecipe.ProductItemId}";
+        if (string.IsNullOrWhiteSpace(currentRecipe.RecipeName)) currentRecipe.RecipeName = "وصفة تصنيع";
+
+        try
+        {
+            HttpResponseMessage response;
+            if (isEditMode)
+                response = await Http.PutAsJsonAsync($"{apiRecipesUrl}/{currentRecipe.Id}", currentRecipe);
+            else
+                response = await Http.PostAsJsonAsync(apiRecipesUrl, currentRecipe);
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "✅ تم حفظ الوصفة وتحديث قائمة الخلطات المعتمدة بنجاح!";
+                await LoadRecipes();
+                ResetForm();
+            }
+            else
+            {
+                var serverError = await response.Content.ReadAsStringAsync();
+                errorMessage = !string.IsNullOrWhiteSpace(serverError) ? serverError : "تعذر حفظ الوصفة من السيرفر.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "خطأ في الاتصال: " + ex.Message;
+        }
+    }
+
+    private async Task EditRecipe(long id)
+    {
+        try
+        {
+            var result = await Http.GetFromJsonAsync<RecipeDto>($"{apiRecipesUrl}/{id}");
+            if (result != null)
+            {
+                currentRecipe = result;
+                isEditMode = true;
+                errorMessage = "";
+                successMessage = "";
+            }
+        }
+        catch (Exception ex) { errorMessage = "خطأ في جلب بيانات الوصفة: " + ex.Message; }
+    }
+
+    private void ResetForm()
+    {
+        currentRecipe = new RecipeDto
+        {
+            Active = true,
+            EffectiveFrom = DateOnly.FromDateTime(DateTime.Now),
+            BatchQuantity = 10,
+            BatchUnit = "كجم"
+        };
+        isEditMode = false;
+        errorMessage = "";
+        successMessage = "";
+        AddLine();
+    }
+
+    private void LoadExcelFile(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        errorMessage = "";
+        successMessage = "";
+    }
+
+    private async Task UploadExcel()
+    {
+        if (selectedFile == null) return;
+        isUploading = true;
+        errorMessage = "";
+        successMessage = "";
+
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var fileContent = new StreamContent(selectedFile.OpenReadStream(maxAllowedSize: 15 * 1024 * 1024));
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(selectedFile.ContentType);
+            content.Add(fileContent, "file", selectedFile.Name);
+
+            var response = await Http.PostAsync($"{apiRecipesUrl}/import-excel", content);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = await response.Content.ReadAsStringAsync();
+                await LoadRecipes();
+                selectedFile = null;
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex) { errorMessage = $"خطأ أثناء الرفع: {ex.Message}"; }
+        finally { isUploading = false; }
+    }
+
+    public class RecipeSummaryDto
+    {
+        public long Id { get; set; }
+        public string RecipeCode { get; set; } = string.Empty;
+        public string RecipeName { get; set; } = string.Empty;
+        public string ProductName { get; set; } = string.Empty;
+        public decimal BatchQuantity { get; set; }
+        public string BatchUnit { get; set; } = string.Empty;
+        public bool Active { get; set; }
+    }
+
+    public class RecipeDto
+    {
+        public long Id { get; set; }
+        public long ProductItemId { get; set; }
+        public string RecipeCode { get; set; } = string.Empty;
+        public string RecipeName { get; set; } = string.Empty;
+        public decimal BatchQuantity { get; set; } = 10;
+        public string BatchUnit { get; set; } = "كجم";
+
+        public decimal YieldQuantity { get; set; } = 10;
+        public string YieldUnit { get; set; } = "كجم";
+        public decimal WastePercentage { get; set; } = 0;
+
+        public bool Active { get; set; } = true;
+        public DateOnly EffectiveFrom { get; set; } = DateOnly.FromDateTime(DateTime.Now);
+
+        // تم توحيد الاسم إلى Lines ليتطابق مع الـ API والـ JSON المتوقع
+        [JsonPropertyName("lines")]
+        public List<RecipeLineDto> Lines { get; set; } = new();
+    }
+
+    public class RecipeLineDto
+    {
+        public long ComponentItemId { get; set; }
+        public decimal Quantity { get; set; } = 1;
+        public string Unit { get; set; } = "كجم";
+        public decimal WastePercentage { get; set; } = 0;
+    }
+
+    public class ItemDropdownDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+    }
+}

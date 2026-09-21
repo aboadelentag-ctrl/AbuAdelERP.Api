@@ -1,0 +1,473 @@
+﻿@page "/material-receipt"
+@using AbuAdelERP.UI.Models
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<div class="container-fluid p-0" dir="rtl">
+    <div class="d-flex align-items-center mb-3">
+        <span class="fs-2 me-2">🔬</span>
+        <div>
+            <h4 class="fw-bold mb-0 text-primary">إذن استلام وفحص الجودة المشترك للخامات والمهمات</h4>
+            <small class="text-muted">الاستلام المباشر بناءً على المورد الواصل مع التحقق الصحي وإثبات أرقام التشغيلات وتواريخ الصلاحية</small>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm my-3" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">@(isSuccess ? "✅" : "⚠️")</span>
+                <div>@statusMessage</div>
+            </div>
+            <button type="button" class="btn-close" @onclick='() => statusMessage = string.Empty'></button>
+        </div>
+    }
+
+    <!-- بيانات المورد والطلب ومفتش الجودة -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4 bg-light">
+            <div class="row g-3 mb-3">
+                <!-- الخطوة 1: اختيار المورد الواصل -->
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small text-primary">1. اختر المورد الواصل للمصنع *</label>
+                    <select class="form-select border-primary fw-bold" @onchange="OnSupplierSelected">
+                        <option value="0">-- حدد المورد القائم بالتوريد --</option>
+                        @if (suppliersWithPendingReceipts != null)
+                        {
+                            @foreach (var sup in suppliersWithPendingReceipts)
+                            {
+                                <option value="@sup.Id">@sup.SupplierName</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <!-- الخطوة 2: اختيار فاتورة الشراء التابعة لهذا المورد -->
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small text-primary">2. اختر فاتورة الشراء المعتمدة لهذا المورد *</label>
+                    <select class="form-select border-primary fw-bold" disabled="@(filteredInvoices == null || !filteredInvoices.Any())" @onchange="OnInvoiceSelected">
+                        <option value="0">-- اختر الفاتورة المطلوب استلامها --</option>
+                        @if (filteredInvoices != null)
+                        {
+                            @foreach (var inv in filteredInvoices)
+                            {
+                                <option value="@inv.Id">فاتورة: @inv.OrderNumber (@inv.OrderDate.ToString("yyyy-MM-dd")) - @inv.TotalAmount.ToString("N2") ج.م</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <!-- الخطوة 3: تحديد مخزن الاستلام الفعلي -->
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small text-primary">3. مخزن الاستلام الفعلي *</label>
+                    <select class="form-select border-primary fw-bold" @bind="receiptDto.WarehouseId">
+                        <option value="0">-- اختر مخزن الاستلام --</option>
+                        @if (warehouses != null)
+                        {
+                            @foreach (var w in warehouses)
+                            {
+                                <option value="@w.Id">@w.WarehouseName</option>
+                            }
+                        }
+                    </select>
+                </div>
+            </div>
+
+            <!-- بيانات توثيق الجودة -->
+            <div class="row g-3 border-top pt-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold small text-dark">اسم مهندس / مفتش الجودة القائم بالفحص *</label>
+                    <input class="form-control fw-bold border-secondary" @bind="receiptDto.QcInspectorName" placeholder="مثال: م. أحمد عبد العزيز" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold small text-dark">رقم شهادة التحليل الواردة من المورد (COA إن وجدت)</label>
+                    <input class="form-control border-secondary" @bind="receiptDto.CoaNumber" placeholder="رقم شهادة مطابقة الجودة" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول أصناف المورد المحدد وفحص الجودة -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold">📦 أصناف شحنة المورد، التحقق الصحي، وتتبع التشغيلات والصلاحية</h6>
+            <small class="badge bg-warning text-dark">تُرحل للمخزن الكميات المقبولة فقط</small>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover mb-0 align-middle text-center">
+                    <thead class="table-secondary">
+                        <tr>
+                            <th style="width: 17%;">اسم الصنف / الكود</th>
+                            <th style="width: 10%;">الكمية الواردة</th>
+                            <th style="width: 13%;">رقم التشغيلة (Batch) *</th>
+                            <th style="width: 14%;">تاريخ الصلاحية</th>
+                            <th style="width: 15%;">قرار الجودة *</th>
+                            <th style="width: 16%;">الكميات (مقبول / مرفوض)</th>
+                            <th style="width: 15%;">سبب الرفض إن وُجد</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (receiptDto.Lines.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    ⚠️ يرجى تحديد "المورد" ثم اختيار "الفاتورة المعتمدة" لعرض أصناف الشحنة المراد إضافتها للمخزن.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var line in receiptDto.Lines)
+                            {
+                                <tr>
+                                    <td class="text-start ps-3">
+                                        <div class="fw-bold text-primary">@line.ItemName</div>
+                                        <code>@line.ItemCode</code>
+                                        @if (!line.HasExpiryDate)
+                                        {
+                                            <div><span class="badge bg-info text-dark" style="font-size: 0.7rem;">مهمات / بدون صلاحية</span></div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold"
+                                               @bind="line.ReceivedQuantity" @bind:after="() => OnReceivedQuantityChanged(line)" />
+                                    </td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm text-center fw-bold" @bind="line.BatchNumber" placeholder="LOT-..." />
+                                    </td>
+                                    <td>
+                                        @if (line.HasExpiryDate)
+                                        {
+                                            <input type="date" class="form-control form-control-sm text-center" @bind="line.ExpiryDate" />
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-light text-muted border px-3 py-2">غير منطبق</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm fw-bold @(line.QcStatus == "Accepted" ? "border-success text-success" : line.QcStatus == "Rejected" ? "border-danger text-danger" : "border-warning text-dark")"
+                                                @bind="line.QcStatus" @bind:after="() => OnStatusChanged(line)">
+                                            <option value="Accepted">✅ مقبول (صالح)</option>
+                                            <option value="Partially_Accepted">⚠️ قبول جزئي</option>
+                                            <option value="Rejected">❌ مرفوض كلياً</option>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        @if (line.QcStatus == "Partially_Accepted")
+                                        {
+                                            <div class="input-group input-group-sm mb-1">
+                                                <span class="input-group-text bg-success text-white py-0">مقبول</span>
+                                                <input type="number" step="0.01" class="form-control text-center fw-bold" @bind="line.AcceptedQuantity" />
+                                            </div>
+                                            <div class="input-group input-group-sm">
+                                                <span class="input-group-text bg-danger text-white py-0">مرفوض</span>
+                                                <input type="number" step="0.01" class="form-control text-center fw-bold" @bind="line.RejectedQuantity" />
+                                            </div>
+                                        }
+                                        else if (line.QcStatus == "Accepted")
+                                        {
+                                            <span class="badge bg-success fs-6">كامل الكمية: @line.AcceptedQuantity</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger fs-6">كامل الكمية مرفوضة</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (line.QcStatus != "Accepted")
+                                        {
+                                            <input type="text" class="form-control form-control-sm border-danger" @bind="line.RejectionReason" placeholder="سبب الرفض الفني..." />
+                                        }
+                                        else
+                                        {
+                                            <span class="text-success small fw-bold">مطابق للمواصفة ✓</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    @if (receiptDto.Lines.Count > 0)
+    {
+        <div class="d-grid gap-2 mb-4">
+            <button class="btn btn-success btn-lg fw-bold shadow-sm py-3" @onclick="SubmitReceipt" disabled="@isSubmitting">
+                @(isSubmitting ? "⏳ جاري اعتماد الفحص وترحيل الرصيد المقبول للمخزن..." : "💾 حفظ إذن الإضافة واعتماد فحص الجودة بالمخزن")
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private List<InvoiceOptionDto> allApprovedInvoices = new();
+    private List<InvoiceOptionDto>? filteredInvoices;
+    private List<SupplierLookupDto> suppliersWithPendingReceipts = new();
+    private List<WarehouseOptionDto>? warehouses;
+
+    private MaterialReceiptDto receiptDto = new();
+
+    private long selectedSupplierId = 0;
+    private string statusMessage = string.Empty;
+    private bool isSuccess = false;
+    private bool isSubmitting = false;
+
+    private string apiBase = "https://localhost:7273/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadData(), LoadWarehouses());
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            var orders = await Http.GetFromJsonAsync<List<InvoiceOptionDto>>($"{apiBase}/PurchaseOrders");
+            if (orders != null)
+            {
+                allApprovedInvoices = orders.Where(o => o.Status == "Approved" || o.Status == "Invoiced").ToList();
+                suppliersWithPendingReceipts = allApprovedInvoices
+                    .Where(i => i.SupplierId > 0)
+                    .GroupBy(i => i.SupplierId)
+                    .Select(g => new SupplierLookupDto
+                    {
+                        Id = g.Key,
+                        SupplierName = g.First().SupplierName
+                    })
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading invoices: {ex.Message}");
+        }
+    }
+
+    private async Task LoadWarehouses()
+    {
+        try
+        {
+            warehouses = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>($"{apiBase}/Warehouses");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading warehouses: {ex.Message}");
+        }
+    }
+
+    private void OnSupplierSelected(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long supId) && supId > 0)
+        {
+            selectedSupplierId = supId;
+            filteredInvoices = allApprovedInvoices.Where(i => i.SupplierId == supId).ToList();
+            receiptDto = new MaterialReceiptDto();
+        }
+        else
+        {
+            selectedSupplierId = 0;
+            filteredInvoices = null;
+            receiptDto = new MaterialReceiptDto();
+        }
+    }
+
+    private async Task OnInvoiceSelected(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long invoiceId) && invoiceId > 0)
+        {
+            try
+            {
+                var inv = await Http.GetFromJsonAsync<InvoiceDetailDto>($"{apiBase}/PurchaseOrders/{invoiceId}");
+                var itemsList = await Http.GetFromJsonAsync<List<ItemLookupDto>>($"{apiBase}/Items") ?? new();
+
+                if (inv != null)
+                {
+                    receiptDto = new MaterialReceiptDto
+                    {
+                        PurchaseOrderId = inv.Id,
+                        WarehouseId = inv.WarehouseId > 0 ? inv.WarehouseId : (warehouses?.FirstOrDefault()?.Id ?? 1),
+                        ReceiptDate = DateTime.Today,
+                        QcInspectorName = "",
+                        CoaNumber = "",
+                        Lines = inv.Lines.Select(l =>
+                        {
+                            var itm = itemsList.FirstOrDefault(i => i.Id == l.ItemId);
+                            return new ReceiptLineItemDto
+                            {
+                                ItemId = l.ItemId,
+                                ItemCode = itm?.ItemCode ?? $"ITM-{l.ItemId}",
+                                ItemName = itm?.ItemName ?? "خامة موردة",
+                                OrderedQuantity = l.Quantity,
+                                ReceivedQuantity = l.Quantity,
+                                AcceptedQuantity = l.Quantity,
+                                RejectedQuantity = 0,
+                                QcStatus = "Accepted",
+                                BatchNumber = $"LOT-{DateTime.UtcNow:yyyyMMdd}-{l.ItemId}",
+                                HasExpiryDate = true,
+                                ExpiryDate = DateOnly.FromDateTime(DateTime.Today.AddYears(1))
+                            };
+                        }).ToList()
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                statusMessage = "خطأ في تحميل أصناف الفاتورة: " + ex.Message;
+            }
+        }
+        else
+        {
+            receiptDto = new MaterialReceiptDto();
+        }
+    }
+
+    private void OnReceivedQuantityChanged(ReceiptLineItemDto line)
+    {
+        if (line.QcStatus == "Accepted")
+        {
+            line.AcceptedQuantity = line.ReceivedQuantity;
+            line.RejectedQuantity = 0;
+        }
+    }
+
+    private void OnStatusChanged(ReceiptLineItemDto line)
+    {
+        if (line.QcStatus == "Accepted")
+        {
+            line.AcceptedQuantity = line.ReceivedQuantity;
+            line.RejectedQuantity = 0;
+            line.RejectionReason = null;
+        }
+        else if (line.QcStatus == "Rejected")
+        {
+            line.AcceptedQuantity = 0;
+            line.RejectedQuantity = line.ReceivedQuantity;
+        }
+        else if (line.QcStatus == "Partially_Accepted")
+        {
+            line.AcceptedQuantity = line.ReceivedQuantity;
+            line.RejectedQuantity = 0;
+        }
+    }
+
+    private async Task SubmitReceipt()
+    {
+        if (receiptDto.PurchaseOrderId == 0 || receiptDto.Lines.Count == 0)
+        {
+            isSuccess = false;
+            statusMessage = "يرجى اختيار مورد وفاتورة معتمدة لتحديد الأصناف.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(receiptDto.QcInspectorName))
+        {
+            isSuccess = false;
+            statusMessage = "تنبيه: يجب إدخال اسم مهندس / مفتش الجودة القائم بالفحص.";
+            return;
+        }
+
+        if (receiptDto.WarehouseId <= 0)
+        {
+            isSuccess = false;
+            statusMessage = "يرجى تحديد مخزن الاستلام من القائمة المنسدلة.";
+            return;
+        }
+
+        if (receiptDto.Lines.Any(l => string.IsNullOrWhiteSpace(l.BatchNumber)))
+        {
+            isSuccess = false;
+            statusMessage = "تنبيه: يجب إدخال رقم التشغيلة (Batch Number) لكل بند.";
+            return;
+        }
+
+        if (receiptDto.Lines.Any(l => l.QcStatus != "Accepted" && string.IsNullOrWhiteSpace(l.RejectionReason)))
+        {
+            isSuccess = false;
+            statusMessage = "تنبيه: يرجى إدخال سبب الرفض الفني للأصناف غير المقبولة.";
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"{apiBase}/purchasing/receive-materials", receiptDto);
+            if (response.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                statusMessage = "تم تأكيد استلام شحنة المورد واعتماد فحص الجودة وتحديث رصيد المخزن بنجاح!";
+                receiptDto = new MaterialReceiptDto();
+                selectedSupplierId = 0;
+                filteredInvoices = null;
+                await LoadData();
+            }
+            else
+            {
+                isSuccess = false;
+                var err = await response.Content.ReadAsStringAsync();
+                statusMessage = !string.IsNullOrWhiteSpace(err) ? err : $"فشل الترحيل (كود: {response.StatusCode})";
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    // ================= DTOs =================
+    public class InvoiceOptionDto
+    {
+        public long Id { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public long SupplierId { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public long WarehouseId { get; set; }
+        public DateTime OrderDate { get; set; }
+        public decimal TotalAmount { get; set; }
+        public string Status { get; set; } = string.Empty;
+    }
+
+    public class InvoiceDetailDto
+    {
+        public long Id { get; set; }
+        public long WarehouseId { get; set; }
+        public List<InvoiceLineDto> Lines { get; set; } = new();
+    }
+
+    public class InvoiceLineDto
+    {
+        public long Id { get; set; }
+        public long ItemId { get; set; }
+        public decimal Quantity { get; set; }
+        public decimal UnitPrice { get; set; }
+    }
+
+    public class SupplierLookupDto
+    {
+        public long Id { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+    }
+
+    public class WarehouseOptionDto
+    {
+        public long Id { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
+    }
+
+    public class ItemLookupDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+    }
+}

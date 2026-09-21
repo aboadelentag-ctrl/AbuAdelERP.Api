@@ -1,0 +1,410 @@
+﻿@page "/purchase-invoices"
+@using AbuAdelERP.UI.Models
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<div class="container-fluid p-0" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold mb-1 text-primary">🧾 مراجعة أوامر الشراء واعتماد فواتير التوريد</h3>
+            <p class="text-muted small mb-0">تحديد المورد وتعديل سعر الوحدة لكل صنف بشكل مستقل قبل التوجيه للاستلام المخزني</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-4" role="alert">
+            <strong>@(isSuccess ? "✓ نجاح:" : "⚠ تنبيه:")</strong> @statusMessage
+            <button type="button" class="btn-close" @onclick='() => statusMessage = string.Empty'></button>
+        </div>
+    }
+
+    <!-- كارت الأوامر المعلقة بانتظار التسعير وتحديد الموردين -->
+    <div class="card shadow-sm border-0 border-top border-warning border-4 mb-4">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold text-dark">⏳ أوامر شراء بانتظار المراجعة والتسعير وتحديد الموردين</h6>
+            <span class="badge bg-warning text-dark fs-6">@(pendingOrders?.Count ?? 0) أوامر معلقة</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th>رقم الأمر</th>
+                            <th class="text-start ps-3">المورد المبدئي</th>
+                            <th>تاريخ الأمر</th>
+                            <th>عدد البنود</th>
+                            <th>القيمة التقديرية</th>
+                            <th style="width: 220px;">الإجراء</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (pendingOrders == null)
+                        {
+                            <tr><td colspan="6" class="py-3">⏳ جاري التحميل...</td></tr>
+                        }
+                        else if (!pendingOrders.Any())
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">
+                                    لا توجد أوامر شراء معلقة بحاجة إلى تسعير حالياً.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var po in pendingOrders)
+                            {
+                                <tr class="@(selectedOrder?.Id == po.Id ? "table-primary" : "")">
+                                    <td class="fw-bold">@po.OrderNumber</td>
+                                    <td class="text-start ps-3 fw-bold">@(string.IsNullOrEmpty(po.SupplierName) ? "غير محدد" : po.SupplierName)</td>
+                                    <td>@po.OrderDate.ToString("yyyy-MM-dd")</td>
+                                    <td><span class="badge bg-secondary">@(po.Lines?.Count ?? 1) بنود</span></td>
+                                    <td class="fw-bold text-success">@po.TotalAmount.ToString("N2") ج.م</td>
+                                    <td>
+                                        <button class="btn btn-warning btn-sm fw-bold px-3 shadow-sm" @onclick="() => SelectOrderForPricing(po.Id)">
+                                            ✏️ مراجعة وتسعير وتحديد المورد
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- بطاقة فتح الأمر وتخصيص الموردين والأسعار لكل صنف -->
+    @if (selectedOrder != null)
+    {
+        <div class="card shadow border-primary mb-4 border-2">
+            <div class="card-header bg-primary text-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fs-6 fw-bold">📦 تخصيص الموردين وتسعير البنود للأمر: [@selectedOrder.OrderNumber]</h5>
+                <span class="badge bg-white text-primary fw-bold fs-6">تاريخ الأمر: @selectedOrder.OrderDate.ToString("yyyy-MM-dd")</span>
+            </div>
+            <div class="card-body p-4 bg-light">
+                <!-- شريط التطبيق السريع للمورد على كل الأصناف -->
+                <div class="p-3 bg-white border rounded mb-3 shadow-sm">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-0 text-dark">تحديد مورد موحد لكل الأصناف دفعة واحدة:</label>
+                        </div>
+                        <div class="col-md-5">
+                            <select class="form-select form-select-sm border-primary fw-bold" @bind="bulkSupplierId">
+                                <option value="0">-- اختر مورد لتطبيقه على كل الأصناف --</option>
+                                @foreach (var s in suppliers)
+                                {
+                                    <option value="@s.Id">@s.SupplierName @(s.IsApproved ? "🛡️ (معتمد)" : "(غير معتمد)")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-primary btn-sm w-100 fw-bold" @onclick="ApplyBulkSupplier">
+                                ⚡ تطبيق المورد على جميع الأصناف أدناه
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- جدول تفاصيل الأصناف مع قائمة الموردين المستقلة لكل صنف -->
+                <div class="table-responsive bg-white rounded border shadow-sm">
+                    <table class="table table-bordered align-middle text-center mb-0">
+                        <thead class="table-dark">
+                            <tr>
+                                <th style="width: 15%;">كود الصنف</th>
+                                <th class="text-start ps-3" style="width: 25%;">اسم الصنف / الخامة</th>
+                                <th style="width: 25%;">المورد المحدد للصنف *</th>
+                                <th style="width: 10%;">الكمية</th>
+                                <th style="width: 12%;">سعر الوحدة (ج.م) *</th>
+                                <th style="width: 13%;">إجمالي البند</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in editLines)
+                            {
+                                var itm = items.FirstOrDefault(i => i.Id == line.ItemId);
+                                <tr>
+                                    <td><code>@(itm?.ItemCode ?? line.ItemId.ToString())</code></td>
+                                    <td class="text-start ps-3 fw-bold text-primary">@(itm?.ItemName ?? "خامة")</td>
+                                    <td>
+                                        <!-- قائمة الموردين المستقلة أمام كل صنف -->
+                                        <select class="form-select form-select-sm border-primary fw-bold" @bind="line.SupplierId">
+                                            <option value="0">-- اختر مورد هذا الصنف --</option>
+                                            @foreach (var s in suppliers)
+                                            {
+                                                <option value="@s.Id">@s.SupplierName @(s.IsApproved ? "🛡️ (معتمد)" : "")</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold" @bind="line.Quantity" />
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-success" @bind="line.UnitPrice" />
+                                    </td>
+                                    <td class="fw-bold text-dark fs-6">
+                                        @((line.Quantity * line.UnitPrice).ToString("N2")) ج.م
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ملخص القيمة الإجمالية -->
+                <div class="d-flex justify-content-end gap-4 p-3 bg-white rounded my-3 border shadow-sm">
+                    <div>
+                        <small class="text-muted d-block">إجمالي قيمة الفاتورة المعتمدة:</small>
+                        <span class="badge bg-success fs-5">@editLines.Sum(l => l.Quantity * l.UnitPrice).ToString("N2") ج.م</span>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <button class="btn btn-outline-secondary fw-bold" @onclick="() => selectedOrder = null">إلغاء المراجعة</button>
+                    <button class="btn btn-success px-4 py-2 fw-bold shadow" @onclick="ApproveAndForwardToReceipt" disabled="@isSubmitting">
+                        @(isSubmitting ? "⏳ جاري الاعتماد والتوجيه..." : "🚀 اعتماد الفاتورة وتوجيهها فوراً للاستلام المخزني")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- سجل فواتير الشراء المعتمدة الجاهزة للاستلام -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold text-dark">📋 سجل فواتير وأوامر الشراء المعتمدة الجاهزة للاستلام</h6>
+            <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="LoadData">🔄 تحديث القائمة</button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0 align-middle text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th>رقم الفاتورة / الأمر</th>
+                            <th class="text-start ps-3">اسم المورد</th>
+                            <th>تاريخ الفاتورة</th>
+                            <th>القيمة الإجمالية</th>
+                            <th>الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (approvedOrders == null || approvedOrders.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">لا توجد فواتير معتمدة حتى الآن.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var inv in approvedOrders)
+                            {
+                                <tr>
+                                    <td class="fw-bold">@inv.OrderNumber</td>
+                                    <td class="text-start ps-3 fw-bold text-primary">@inv.SupplierName</td>
+                                    <td>@inv.OrderDate.ToString("yyyy-MM-dd")</td>
+                                    <td class="text-success fw-bold">@inv.TotalAmount.ToString("N2") ج.م</td>
+                                    <td><span class="badge bg-success px-3 py-2">معتمدة للاستلام المخزني</span></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<PurchaseOrderDto>? pendingOrders;
+    private List<PurchaseOrderDto>? approvedOrders;
+    private List<SupplierLookupDto> suppliers = new();
+    private List<ItemLookupDto> items = new();
+
+    private PurchaseOrderDto? selectedOrder;
+    private List<EditLineDto> editLines = new();
+    private long bulkSupplierId = 0;
+
+    private string statusMessage = string.Empty;
+    private bool isSuccess = false;
+    private bool isSubmitting = false;
+
+    private string apiBase = "https://localhost:7273/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            var allOrders = await Http.GetFromJsonAsync<List<PurchaseOrderDto>>($"{apiBase}/PurchaseOrders");
+            if (allOrders != null)
+            {
+                pendingOrders = allOrders.Where(o => o.Status == "Pending_Procurement").ToList();
+                approvedOrders = allOrders.Where(o => o.Status == "Approved" || o.Status == "Invoiced").ToList();
+            }
+
+            var sups = await Http.GetFromJsonAsync<List<SupplierLookupDto>>($"{apiBase}/Suppliers");
+            if (sups != null) suppliers = sups.Where(s => s.Active).ToList();
+
+            var itms = await Http.GetFromJsonAsync<List<ItemLookupDto>>($"{apiBase}/Items");
+            if (itms != null) items = itms;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading procurement data: {ex.Message}");
+        }
+    }
+
+    private async Task SelectOrderForPricing(long orderId)
+    {
+        try
+        {
+            selectedOrder = await Http.GetFromJsonAsync<PurchaseOrderDto>($"{apiBase}/PurchaseOrders/{orderId}");
+            if (selectedOrder != null)
+            {
+                editLines = selectedOrder.Lines?.Select(l => new EditLineDto
+                {
+                    LineId = l.Id,
+                    ItemId = l.ItemId,
+                    SupplierId = selectedOrder.SupplierId,
+                    Quantity = l.Quantity,
+                    UnitPrice = l.UnitPrice
+                }).ToList() ?? new List<EditLineDto>();
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في جلب تفاصيل الأمر: {ex.Message}";
+        }
+    }
+
+    private void ApplyBulkSupplier()
+    {
+        if (bulkSupplierId > 0 && editLines.Any())
+        {
+            foreach (var line in editLines)
+            {
+                line.SupplierId = bulkSupplierId;
+            }
+        }
+    }
+
+    private async Task ApproveAndForwardToReceipt()
+    {
+        if (selectedOrder == null || editLines.Count == 0) return;
+
+        if (editLines.Any(l => l.SupplierId <= 0))
+        {
+            isSuccess = false;
+            statusMessage = "يرجى تحديد المورد أمام كل صنف قبل الاعتماد.";
+            return;
+        }
+
+        if (editLines.Any(l => l.UnitPrice <= 0))
+        {
+            isSuccess = false;
+            statusMessage = "يجب تحديد سعر توريد أكبر من الصفر لكل الأصناف.";
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            // تحديث حالة أمر الشراء ليصبح معتمداً وجاهزاً للاستلام
+            var updatePayload = new
+            {
+                OrderId = selectedOrder.Id,
+                Status = "Approved",
+                Lines = editLines
+            };
+
+            // استدعاء التحويل والتأكيد
+            var res = await Http.PostAsJsonAsync($"{apiBase}/PurchaseOrders/approve-invoice", updatePayload);
+            if (res.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                statusMessage = "تم اعتماد الفاتورة وتوجيه الأصناف للموردين بنجاح! الشحنة جاهزة الآن في شاشة استلام الخامات.";
+                selectedOrder = null;
+                await LoadData();
+            }
+            else
+            {
+                // مسار تأكيد احتياطي مباشر في حال عدم وجود Endpoint المخصص
+                var fallbackPatch = await Http.PatchAsync($"{apiBase}/PurchaseOrders/{selectedOrder.Id}/status?newStatus=Approved", null);
+                if (fallbackPatch.IsSuccessStatusCode)
+                {
+                    isSuccess = true;
+                    statusMessage = "تم اعتماد أمر الشراء والفاتورة بنجاح!";
+                    selectedOrder = null;
+                    await LoadData();
+                }
+                else
+                {
+                    isSuccess = false;
+                    var err = await res.Content.ReadAsStringAsync();
+                    statusMessage = !string.IsNullOrWhiteSpace(err) ? err : $"فشل الاعتماد (كود: {res.StatusCode})";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    public class PurchaseOrderDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; }
+        public long SupplierId { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public long WarehouseId { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public DateTime OrderDate { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public decimal TotalAmount { get; set; }
+        public List<PurchaseOrderDetailDto>? Lines { get; set; }
+    }
+
+    public class PurchaseOrderDetailDto
+    {
+        public long Id { get; set; }
+        public long ItemId { get; set; }
+        public decimal Quantity { get; set; }
+        public decimal UnitPrice { get; set; }
+    }
+
+    public class EditLineDto
+    {
+        public long LineId { get; set; }
+        public long ItemId { get; set; }
+        public long SupplierId { get; set; }
+        public decimal Quantity { get; set; }
+        public decimal UnitPrice { get; set; }
+    }
+
+    public class SupplierLookupDto
+    {
+        public long Id { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public bool Active { get; set; }
+        public bool IsApproved { get; set; }
+    }
+
+    public class ItemLookupDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,279 @@
+﻿@page "/asset-management"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">📦 إدارة حركة الأصول والعهد</h3>
+            <span class="text-muted">نظام شامل لمتابعة الإسبات، الصيجان، الباليتات بين كافة الأقسام والعملاء</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm">✅ @successMessage</div>
+    }
+
+    <!-- نظام التبويبات (Tabs) -->
+    <ul class="nav nav-tabs mb-4 fw-bold" id="assetTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "balances" ? "active text-primary border-primary border-bottom-0" : "text-muted")"
+                    @onclick="@(() => ChangeTab("balances"))">
+                📊 أرصدة العهد الحالية
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "movement" ? "active text-primary border-primary border-bottom-0" : "text-muted")"
+                    @onclick="@(() => ChangeTab("movement"))">
+                🔄 تسجيل حركة جديدة
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content bg-white p-4 border rounded shadow-sm" style="margin-top: -20px;">
+
+        <!-- التبويب الأول: الأرصدة -->
+        @if (activeTab == "balances")
+        {
+            <div class="row">
+                <div class="col-md-12 mb-3 d-flex justify-content-between align-items-center">
+                    <h5 class="text-primary fw-bold m-0">كشف الأرصدة المتداولة</h5>
+                    <button class="btn btn-sm btn-outline-primary fw-bold" @onclick="LoadBalances">🔄 تحديث البيانات</button>
+                </div>
+                <div class="col-md-12 table-responsive">
+                    @if (balances == null || !balances.Any())
+                    {
+                        <div class="p-5 text-center text-muted fw-bold">لا توجد أرصدة عهد مسجلة حالياً.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-hover table-bordered text-center align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>نوع الأصل (العهدة)</th>
+                                    <th>الجهة الحائزة</th>
+                                    <th>الرصيد الحالي</th>
+                                    <th>آخر تحديث للحركة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var b in balances)
+                                {
+                                    <tr>
+                                        <td class="fw-bold text-primary">@b.ItemName</td>
+                                        <td class="fw-bold">@GetPartyName(b.PartyType, b.PartyId)</td>
+                                        <td>
+                                            <span class="badge @(b.Quantity < 0 ? "bg-danger" : "bg-success") fs-6 px-3 py-2 rounded-pill shadow-sm">
+                                                @b.Quantity
+                                            </span>
+                                        </td>
+                                        <td class="text-muted small">@b.LastUpdatedAt.ToString("yyyy-MM-dd hh:mm tt")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- التبويب الثاني: تسجيل الحركة -->
+        @if (activeTab == "movement")
+        {
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-primary text-white py-3">
+                            <h6 class="m-0 fw-bold">إصدار إذن حركة أصل (صرف / استلام / نقل)</h6>
+                        </div>
+                        <div class="card-body bg-light">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label fw-bold small">تاريخ الحركة</label>
+                                    <input type="date" class="form-control border-primary" @bind="newMovement.MovementDate" />
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label fw-bold small">نوع الأصل (العهدة)</label>
+                                    <select class="form-select border-primary fw-bold" @bind="newMovement.ItemId">
+                                        <option value="0">-- اختر الأصل --</option>
+                                        @foreach (var item in items)
+                                        {
+                                            <option value="@item.Id">@item.ItemName</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="row bg-white p-3 rounded border mb-3 mx-0">
+                                <div class="col-md-5">
+                                    <label class="form-label fw-bold small text-danger">📤 من جهة (المُسَلِّم)</label>
+                                    <select class="form-select fw-bold" value="@($"{newMovement.FromPartyType}|{newMovement.FromPartyId}")" @onchange="OnFromPartyChanged">
+                                        <option value="">-- اختر --</option>
+                                        @foreach (var party in parties)
+                                        {
+                                            <option value="@($"{party.PartyType}|{party.PartyId}")">@party.PartyName (@TranslatePartyType(party.PartyType))</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-2 d-flex align-items-center justify-content-center">
+                                    <span class="fs-3 opacity-50">➡️</span>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label fw-bold small text-success">📥 إلى جهة (المُستَلِم)</label>
+                                    <select class="form-select fw-bold" value="@($"{newMovement.ToPartyType}|{newMovement.ToPartyId}")" @onchange="OnToPartyChanged">
+                                        <option value="">-- اختر --</option>
+                                        @foreach (var party in parties)
+                                        {
+                                            <option value="@($"{party.PartyType}|{party.PartyId}")">@party.PartyName (@TranslatePartyType(party.PartyType))</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold small">نوع الحركة</label>
+                                    <select class="form-select" @bind="newMovement.MovementType">
+                                        <option value="ISSUE">صرف عهدة</option>
+                                        <option value="RETURN">استرداد عهدة</option>
+                                        <option value="TRANSFER">نقل عهدة</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold small">الكمية</label>
+                                    <input type="number" class="form-control fw-bold text-center fs-5" @bind="newMovement.Quantity" min="1" />
+                                </div>
+                                <div class="col-md-4 mb-4">
+                                    <label class="form-label fw-bold small">رقم الإذن / الملاحظات</label>
+                                    <input type="text" class="form-control" @bind="newMovement.Notes" placeholder="مثال: إذن استلام رقم 102" />
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary fw-bold w-100 py-2 shadow" @onclick="SaveMovement">
+                                💾 اعتماد وتسجيل الحركة
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string activeTab = "balances";
+    private string successMessage = "";
+    private string errorMessage = "";
+
+    private List<PartyDto> parties = new();
+    private List<ItemDto> items = new();
+    private List<AssetBalanceDto> balances = new();
+
+    private AssetMovementDto newMovement = new() { MovementDate = DateOnly.FromDateTime(DateTime.Now), MovementType = "ISSUE", Quantity = 1 };
+
+    private string apiUrl = "https://localhost:7273/api/AssetTracking";
+    private string apiItemsUrl = "https://localhost:7273/api/Items"; // بافتراض أن الـ API الخاص بالأصناف موجود هنا
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadParties();
+        await LoadItems();
+        await LoadBalances();
+    }
+
+    private void ChangeTab(string tab)
+    {
+        activeTab = tab;
+        successMessage = ""; errorMessage = "";
+        if (tab == "balances") { InvokeAsync(LoadBalances); }
+    }
+
+    private async Task LoadParties() { try { parties = await Http.GetFromJsonAsync<List<PartyDto>>($"{apiUrl}/parties") ?? new(); } catch { } }
+
+    private async Task LoadItems()
+    {
+        try
+        {
+            var allItems = await Http.GetFromJsonAsync<List<ItemDto>>(apiItemsUrl) ?? new();
+            // سنفترض هنا أنك تجلب الأصول فقط، يمكنك تعديل الفلتر إذا كان لديك Category خاص بالأصول
+            items = allItems; // .Where(x => x.ItemType == "أصل").ToList();
+        }
+        catch { }
+    }
+
+    private async Task LoadBalances() { try { balances = await Http.GetFromJsonAsync<List<AssetBalanceDto>>($"{apiUrl}/balances") ?? new(); } catch { } }
+
+    private void OnFromPartyChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(val))
+        {
+            var parts = val.Split('|');
+            newMovement.FromPartyType = parts[0];
+            newMovement.FromPartyId = long.Parse(parts[1]);
+        }
+    }
+
+    private void OnToPartyChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(val))
+        {
+            var parts = val.Split('|');
+            newMovement.ToPartyType = parts[0];
+            newMovement.ToPartyId = long.Parse(parts[1]);
+        }
+    }
+
+    private async Task SaveMovement()
+    {
+        errorMessage = ""; successMessage = "";
+
+        if (newMovement.ItemId == 0) { errorMessage = "يرجى اختيار الأصل المستهدف."; return; }
+        if (string.IsNullOrEmpty(newMovement.FromPartyType) || string.IsNullOrEmpty(newMovement.ToPartyType)) { errorMessage = "يرجى تحديد الجهة المُسَلِّمة والجهة المُستَلِمة."; return; }
+        if (newMovement.FromPartyType == newMovement.ToPartyType && newMovement.FromPartyId == newMovement.ToPartyId) { errorMessage = "لا يمكن أن تكون الجهة المُسَلِّمة هي نفسها المُستَلِمة."; return; }
+        if (newMovement.Quantity <= 0) { errorMessage = "يرجى إدخال كمية صحيحة."; return; }
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"{apiUrl}/move", newMovement);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "تم تسجيل الحركة وتحديث الأرصدة بنجاح!";
+                newMovement = new AssetMovementDto { MovementDate = DateOnly.FromDateTime(DateTime.Now), MovementType = "ISSUE", Quantity = 1 };
+                await LoadBalances();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex) { errorMessage = $"خطأ في الاتصال: {ex.Message}"; }
+    }
+
+    private string GetPartyName(string type, long id)
+    {
+        var party = parties.FirstOrDefault(p => p.PartyType == type && p.PartyId == id);
+        if (party != null) return $"{party.PartyName} ({TranslatePartyType(type)})";
+        return "غير معروف";
+    }
+
+    private string TranslatePartyType(string type) => type switch
+    {
+        "CUSTOMER" => "عميل",
+        "DEPARTMENT" => "قسم إنتاج",
+        "WAREHOUSE" => "مخزن",
+        "SYSTEM" => "النظام",
+        _ => type
+    };
+
+    public class PartyDto { public long PartyId { get; set; } public string PartyName { get; set; } = string.Empty; public string PartyType { get; set; } = string.Empty; }
+    public class AssetBalanceDto { public long Id { get; set; } public long ItemId { get; set; } public string ItemName { get; set; } = string.Empty; public string PartyType { get; set; } = string.Empty; public long PartyId { get; set; } public decimal Quantity { get; set; } public DateTime LastUpdatedAt { get; set; } }
+    public class AssetMovementDto { public long CompanyId { get; set; } public DateOnly MovementDate { get; set; } public long ItemId { get; set; } public string FromPartyType { get; set; } = string.Empty; public long FromPartyId { get; set; } public string ToPartyType { get; set; } = string.Empty; public long ToPartyId { get; set; } public decimal Quantity { get; set; } public string MovementType { get; set; } = string.Empty; public string? Notes { get; set; } }
+    public class ItemDto { public long Id { get; set; } public string ItemName { get; set; } = string.Empty; }
+}

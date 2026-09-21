@@ -1,0 +1,81 @@
+### إرسال أمر تشغيل لقسم الإنتاج مع التكاليف
+POST https://localhost:7273/api/DynamicForms/submit-production
+Content-Type: application/json
+Accept: application/json
+
+{
+  "formId": 1,
+  "departmentId": 2,
+  "userId": 1,
+  "companyId": 6,
+  "warehouseId": 5,
+  "productItemId": 10, 
+  "producedQuantity": 250,
+  "actualHours": 6.5,
+  "wasteCost": 150.00,
+  "notes": "إنتاج عجينة كنافة - اختبار التكاليف الشامل",
+  "dynamicData": {
+    "ovenTemperature": "180°C",
+    "inspectorName": "أحمد عبدالعزيز",
+    "qualityPassed": true,
+    "damagedTrays": 0
+  }
+}
+### جلب شجرة الأصناف والخامات
+GET https://localhost:7273/api/items/get-all
+Accept: application/json
+### إضافة صنف جديد (شيكارة سكر)
+POST https://localhost:7273/api/items/add
+Content-Type: application/json
+Accept: application/json
+
+{
+  "itemCode": "RAW-002",
+  "nameAr": "سكر أبيض ناعم 50 كجم",
+  "categoryId": 1,
+  "baseUomId": 1,
+  "itemType": "Raw"
+}
+### إضافة مخزن الخامات الرئيسية
+POST https://localhost:7273/api/warehouses/add
+Content-Type: application/json
+Accept: application/json
+
+{
+  "warehouseCode": "WH-RAW",
+  "warehouseName": "مخزن الخامات الرئيسية",
+  "warehouseType": "RAW",
+  "description": "المخزن المخصص لتخزين الدقيق والسكر والزيوت"
+}
+### إضافة رصيد افتتاحي (1000 كيلو سكر في مخزن الخامات)
+POST https://localhost:7273/api/stock/add-initial
+Content-Type: application/json
+Accept: application/json
+
+{
+  "itemId": 4,
+  "warehouseId": 7,
+  "quantity": 1000,
+  "unitCost": 35.50,
+  "notes": "رصيد افتتاحي لشيكارة السكر أول المدة"
+}
+### إضافة وصفة البسبوسة
+POST https://localhost:7273/api/recipes/add
+Content-Type: application/json
+Accept: application/json
+
+{
+  "recipeCode": "REC-BAS-003",
+  "recipeName": "بسبوسة سادة - تشغيلة 100 كيلو",
+  "productItemId": 2,
+  "batchQuantity": 100,
+  "batchUnit": "KG",
+  "lines": [
+    {
+      "componentItemId": 4,
+      "quantity": 25,
+      "unit": "KG",
+      "notes": "سكر أبيض للقطر والعجينة"
+    }
+  ]
+}

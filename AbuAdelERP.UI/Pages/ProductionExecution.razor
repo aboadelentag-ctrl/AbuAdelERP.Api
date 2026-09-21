@@ -1,0 +1,332 @@
+﻿@page "/production-execution"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1 fw-bold">⚙️ تنفيذ الإنتاج وتقفيل الأوامر وتوليد اللوطات (Batch Execution)</h3>
+            <span class="text-muted">تسجيل الإنتاج الفعلي، توليد أرقام التشغيلات، وحساب تكلفة الوجبة وخصم خامات الصالة آلياً</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm alert-dismissible fade show">
+            ❌ @errorMessage
+            <button type="button" class="btn-close" @onclick='() => errorMessage = ""'></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm alert-dismissible fade show">
+            ✅ @successMessage
+            <button type="button" class="btn-close" @onclick='() => successMessage = ""'></button>
+        </div>
+    }
+
+    <!-- القسم الأول: اختيار أمر التشغيل المفتوح -->
+    <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
+        <div class="card-body bg-light">
+            <div class="row align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-primary">أوامر التشغيل المفتوحة (قيد التنفيذ بالصالة)</label>
+                    <select class="form-select fw-bold border-primary" @onchange="OnOrderSelected" disabled="@isExecuting">
+                        <option value="0">-- اختر أمر التشغيل للتقفيل --</option>
+                        @if (pendingOrders != null)
+                        {
+                            @foreach (var order in pendingOrders)
+                            {
+                                <option value="@order.OrderId">
+                                    أمر رقم: @order.OrderNumber | التاريخ: @order.OrderDate.ToString("yyyy-MM-dd") | الحالة: @order.Status
+                                </option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6 text-start">
+                    <button class="btn btn-outline-secondary fw-bold" @onclick="LoadPendingOrders" disabled="@isExecuting">
+                        🔄 تحديث القائمة
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- القسم الثاني: تفاصيل التنفيذ وحساب الخامات -->
+    @if (isLoadingDetails)
+    {
+        <div class="text-center p-5">
+            <div class="spinner-border text-primary mb-2" role="status"></div>
+            <h5 class="text-primary fw-bold">⏳ جاري حساب الخامات المطلوبة وجلب أسعار التكلفة وتجهيز أرقام التشغيلات...</h5>
+        </div>
+    }
+    else if (executionDetails != null && executionDetails.Any())
+    {
+        @foreach (var detail in executionDetails)
+        {
+            decimal totalBatchCost = detail.Materials.Sum(m => m.ActualConsumedQuantity * m.UnitCost);
+            decimal calculatedUnitCost = detail.ProducedQuantity > 0 ? (totalBatchCost / detail.ProducedQuantity) : 0;
+
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-dark text-white py-3">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <h5 class="m-0 fw-bold text-warning">📦 منتج تام: @detail.ProductName</h5>
+                            <small class="text-light">المخطط: @detail.PlannedQuantity.ToString("N2")</small>
+                        </div>
+                        <div class="d-flex align-items-center gap-3 flex-wrap">
+                            <!-- بيانات التشغيلة والصلاحية الناتجة -->
+                            <div class="input-group input-group-sm" style="width: 260px;">
+                                <span class="input-group-text bg-secondary text-white fw-bold">رقم اللوط</span>
+                                <input type="text" class="form-control fw-bold text-center" @bind="detail.BatchNumber" />
+                            </div>
+
+                            <div class="input-group input-group-sm" style="width: 220px;">
+                                <span class="input-group-text bg-secondary text-white fw-bold">الصلاحية</span>
+                                <input type="date" class="form-control fw-bold text-center" @bind="detail.ExpiryDate" />
+                            </div>
+
+                            <!-- كمية الإنتاج الفعلي -->
+                            <div class="input-group input-group-sm" style="width: 240px;">
+                                <span class="input-group-text bg-success text-white fw-bold border-success">الإنتاج الفعلي</span>
+                                <input type="number" class="form-control text-center fw-bold text-success fs-6 border-success" @bind="detail.ProducedQuantity" min="0.001" step="0.001" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- شريط مؤشرات التكلفة اللحظية -->
+                <div class="card-body bg-light py-2 px-3 border-bottom">
+                    <div class="d-flex justify-content-between align-items-center text-muted small fw-bold">
+                        <div>💰 إجمالي تكلفة خامات الوجبة: <span class="text-primary fs-6">@totalBatchCost.ToString("N2") ج.م</span></div>
+                        <div>🏷️ تكلفة وحدة المنتج التام المحسوبة: <span class="text-success fs-6">@calculatedUnitCost.ToString("N2") ج.م</span></div>
+                    </div>
+                </div>
+
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-hover mb-0 text-center align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 30%;">الخامة المستهلكة (BOM)</th>
+                                <th style="width: 10%;">الوحدة</th>
+                                <th style="width: 15%;">سعر الوحدة</th>
+                                <th style="width: 15%;">المعياري (مطلوب)</th>
+                                <th style="width: 15%;">الاستهلاك الفعلي</th>
+                                <th style="width: 15%;">مؤشر الهدر / الانحراف</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!detail.Materials.Any())
+                            {
+                                <tr>
+                                    <td colspan="6" class="text-danger fw-bold py-4">⚠️ لم يتم العثور على وصفة تصنيع (BOM) لهذا المنتج.</td>
+                                </tr>
+                            }
+                            @foreach (var material in detail.Materials)
+                            {
+                                decimal variance = material.ActualConsumedQuantity - material.RequiredQuantity;
+                                decimal variancePercent = material.RequiredQuantity > 0 ? (variance / material.RequiredQuantity) * 100 : 0;
+
+                                <tr>
+                                    <td class="fw-bold text-secondary text-start ps-4">@material.ComponentName</td>
+                                    <td>@material.Unit</td>
+                                    <td class="text-muted">@material.UnitCost.ToString("N2") ج.م</td>
+                                    <td class="fw-bold">@material.RequiredQuantity.ToString("N3")</td>
+                                    <td>
+                                        <input type="number" class="form-control text-center fw-bold text-primary border-primary" @bind="material.ActualConsumedQuantity" min="0" step="0.001" />
+                                    </td>
+                                    <td>
+                                        @if (variance > 0)
+                                        {
+                                            <span class="badge bg-danger p-2" title="استهلاك أعلى من المعياري">
+                                                ▲ +@variance.ToString("N2") (@variancePercent.ToString("N1")%) هالك
+                                            </span>
+                                        }
+                                        else if (variance < 0)
+                                        {
+                                            <span class="badge bg-success p-2" title="توفير في الخامات">
+                                                ▼ @variance.ToString("N2") (@variancePercent.ToString("N1")%) توفير
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary p-2">مطابق 100%</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <div class="card shadow-sm border-0 bg-light mt-4">
+            <div class="card-body text-center p-4">
+                <h5 class="text-danger fw-bold mb-3">⚠️ تنبيه: عند الاعتماد سيتم خصم الخامات من الرصيد المتاح، وترصيد المنتج التام باللوط والتكلفة وإغلاق أمر التشغيل.</h5>
+                <button class="btn btn-success btn-lg fw-bold px-5 shadow" @onclick="ExecuteOrder" disabled="@isExecuting">
+                    @(isExecuting ? "⏳ جاري التقفيل والترصيد..." : "✅ اعتماد التنفيذ وتقفيل أمر التشغيل")
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<PendingOrderDto> pendingOrders = new();
+    private List<OrderExecutionDetailDto> executionDetails = new();
+
+    private long selectedOrderId = 0;
+    private bool isLoadingDetails = false;
+    private bool isExecuting = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string apiUrl = "https://localhost:7273/api/ProductionExecution";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPendingOrders();
+    }
+
+    private async Task LoadPendingOrders()
+    {
+        try
+        {
+            pendingOrders = await Http.GetFromJsonAsync<List<PendingOrderDto>>($"{apiUrl}/pending-orders") ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل في جلب أوامر التشغيل: {ex.Message}";
+        }
+    }
+
+    private async Task OnOrderSelected(ChangeEventArgs e)
+    {
+        errorMessage = "";
+        successMessage = "";
+        executionDetails.Clear();
+
+        if (long.TryParse(e.Value?.ToString(), out long orderId) && orderId > 0)
+        {
+            selectedOrderId = orderId;
+            await LoadExecutionTemplate(orderId);
+        }
+        else
+        {
+            selectedOrderId = 0;
+        }
+    }
+
+    private async Task LoadExecutionTemplate(long orderId)
+    {
+        isLoadingDetails = true;
+        try
+        {
+            executionDetails = await Http.GetFromJsonAsync<List<OrderExecutionDetailDto>>($"{apiUrl}/execution-template/{orderId}") ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"لا يمكن جلب تفاصيل التنفيذ: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingDetails = false;
+        }
+    }
+
+    private async Task ExecuteOrder()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (selectedOrderId == 0 || !executionDetails.Any())
+        {
+            errorMessage = "بيانات أمر التشغيل غير مكتملة.";
+            return;
+        }
+
+        if (executionDetails.Any(d => d.ProducedQuantity <= 0))
+        {
+            errorMessage = "يجب أن تكون كمية الإنتاج الفعلي أكبر من صفر.";
+            return;
+        }
+
+        if (executionDetails.Any(d => d.Materials.Any(m => m.ActualConsumedQuantity < 0)))
+        {
+            errorMessage = "لا يمكن أن تكون كميات الخامات المستهلكة بالسالب.";
+            return;
+        }
+
+        isExecuting = true;
+        try
+        {
+            var request = new ExecuteOrderRequestDto
+            {
+                OrderId = selectedOrderId,
+                ExecutionDetails = executionDetails
+            };
+
+            var response = await Http.PostAsJsonAsync($"{apiUrl}/execute", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "✅ تم تقفيل أمر التشغيل وترصيد المنتجات التامة بنجاح!";
+                selectedOrderId = 0;
+                executionDetails.Clear();
+                await LoadPendingOrders();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ أثناء الاتصال بالخادم: {ex.Message}";
+        }
+        finally
+        {
+            isExecuting = false;
+        }
+    }
+
+    public class PendingOrderDto
+    {
+        public long OrderId { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public DateOnly OrderDate { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string? Notes { get; set; }
+    }
+
+    public class OrderExecutionDetailDto
+    {
+        public long OrderDetailId { get; set; }
+        public long ProductItemId { get; set; }
+        public string ProductName { get; set; } = string.Empty;
+        public long? RecipeId { get; set; }
+        public decimal PlannedQuantity { get; set; }
+        public decimal ProducedQuantity { get; set; }
+        public string BatchNumber { get; set; } = string.Empty;
+        public DateTime? ExpiryDate { get; set; }
+        public List<ExecutionMaterialDto> Materials { get; set; } = new();
+    }
+
+    public class ExecutionMaterialDto
+    {
+        public long ComponentItemId { get; set; }
+        public string ComponentName { get; set; } = string.Empty;
+        public decimal RequiredQuantity { get; set; }
+        public decimal ActualConsumedQuantity { get; set; }
+        public string Unit { get; set; } = string.Empty;
+        public decimal UnitCost { get; set; }
+    }
+
+    public class ExecuteOrderRequestDto
+    {
+        public long OrderId { get; set; }
+        public List<OrderExecutionDetailDto> ExecutionDetails { get; set; } = new();
+    }
+}

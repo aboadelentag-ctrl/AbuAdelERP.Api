@@ -1,0 +1,102 @@
+﻿@page "/login"
+@inject HttpClient Http
+@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
+@inject NavigationManager NavManager
+@using System.Net.Http.Json
+
+<div class="container mt-5" dir="rtl">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card shadow-lg border-0 rounded-lg mt-5">
+                <div class="card-header bg-dark text-white text-center py-3">
+                    <h4 class="font-weight-light my-2">تسجيل الدخول - حلواني أبو عادل</h4>
+                </div>
+                <div class="card-body p-4">
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger text-center">@errorMessage</div>
+                    }
+
+                    <div class="form-floating mb-3">
+                        <input type="text" class="form-control" id="inputUsername" placeholder="اسم المستخدم" @bind="loginModel.Username" />
+                        <label for="inputUsername">اسم المستخدم</label>
+                    </div>
+
+                    <div class="form-floating mb-3">
+                        <input type="password" class="form-control" id="inputPassword" placeholder="كلمة المرور" @bind="loginModel.Password" />
+                        <label for="inputPassword">كلمة المرور</label>
+                    </div>
+
+                    <div class="d-flex align-items-center justify-content-between mt-4 mb-0">
+                        <button class="btn btn-primary w-100 py-2" @onclick="HandleLogin" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="ms-2">جاري التحقق...</span>
+                            }
+                            else
+                            {
+                                <span>دخول إلى النظام</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginDto loginModel = new LoginDto();
+    private string errorMessage = "";
+    private bool isLoading = false;
+
+    private async Task HandleLogin()
+    {
+        isLoading = true;
+        errorMessage = "";
+
+        try
+        {
+            // إرسال البيانات إلى الـ API الخاص بك
+            var response = await Http.PostAsJsonAsync("api/Auth/login", loginModel);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
+                if (result != null && !string.IsNullOrEmpty(result.Token))
+                {
+                    // حفظ التوكن في الذاكرة بنجاح
+                    await LocalStorage.SetItemAsync("authToken", result.Token);
+
+                    // توجيه المستخدم للصفحة الرئيسية
+                    NavManager.NavigateTo("/");
+                }
+            }
+            else
+            {
+                errorMessage = "بيانات الدخول غير صحيحة، يرجى المحاولة مرة أخرى.";
+            }
+        }
+        catch (Exception)
+        {
+            errorMessage = "حدث خطأ في الاتصال بالخادم الرئيسي (API). تأكد من تشغيل السيرفر.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // الكلاسات المساعدة لترجمة البيانات
+    public class LoginDto
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
+
+    public class AuthResponse
+    {
+        public string Token { get; set; }
+    }
+}

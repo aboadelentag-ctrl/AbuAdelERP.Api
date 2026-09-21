@@ -1,0 +1,248 @@
+﻿@page "/productivity-entry"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">⏱️ تسجيل يومية الإنتاج (ساعات العمل والهالك)</h3>
+            <span class="text-muted">تسجيل كميات الإنتاج الفعلي، الهالك، وساعات العمل لكل عامل لربطها بأوامر التشغيل</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm">✅ @successMessage</div>
+    }
+
+    <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
+        <div class="card-body bg-light p-4">
+            <div class="row g-3">
+                <!-- اختيار أمر التشغيل -->
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-dark">أمر التشغيل المعتمد *</label>
+                    <select class="form-select fw-bold border-primary" @bind="logRequest.ProductionOrderId" @bind:after="OnOrderChanged">
+                        <option value="0">-- اختر أمر التشغيل المطلوب تسجيل إنتاجيته --</option>
+                        @foreach (var order in orders)
+                        {
+                            <option value="@order.Id">@order.OrderNumber @(!string.IsNullOrEmpty(order.Notes) ? $"({order.Notes})" : "")</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- اختيار العامل -->
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-dark">اسم العامل المسؤول *</label>
+                    <select class="form-select fw-bold border-primary" @bind="logRequest.EmployeeId">
+                        <option value="0">-- اختر العامل المسؤول عن التشغيل --</option>
+                        @foreach (var emp in filteredEmployees)
+                        {
+                            <option value="@emp.Id">@emp.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- تاريخ العمل -->
+                <div class="col-md-3 mt-3">
+                    <label class="form-label fw-bold text-dark">تاريخ التنفيذ</label>
+                    <input type="date" class="form-control fw-bold" @bind="logRequest.WorkDate" />
+                </div>
+
+                <!-- ساعات العمل -->
+                <div class="col-md-3 mt-3">
+                    <label class="form-label fw-bold text-dark">ساعات العمل الفعلية *</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control fw-bold text-center text-primary" @bind="logRequest.HoursWorked" min="0.5" step="0.5" />
+                        <span class="input-group-text bg-white fw-bold">ساعة</span>
+                    </div>
+                </div>
+
+                <!-- اختيار الوحدة -->
+                <div class="col-md-2 mt-3">
+                    <label class="form-label fw-bold text-dark">وحدة القياس *</label>
+                    <select class="form-select fw-bold text-center border-secondary" @bind="logRequest.Unit">
+                        <option value="كجم">كجم</option>
+                        <option value="قطعة">قطعة</option>
+                        <option value="صاج">صاج</option>
+                        <option value="علبة">علبة</option>
+                        <option value="باكت">باكت</option>
+                        <option value="دستة">دستة</option>
+                        <option value="طرد">طرد</option>
+                    </select>
+                </div>
+
+                <!-- كمية الإنتاج المنجز -->
+                <div class="col-md-2 mt-3">
+                    <label class="form-label fw-bold text-dark">الإنتاج المنجز الصالح *</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control fw-bold text-center text-success" @bind="logRequest.ProducedQuantity" min="0.1" step="0.1" />
+                        <span class="input-group-text bg-white fw-bold">@logRequest.Unit</span>
+                    </div>
+                </div>
+
+                <!-- كمية الهالك / التالف -->
+                <div class="col-md-2 mt-3">
+                    <label class="form-label fw-bold text-danger">كمية الهالك (Scrap) *</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control fw-bold text-center text-danger border-danger" @bind="logRequest.WastedQuantity" min="0" step="0.1" />
+                        <span class="input-group-text bg-white text-danger fw-bold">@logRequest.Unit</span>
+                    </div>
+                </div>
+
+                <!-- ملاحظات وأسباب الهالك إن وجد -->
+                <div class="col-md-12 mt-3">
+                    <label class="form-label fw-bold text-dark">ملاحظات التشغيل وأسباب الهالك (إن وجدت)</label>
+                    <textarea class="form-control" @bind="logRequest.Notes" rows="2" placeholder="اكتب أي ملاحظات تخص إنتاجية الوردية، أسباب التوالف، أو توقفات الماكينات..."></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="card-footer bg-white text-center py-3">
+            <button class="btn btn-primary btn-lg fw-bold px-5 shadow" @onclick="SubmitLog" disabled="@isSubmitting">
+                @(isSubmitting ? "⏳ جاري التسجيل..." : "💾 حفظ يومية العامل والإنتاج")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ProductivityLogRequestDto logRequest = new()
+    {
+        WorkDate = DateTime.Today,
+        HoursWorked = 8,
+        Unit = "كجم",
+        ProducedQuantity = 0,
+        WastedQuantity = 0
+    };
+
+    private List<EmployeeLookupDto> allEmployees = new();
+    private List<EmployeeLookupDto> filteredEmployees = new();
+    private List<OrderLookupDto> orders = new();
+
+    private bool isSubmitting = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string apiUrl = "https://localhost:7273/api/Productivity";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookups();
+    }
+
+    private async Task LoadLookups()
+    {
+        try
+        {
+            var empList = await Http.GetFromJsonAsync<List<EmployeeLookupDto>>($"{apiUrl}/lookup/employees");
+            if (empList != null)
+            {
+                allEmployees = empList;
+                filteredEmployees = empList;
+            }
+
+            var ordList = await Http.GetFromJsonAsync<List<OrderLookupDto>>($"{apiUrl}/lookup/orders");
+            if (ordList != null)
+            {
+                orders = ordList;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "حدث خطأ أثناء تحميل بيانات العمال وأوامر التشغيل: " + ex.Message;
+        }
+    }
+
+    private void OnOrderChanged()
+    {
+        var selectedOrder = orders.FirstOrDefault(o => o.Id == logRequest.ProductionOrderId);
+        if (selectedOrder != null && !string.IsNullOrEmpty(selectedOrder.Notes))
+        {
+            var matched = allEmployees.Where(e =>
+                (selectedOrder.Notes.Contains("الشرقي") && e.DepartmentName.Contains("الشرقي")) ||
+                (selectedOrder.Notes.Contains("الاسبشيال") && e.DepartmentName.Contains("الاسبشيال"))
+            ).ToList();
+
+            filteredEmployees = matched.Any() ? matched : allEmployees;
+        }
+        else
+        {
+            filteredEmployees = allEmployees;
+        }
+    }
+
+    private async Task SubmitLog()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (logRequest.ProductionOrderId <= 0 || logRequest.EmployeeId <= 0)
+        {
+            errorMessage = "يرجى اختيار أمر التشغيل واسم العامل من القوائم.";
+            return;
+        }
+        if (logRequest.HoursWorked <= 0 || logRequest.ProducedQuantity <= 0)
+        {
+            errorMessage = "ساعات العمل وكمية الإنتاج المنجز يجب أن تكون أكبر من الصفر.";
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"{apiUrl}/log-work", logRequest);
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "تم تسجيل يومية الإنتاج والهالك بنجاح وتحديث مؤشرات الأداء!";
+                logRequest.EmployeeId = 0;
+                logRequest.ProducedQuantity = 0;
+                logRequest.WastedQuantity = 0;
+                logRequest.Notes = "";
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    public class ProductivityLogRequestDto
+    {
+        public long ProductionOrderId { get; set; }
+        public long EmployeeId { get; set; }
+        public DateTime WorkDate { get; set; }
+        public decimal HoursWorked { get; set; }
+        public decimal ProducedQuantity { get; set; }
+        public decimal WastedQuantity { get; set; }
+        public string Unit { get; set; } = "كجم";
+        public string Notes { get; set; } = string.Empty;
+    }
+
+    public class EmployeeLookupDto
+    {
+        public long Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public long? DepartmentId { get; set; }
+        public string DepartmentName { get; set; } = string.Empty;
+    }
+
+    public class OrderLookupDto
+    {
+        public long Id { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public string? Notes { get; set; }
+        public DateOnly OrderDate { get; set; }
+    }
+}

@@ -1,0 +1,427 @@
+﻿@page "/stock-card"
+@using AbuAdelERP.UI.Models
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<div class="container-fluid p-0" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold text-primary mb-1">📋 كارت الصنف ومراقبة حد الطلب وتتبع اللوطات</h3>
+            <small class="text-muted">مراقبة الأرصدة اللحظية، مؤشر الأمان ونقطة الطلب، وتتبع الحركات السابقة والتشغيلات</small>
+        </div>
+    </div>
+
+    <!-- شريط التصفية والمدى الزمني -->
+    <div class="card shadow-sm border-0 mb-4 bg-light">
+        <div class="card-body py-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-primary">1. الصنف / الخامة *</label>
+                    <select class="form-select border-primary fw-bold" @onchange="OnItemSelected">
+                        <option value="0">-- حدد الصنف --</option>
+                        @if (allItems != null)
+                        {
+                            @foreach (var itm in allItems)
+                            {
+                                <option value="@itm.Id">@itm.ItemName (@itm.ItemCode)</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-primary">2. المخزن</label>
+                    <select class="form-select border-primary fw-bold" @onchange="OnWarehouseChanged">
+                        <option value="0">🏢 كافة المخازن (رصيد مجمع)</option>
+                        @if (warehouses != null)
+                        {
+                            @foreach (var w in warehouses)
+                            {
+                                <option value="@w.Id">@w.WarehouseName</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small text-dark">📅 من تاريخ</label>
+                    <input type="date" class="form-control fw-bold border-secondary" @bind="fromDate" />
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small text-dark">📅 إلى تاريخ</label>
+                    <input type="date" class="form-control fw-bold border-secondary" @bind="toDate" />
+                </div>
+
+                <div class="col-md-2 d-flex gap-2">
+                    <button class="btn btn-primary fw-bold w-100 py-2 shadow-sm" @onclick="LoadStockCard" disabled="@(selectedItemId == 0 || isLoading)">
+                        @(isLoading ? "⏳" : "🔍 تصفية")
+                    </button>
+                    <button class="btn btn-outline-secondary fw-bold py-2" title="إلغاء الفلتر الزمني" @onclick="ResetFilter" disabled="@(selectedItemId == 0 || isLoading)">
+                        🔄
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (stockCard != null && selectedItemId > 0)
+    {
+        <!-- شريط التنبيه الذكي لحد المخزون (Traffic Light Alert Bar) -->
+        @if (stockCard.Summary.StockStatus == "Critical")
+        {
+            <div class="alert alert-danger border-0 shadow-sm d-flex align-items-center justify-content-between p-3 mb-4">
+                <div class="d-flex align-items-center">
+                    <span class="fs-2 me-3">🚨</span>
+                    <div>
+                        <h6 class="fw-bold mb-1">حالة المخزون: حرجة (أقل من حد الأمان)</h6>
+                        <span class="small">@stockCard.Summary.StatusMessage</span>
+                    </div>
+                </div>
+                <button class="btn btn-danger fw-bold px-3 shadow" @onclick="CreateUrgentPO">➕ إنشاء أمر شراء عاجل</button>
+            </div>
+        }
+        else if (stockCard.Summary.StockStatus == "ReorderNeeded")
+        {
+            <div class="alert alert-warning border-0 shadow-sm d-flex align-items-center justify-content-between p-3 mb-4 text-dark">
+                <div class="d-flex align-items-center">
+                    <span class="fs-2 me-3">🔔</span>
+                    <div>
+                        <h6 class="fw-bold mb-1">حالة المخزون: حان وقت إعادة الطلب</h6>
+                        <span class="small">@stockCard.Summary.StatusMessage</span>
+                    </div>
+                </div>
+                <button class="btn btn-warning text-dark fw-bold px-3 shadow" @onclick="CreateUrgentPO">➕ إنشاء أمر شراء للمشتريات</button>
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-success border-0 shadow-sm d-flex align-items-center p-3 mb-4">
+                <span class="fs-2 me-3">✅</span>
+                <div>
+                    <h6 class="fw-bold mb-1">حالة المخزون: آمن ومستقر</h6>
+                    <span class="small">@stockCard.Summary.StatusMessage</span>
+                </div>
+            </div>
+        }
+
+        <!-- كروت مؤشرات الرصيد اللحظي والحدود -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-4 bg-white @(stockCard.Summary.StockStatus == "Critical" ? "border-danger" : stockCard.Summary.StockStatus == "ReorderNeeded" ? "border-warning" : "border-success")">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">الرصيد المتاح للصرف (Available)</div>
+                        <div class="fs-3 fw-bold @(stockCard.Summary.StockStatus == "Critical" ? "text-danger" : stockCard.Summary.StockStatus == "ReorderNeeded" ? "text-warning" : "text-success")">
+                            @stockCard.Summary.AvailableQuantity.ToString("N2") <small class="fs-6 text-muted">@stockCard.Summary.Unit</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-primary border-4 bg-white">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">إجمالي الرصيد بالمخزن</div>
+                        <div class="fs-3 fw-bold text-primary">@stockCard.Summary.TotalQuantity.ToString("N2") <small class="fs-6 text-muted">@stockCard.Summary.Unit</small></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-warning border-4 bg-white">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">نقطة إعادة الطلب (Reorder Point)</div>
+                        <div class="fs-3 fw-bold text-dark">@stockCard.Summary.ReorderLevel.ToString("N2") <small class="fs-6 text-muted">@stockCard.Summary.Unit</small></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-danger border-4 bg-white">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">حد الأمان الحرج (Safety Stock)</div>
+                        <div class="fs-3 fw-bold text-danger">@stockCard.Summary.SafetyStock.ToString("N2") <small class="fs-6 text-muted">@stockCard.Summary.Unit</small></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- جدول التشغيلات واللوطات الحية -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 fw-bold">🏷️ أرصدة التشغيلات الحية (FEFO / Batch Traceability)</h6>
+                <small class="badge bg-primary">الأقرب انتهاءً أولاً</small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover mb-0 align-middle text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 25%;">رقم التشغيلة / اللوط</th>
+                                <th style="width: 20%;">الكمية بالتشغيلة</th>
+                                <th style="width: 20%;">تاريخ الصلاحية</th>
+                                <th style="width: 20%;">الأيام المتبقية</th>
+                                <th style="width: 15%;">الحالة</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (stockCard.Batches.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-muted py-4">لا توجد تشغيلات مسجلة ضمن النطاق المحدد.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var b in stockCard.Batches)
+                                {
+                                    <tr>
+                                        <td class="fw-bold text-primary"><code>@b.BatchNumber</code></td>
+                                        <td class="fw-bold">@b.Quantity.ToString("N2") @stockCard.Summary.Unit</td>
+                                        <td>@b.ExpiryDate</td>
+                                        <td>
+                                            @if (b.DaysRemaining.HasValue)
+                                            {
+                                                <span class="fw-bold @(b.DaysRemaining.Value < 0 ? "text-danger" : b.DaysRemaining.Value <= 30 ? "text-danger" : b.DaysRemaining.Value <= 60 ? "text-warning" : "text-success")">
+                                                    @(b.DaysRemaining.Value < 0 ? $"منتهي منذ {Math.Abs(b.DaysRemaining.Value)} يوم" : $"{b.DaysRemaining.Value} يوم")
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (b.Status == "Valid")
+                                            {
+                                                <span class="badge bg-success px-3 py-2">ساري ✓</span>
+                                            }
+                                            else if (b.Status == "Expiring_Soon")
+                                            {
+                                                <span class="badge bg-warning text-dark px-3 py-2">⚠️ أوشك على الانتهاء</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger px-3 py-2">❌ منتهي الصلاحية</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- سجل حركات كارت الصنف التراكمي -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-secondary text-white py-3">
+                <h6 class="mb-0 fw-bold">📜 سجل حركات الصنف التراكمي (Ledger)</h6>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0 align-middle text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 14%;">تاريخ الحركة</th>
+                                <th style="width: 14%;">نوع الحركة</th>
+                                <th style="width: 11%;" class="text-success">وارد (+)</th>
+                                <th style="width: 11%;" class="text-danger">منصرف (-)</th>
+                                <th style="width: 12%;" class="table-primary fw-bold">الرصيد التراكمي</th>
+                                <th style="width: 11%;">سعر الوحدة</th>
+                                <th style="width: 27%;" class="text-start ps-3">الملاحظات والتشغيلة</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (stockCard.Ledger.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="7" class="text-muted py-4">لا توجد حركات مخزنية خلال الفترة المحددة.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var l in stockCard.Ledger)
+                                {
+                                    <tr class="@(l.MovementType == "PRODUCTION_IN" ? "table-success" : l.MovementType == "OPENING_BALANCE" ? "table-warning fw-bold" : "")">
+                                        <td>@l.MovementAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td>
+                                            @if (l.MovementType == "OPENING_BALANCE")
+                                            {
+                                                <span class="badge bg-dark">رصيد أول المدة</span>
+                                            }
+                                            else if (l.MovementType == "PURCHASE_RECEIPT")
+                                            {
+                                                <span class="badge bg-success">استلام مشتريات</span>
+                                            }
+                                            else if (l.MovementType == "PRODUCTION_IN")
+                                            {
+                                                <span class="badge bg-primary">استلام إنتاج تام (+)</span>
+                                            }
+                                            else if (l.MovementType == "PRODUCTION_ISSUE" || l.MovementType == "PRODUCTION_OUT")
+                                            {
+                                                <span class="badge bg-warning text-dark">صرف تصنيع (-)</span>
+                                            }
+                                            else if (l.MovementType == "QC_REJECTED")
+                                            {
+                                                <span class="badge bg-danger">مرفوض فني</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">@l.MovementType</span>
+                                            }
+                                        </td>
+                                        <td class="text-success fw-bold">@(l.InQuantity > 0 ? l.InQuantity.ToString("N2") : "-")</td>
+                                        <td class="text-danger fw-bold">@(l.OutQuantity > 0 ? l.OutQuantity.ToString("N2") : "-")</td>
+                                        <td class="table-primary fw-bold fs-6">@l.RunningBalance.ToString("N2")</td>
+                                        <td>@(l.UnitCost > 0 ? l.UnitCost.ToString("N2") + " ج.م" : "-")</td>
+                                        <td class="text-start ps-3 small">@l.Notes</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else if (selectedItemId == 0)
+    {
+        <div class="alert alert-info border-0 shadow-sm text-center py-5">
+            <h5 class="fw-bold mb-2">🔍 اختر صنفاً لعرض تقرير كارت الصنف وحد الطلب</h5>
+            <p class="text-muted mb-0">سيعرض النظام حالة الرصيد المتاح مقارنة بحدود الأمان ونقطة إعادة الطلب، وأرصدة التشغيلات الصالحة وتاريخ الحركات.</p>
+        </div>
+    }
+</div>
+
+@code {
+    private List<ItemOptionDto>? allItems;
+    private List<WarehouseOptionDto>? warehouses;
+    private ItemStockCardDetailDto? stockCard;
+
+    private long selectedItemId = 0;
+    private long selectedWarehouseId = 0;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private bool isLoading = false;
+
+    private string apiBase = "https://localhost:7273/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadItems(), LoadWarehouses());
+    }
+
+    private async Task LoadItems()
+    {
+        try
+        {
+            allItems = await Http.GetFromJsonAsync<List<ItemOptionDto>>($"{apiBase}/Items");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading items: {ex.Message}");
+        }
+    }
+
+    private async Task LoadWarehouses()
+    {
+        try
+        {
+            warehouses = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>($"{apiBase}/Warehouses");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading warehouses: {ex.Message}");
+        }
+    }
+
+    private async Task OnItemSelected(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long id) && id > 0)
+        {
+            selectedItemId = id;
+            await LoadStockCard();
+        }
+        else
+        {
+            selectedItemId = 0;
+            stockCard = null;
+        }
+    }
+
+    private async Task OnWarehouseChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long wId))
+        {
+            selectedWarehouseId = wId;
+            if (selectedItemId > 0)
+            {
+                await LoadStockCard();
+            }
+        }
+    }
+
+    private async Task LoadStockCard()
+    {
+        if (selectedItemId == 0) return;
+        isLoading = true;
+        try
+        {
+            string url = $"{apiBase}/StockCard/card/{selectedItemId}?warehouseId={selectedWarehouseId}";
+            if (fromDate.HasValue) url += $"&fromDate={fromDate.Value:yyyy-MM-dd}";
+            if (toDate.HasValue) url += $"&toDate={toDate.Value:yyyy-MM-dd}";
+
+            stockCard = await Http.GetFromJsonAsync<ItemStockCardDetailDto>(url);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading stock card: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ResetFilter()
+    {
+        fromDate = null;
+        toDate = null;
+        await LoadStockCard();
+    }
+
+    private void CreateUrgentPO()
+    {
+        if (stockCard == null) return;
+
+        decimal suggestedQty = 0;
+        if (stockCard.Summary.MaxStock > stockCard.Summary.AvailableQuantity)
+        {
+            suggestedQty = stockCard.Summary.MaxStock - stockCard.Summary.AvailableQuantity;
+        }
+        else if (stockCard.Summary.ReorderLevel > 0)
+        {
+            suggestedQty = (stockCard.Summary.ReorderLevel * 1.5m) - stockCard.Summary.AvailableQuantity;
+        }
+
+        if (suggestedQty <= 0) suggestedQty = 100m;
+
+        Navigation.NavigateTo($"/purchase-orders?itemId={stockCard.Summary.ItemId}&suggestedQty={suggestedQty}");
+    }
+
+    public class ItemOptionDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+    }
+
+    public class WarehouseOptionDto
+    {
+        public long Id { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
+    }
+}

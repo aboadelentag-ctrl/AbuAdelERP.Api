@@ -1,0 +1,271 @@
+﻿@page "/employees-management"
+@inject HttpClient Http
+@using System.Net.Http.Json
+@using System.Text.Json.Serialization
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">👥 إدارة العمال والأقسام</h3>
+            <span class="text-muted">تسجيل وتكويد القوة العاملة لربطهم بأوامر التشغيل وتقارير الكفاءة</span>
+        </div>
+        <button class="btn btn-outline-primary fw-bold shadow-sm" @onclick="LoadData">
+            🔄 تحديث البيانات
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm">✅ @successMessage</div>
+    }
+
+    <div class="row">
+        <!-- عمود إضافة عامل جديد -->
+        <div class="col-md-5 mb-4">
+            <div class="card shadow-sm border-0 border-top border-primary border-4 h-100">
+                <div class="card-header bg-white py-3">
+                    <h6 class="text-primary m-0 fw-bold">➕ تسجيل عامل جديد</h6>
+                </div>
+                <div class="card-body bg-light">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-dark">اسم العامل</label>
+                        <input type="text" class="form-control fw-bold border-primary" @bind="newWorker.Name" placeholder="مثال: أحمد محمود" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-dark">كود العامل (اختياري)</label>
+                        <input type="text" class="form-control fw-bold border-primary" @bind="newWorker.WorkerCode" placeholder="مثال: W-105" />
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-dark">القسم التابع له</label>
+                        <select class="form-select fw-bold border-primary" @bind="newWorker.DepartmentId">
+                            <option value="0">-- اختر القسم --</option>
+                            @foreach (var dept in departments)
+                            {
+                                <option value="@dept.Id">@dept.DepartmentName</option>
+                            }
+                        </select>
+                    </div>
+                    <button class="btn btn-primary fw-bold w-100 shadow" @onclick="AddWorker" disabled="@isSubmitting">
+                        @(isSubmitting ? "جاري الحفظ..." : "💾 حفظ العامل")
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- عمود الهيكل التنظيمي (شجرة الإدارات) -->
+        <div class="col-md-7 mb-4">
+            <div class="card shadow-sm border-0 border-top border-dark border-4 h-100">
+                <div class="card-header bg-white py-3">
+                    <h6 class="text-dark m-0 fw-bold">🌳 الهيكل التنظيمي (شجرة الأقسام)</h6>
+                </div>
+                <div class="card-body" style="background-color: #f8f9fa;">
+                    @if (isLoading)
+                    {
+                        <div class="text-center py-5"><span class="text-muted fw-bold">⏳ جاري بناء الهيكل التنظيمي...</span></div>
+                    }
+                    else if (!departmentNodes.Any())
+                    {
+                        <div class="text-center py-5"><span class="text-muted fw-bold">لا توجد أقسام مسجلة حالياً لعرضها.</span></div>
+                    }
+                    else
+                    {
+                        <ul class="list-unstyled mb-0" style="font-size: 1.05rem;">
+                            @foreach (var dept in departmentNodes)
+                            {
+                                <li class="mb-3">
+                                    <!-- عقدة القسم (Parent Node) -->
+                                    <div class="d-flex align-items-center p-2 rounded @(dept.IsExpanded ? "bg-white shadow-sm border-primary" : "bg-white border-secondary")"
+                                         style="cursor: pointer; border: 1px solid; transition: 0.2s;"
+                                         @onclick="() => ToggleDepartment(dept)">
+                                        <span class="me-2 fs-5">
+                                            @(dept.IsExpanded ? "📂" : "📁")
+                                        </span>
+                                        <span class="fw-bold @(dept.IsExpanded ? "text-primary" : "text-dark")">@dept.Department.DepartmentName</span>
+                                        <span class="badge bg-secondary ms-auto rounded-pill">@dept.Employees.Count عمال</span>
+                                    </div>
+
+                                    <!-- عقد الموظفين (Child Nodes) -->
+                                    @if (dept.IsExpanded)
+                                    {
+                                        <ul class="list-unstyled pe-4 mt-2 border-end border-2 border-primary" style="margin-right: 12px;">
+                                            @if (!dept.Employees.Any())
+                                            {
+                                                <li class="p-2 text-muted small fw-bold"><i>لا يوجد عمال مسجلين في هذا القسم.</i></li>
+                                            }
+                                            @foreach (var worker in dept.Employees)
+                                            {
+                                                <li class="d-flex align-items-center p-2 mb-2 bg-white rounded shadow-sm border border-light">
+                                                    <span class="me-2 fs-5">👤</span>
+                                                    <div class="flex-grow-1">
+                                                        <div class="fw-bold text-dark">@worker.Name</div>
+                                                        <div class="small text-muted">
+                                                            كود: <span class="fw-bold">@(string.IsNullOrEmpty(worker.WorkerCode) ? "لا يوجد" : worker.WorkerCode)</span>
+                                                            @if (!string.IsNullOrEmpty(worker.JobTitle) && worker.JobTitle != "غير محدد")
+                                                            {
+                                                                <span class="ms-2">| الوظيفة: <span class="text-primary fw-bold">@worker.JobTitle</span></span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        @if (worker.Active)
+                                                        {
+                                                            <span class="badge bg-success-subtle text-success border border-success rounded-pill">نشط</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-danger-subtle text-danger border border-danger rounded-pill">موقوف</span>
+                                                        }
+                                                    </div>
+                                                </li>
+                                            }
+                                        </ul>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private CreateEmployeeDto newWorker = new();
+    private List<EmployeeDto> workers = new();
+    private List<DepartmentLookupDto> departments = new();
+    private List<DepartmentNode> departmentNodes = new();
+
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string employeesApiUrl = "api/Employees";
+    private string departmentsApiUrl = "api/Departments";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            // 1. جلب الأقسام من المسار الفعلي
+            departments = await Http.GetFromJsonAsync<List<DepartmentLookupDto>>(departmentsApiUrl) ?? new();
+
+            // 2. جلب الموظفين من مسار الـ Controller الفعلي
+            try
+            {
+                workers = await Http.GetFromJsonAsync<List<EmployeeDto>>(employeesApiUrl) ?? new();
+            }
+            catch (Exception ex)
+            {
+                workers = new();
+                Console.WriteLine($"تنبيه جلب الموظفين: {ex.Message}");
+            }
+
+            // 3. مطابقة وتوزيع الموظفين تحت أقسامهم
+            departmentNodes = departments
+                .Where(d => d.Active)
+                .Select(d => new DepartmentNode
+                {
+                    Department = d,
+                    Employees = workers.Where(w =>
+                        string.Equals(w.DepartmentName?.Trim(), d.DepartmentName?.Trim(), StringComparison.OrdinalIgnoreCase)
+                    ).ToList(),
+                    IsExpanded = true
+                }).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"حدث خطأ أثناء تحميل البيانات: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ToggleDepartment(DepartmentNode dept)
+    {
+        dept.IsExpanded = !dept.IsExpanded;
+    }
+
+    private async Task AddWorker()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (string.IsNullOrWhiteSpace(newWorker.Name) || newWorker.DepartmentId <= 0)
+        {
+            errorMessage = "يرجى إدخال اسم العامل واختيار القسم.";
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(employeesApiUrl, newWorker);
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "تم إضافة العامل بنجاح!";
+                newWorker = new();
+                await LoadData();
+            }
+            else
+            {
+                var errorText = await response.Content.ReadAsStringAsync();
+                errorMessage = string.IsNullOrWhiteSpace(errorText) ? "حدث خطأ أثناء حفظ العامل." : errorText;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    public class DepartmentNode
+    {
+        public DepartmentLookupDto Department { get; set; } = new();
+        public List<EmployeeDto> Employees { get; set; } = new();
+        public bool IsExpanded { get; set; }
+    }
+
+    public class EmployeeDto
+    {
+        public long Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string WorkerCode { get; set; } = string.Empty;
+        public string JobTitle { get; set; } = string.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
+        public bool Active { get; set; } = true;
+    }
+
+    public class CreateEmployeeDto
+    {
+        public string Name { get; set; } = string.Empty;
+        public string WorkerCode { get; set; } = string.Empty;
+        public long? DepartmentId { get; set; }
+    }
+
+    public class DepartmentLookupDto
+    {
+        public long Id { get; set; }
+        public string DepartmentName { get; set; } = string.Empty;
+        public bool Active { get; set; } = true;
+    }
+}

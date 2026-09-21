@@ -1,0 +1,315 @@
+﻿@page "/warehouses"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">🏢 إدارة المخازن والمستودعات (الهيكل الشجري)</h3>
+            <span class="text-muted">تعريف المخازن الرئيسية والفرعية، وأنواعها، ومراقبة حالتها</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm mb-3">❌ @errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success fw-bold shadow-sm mb-3">✅ @successMessage</div>
+    }
+
+    <div class="row">
+        <!-- 1. نموذج الإضافة والتعديل -->
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm border-0 border-top border-primary border-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="text-primary m-0 fw-bold">@(isEditMode ? "✏️ تعديل بيانات المخزن" : "➕ إضافة مخزن جديد")</h5>
+                </div>
+                <div class="card-body bg-light">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-secondary">كود المخزن *</label>
+                        <input type="text" class="form-control border-primary fw-bold" @bind="currentWarehouse.WarehouseCode" placeholder="مثال: WH-MAIN-01" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-secondary">اسم المخزن *</label>
+                        <input type="text" class="form-control border-primary" @bind="currentWarehouse.WarehouseName" placeholder="مثال: مخزن الخامات الرئيسي" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-secondary">نوع المخزن *</label>
+                        <select class="form-select border-primary" @bind="currentWarehouse.WarehouseType">
+                            <option value="">-- اختر نوع المخزن --</option>
+                            <option value="خامات">مخزن خامات</option>
+                            <option value="منتج تام">مخزن منتج تام</option>
+                            <option value="تعبئة وتغليف">مخزن تعبئة وتغليف</option>
+                            <option value="ثلاجة تبريد">ثلاجة تبريد / تجميد</option>
+                            <option value="قطع غيار">مستودع قطع غيار</option>
+                            <option value="هالك">مخزن هالك وتوالف</option>
+                        </select>
+                    </div>
+
+                    <!-- قائمة اختيار المخزن الرئيسي الشجري -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-secondary">يتبع مخزن رئيسي (اختياري)</label>
+                        <select class="form-select border-primary" @bind="currentWarehouse.ParentWarehouseId">
+                            <option value="">-- مخزن رئيسي مستقل (لا يتبع أحداً) --</option>
+                            @foreach (var w in warehousesList.Where(w => w.Id != currentWarehouse.Id))
+                            {
+                                <option value="@w.Id">@w.WarehouseName (@w.WarehouseCode)</option>
+                            }
+                        </select>
+                        <small class="text-muted d-mt-1" style="font-size: 0.75rem;">حدد هذا الخيار إذا كان هذا مخزناً فرعياً تابعاً لمخزن رئيسي.</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-secondary">وصف إضافي (اختياري)</label>
+                        <textarea class="form-control" rows="2" @bind="currentWarehouse.Description" placeholder="ملاحظات حول موقع المخزن أو استخدامه..."></textarea>
+                    </div>
+
+                    <div class="mb-4 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="activeSwitch" @bind="currentWarehouse.Active">
+                        <label class="form-check-label fw-bold @(currentWarehouse.Active ? "text-success" : "text-danger")" for="activeSwitch">
+                            @(currentWarehouse.Active ? "المخزن مفعل (يعمل)" : "المخزن موقوف")
+                        </label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary fw-bold w-100 shadow" @onclick="SaveWarehouse" disabled="@isSubmitting">
+                            @(isSubmitting ? "⏳ جاري الحفظ..." : "💾 حفظ البيانات")
+                        </button>
+                        @if (isEditMode)
+                        {
+                            <button class="btn btn-outline-secondary fw-bold shadow-sm" @onclick="ResetForm">إلغاء</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. جدول عرض المخازن -->
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white py-3">
+                    <h6 class="text-dark m-0 fw-bold">📋 الشجرة التنظيمية للمخازن</h6>
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    @if (isLoading)
+                    {
+                        <div class="p-5 text-center text-primary fw-bold">
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            جاري تحميل المخازن...
+                        </div>
+                    }
+                    else if (!warehousesList.Any())
+                    {
+                        <div class="p-5 text-center text-muted fw-bold">⚠️ لا توجد مخازن مسجلة حتى الآن.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-hover mb-0 text-center align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>الكود</th>
+                                    <th>اسم المخزن</th>
+                                    <th>النوع</th>
+                                    <th>يتبع لـ (المخزن الرئيسي)</th>
+                                    <th>الحالة</th>
+                                    <th>إجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var w in warehousesList)
+                                {
+                                    <tr>
+                                        <td class="fw-bold text-primary">@w.WarehouseCode</td>
+                                        <td class="fw-bold text-start ps-3">@w.WarehouseName</td>
+                                        <td>
+                                            <span class="badge bg-info text-dark">@w.WarehouseType</span>
+                                        </td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(w.ParentWarehouseName))
+                                            {
+                                                <span class="badge bg-secondary">@w.ParentWarehouseName</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-primary">مخزن رئيسي</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (w.Active)
+                                            {
+                                                <span class="badge bg-success-subtle text-success border border-success">مفعل</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger-subtle text-danger border border-danger">موقوف</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary fw-bold me-1" @onclick="() => EditWarehouse(w)" title="تعديل">✏️</button>
+                                            <button class="btn btn-sm btn-outline-danger fw-bold" @onclick="() => DeleteWarehouse(w.Id)" title="حذف">🗑️</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<WarehouseDto> warehousesList = new();
+    private WarehouseDto currentWarehouse = new WarehouseDto { Active = true };
+
+    private bool isEditMode = false;
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    private string apiUrl = "api/Warehouses";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadWarehouses();
+    }
+
+    private async Task LoadWarehouses()
+    {
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            warehousesList = await Http.GetFromJsonAsync<List<WarehouseDto>>(apiUrl) ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "❌ تعذر الاتصال بالخادم لجلب بيانات المخازن.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveWarehouse()
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        if (string.IsNullOrWhiteSpace(currentWarehouse.WarehouseCode))
+        {
+            errorMessage = "⚠️ يرجى إدخال كود المخزن."; return;
+        }
+        if (string.IsNullOrWhiteSpace(currentWarehouse.WarehouseName))
+        {
+            errorMessage = "⚠️ يرجى إدخال اسم المخزن."; return;
+        }
+        if (string.IsNullOrWhiteSpace(currentWarehouse.WarehouseType))
+        {
+            errorMessage = "⚠️ يرجى اختيار نوع المخزن."; return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            HttpResponseMessage response;
+            if (isEditMode)
+            {
+                response = await Http.PutAsJsonAsync($"{apiUrl}/{currentWarehouse.Id}", currentWarehouse);
+            }
+            else
+            {
+                response = await Http.PostAsJsonAsync(apiUrl, currentWarehouse);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = isEditMode ? "✅ تم تعديل بيانات المخزن بنجاح!" : "✅ تم إضافة المخزن الجديد بنجاح!";
+                await LoadWarehouses();
+                ResetForm();
+            }
+            else
+            {
+                errorMessage = "❌ " + await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "❌ حدث خطأ أثناء الحفظ: " + ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void EditWarehouse(WarehouseDto w)
+    {
+        currentWarehouse = new WarehouseDto
+        {
+            Id = w.Id,
+            WarehouseCode = w.WarehouseCode,
+            WarehouseName = w.WarehouseName,
+            WarehouseType = w.WarehouseType,
+            ParentWarehouseId = w.ParentWarehouseId,
+            Description = w.Description,
+            Active = w.Active
+        };
+        isEditMode = true;
+        errorMessage = "";
+        successMessage = "";
+    }
+
+    private async Task DeleteWarehouse(long id)
+    {
+        errorMessage = "";
+        successMessage = "";
+
+        try
+        {
+            var response = await Http.DeleteAsync($"{apiUrl}/{id}");
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "✅ تم حذف المخزن بنجاح!";
+                await LoadWarehouses();
+                if (isEditMode && currentWarehouse.Id == id) ResetForm();
+            }
+            else
+            {
+                errorMessage = "⚠️ " + await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "❌ حدث خطأ أثناء محاولة الحذف.";
+        }
+    }
+
+    private void ResetForm()
+    {
+        currentWarehouse = new WarehouseDto { Active = true };
+        isEditMode = false;
+        errorMessage = "";
+        successMessage = "";
+    }
+
+    public class WarehouseDto
+    {
+        public long Id { get; set; }
+        public string WarehouseCode { get; set; } = string.Empty;
+        public string WarehouseName { get; set; } = string.Empty;
+        public string WarehouseType { get; set; } = string.Empty;
+        public long? ParentWarehouseId { get; set; }
+        public string? ParentWarehouseName { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public bool Active { get; set; } = true;
+    }
+}

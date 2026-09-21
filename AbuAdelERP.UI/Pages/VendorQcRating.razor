@@ -1,0 +1,285 @@
+﻿@page "/vendor-qc-rating"
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<div class="container-fluid p-0" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold text-primary mb-1">📊 مؤشرات جودة الموردين وسجل الفحص الفني</h3>
+            <small class="text-muted">متابعة نسب القبول والرفض وتصنيف الموردين وفق معايير فحص استلام الخامات</small>
+        </div>
+    </div>
+
+    <!-- شريط البحث والفلترة بالتاريخ -->
+    <div class="card shadow-sm border-0 mb-4 bg-light">
+        <div class="card-body py-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-dark">📅 من تاريخ</label>
+                    <input type="date" class="form-control fw-bold border-primary" @bind="fromDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-dark">📅 إلى تاريخ</label>
+                    <input type="date" class="form-control fw-bold border-primary" @bind="toDate" />
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary fw-bold w-100 py-2 shadow-sm" @onclick="LoadData" disabled="@isLoading">
+                        @(isLoading ? "⏳ جاري الفلترة..." : "🔍 تصفية المؤشرات")
+                    </button>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-outline-secondary fw-bold w-100 py-2" @onclick="ResetFilter" disabled="@isLoading">
+                        🔄 إعادة ضبط (الكل)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- كروت ملخص الأداء العام -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-success border-4 bg-white">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">إجمالي الموردين المفحوصين</div>
+                    <div class="fs-3 fw-bold text-success">@(ratings?.Count ?? 0)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-primary border-4 bg-white">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">موردين بتصنيف ممتاز (Grade A)</div>
+                    <div class="fs-3 fw-bold text-primary">@(ratings?.Count(r => r.QualityGrade == "A") ?? 0)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-warning border-4 bg-white">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">موردين تحت الملاحظة (Grade B)</div>
+                    <div class="fs-3 fw-bold text-warning">@(ratings?.Count(r => r.QualityGrade == "B") ?? 0)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-danger border-4 bg-white">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">موردين ذوو خطورة جودة (Grade C)</div>
+                    <div class="fs-3 fw-bold text-danger">@(ratings?.Count(r => r.QualityGrade == "C") ?? 0)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول تصنيف وتقييم الموردين -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-dark text-white py-3">
+            <h6 class="mb-0 fw-bold">🏆 تقييم أداء الموردين ومعدل مطابقة الجودة (% Acceptance Rate)</h6>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover mb-0 align-middle text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 25%;" class="text-start ps-3">اسم المورد</th>
+                            <th style="width: 12%;">عدد الشحنات</th>
+                            <th style="width: 13%;">إجمالي الوارد</th>
+                            <th style="width: 13%;">الكمية المقبولة</th>
+                            <th style="width: 13%;">الكمية المرفوضة</th>
+                            <th style="width: 12%;">معدل القبول %</th>
+                            <th style="width: 12%;">تصنيف الجودة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (ratings == null)
+                        {
+                            <tr><td colspan="7" class="py-4">⏳ جاري حساب التقييمات للفترة المحددة...</td></tr>
+                        }
+                        else if (!ratings.Any())
+                        {
+                            <tr><td colspan="7" class="text-muted py-4">لا توجد حركات استلام وفحص جودة مسجلة خلال هذه الفترة.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var r in ratings)
+                            {
+                                <tr>
+                                    <td class="text-start ps-3 fw-bold text-primary">@r.SupplierName</td>
+                                    <td><span class="badge bg-secondary">@r.TotalShipments شحنة</span></td>
+                                    <td class="fw-bold">@r.TotalReceivedQty.ToString("N2")</td>
+                                    <td class="text-success fw-bold">@r.TotalAcceptedQty.ToString("N2")</td>
+                                    <td class="text-danger fw-bold">@r.TotalRejectedQty.ToString("N2")</td>
+                                    <td>
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar @(r.AcceptanceRate >= 95 ? "bg-success" : r.AcceptanceRate >= 85 ? "bg-warning text-dark" : "bg-danger") fw-bold"
+                                                 role="progressbar" style="width: @r.AcceptanceRate%;">
+                                                @r.AcceptanceRate%
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (r.QualityGrade == "A")
+                                        {
+                                            <span class="badge bg-success fs-6 px-3">A - ممتاز</span>
+                                        }
+                                        else if (r.QualityGrade == "B")
+                                        {
+                                            <span class="badge bg-warning text-dark fs-6 px-3">B - تحت الملاحظة</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger fs-6 px-3">C - غير مطابق</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- سجل الفحوصات التفصيلية وأسباب الرفض -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-secondary text-white py-3">
+            <h6 class="mb-0 fw-bold">📜 سجل الفحوصات الفنية للخامات وأسباب الرفض</h6>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0 align-middle text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 14%;">تاريخ الفحص</th>
+                            <th style="width: 18%;" class="text-start ps-3">المورد</th>
+                            <th style="width: 20%;" class="text-start ps-3">الصنف / الخامة</th>
+                            <th style="width: 12%;">الكمية</th>
+                            <th style="width: 12%;">القرار الفني</th>
+                            <th style="width: 24%;" class="text-start ps-3">ملاحظات ومفتش الجودة والشهادات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (history == null)
+                        {
+                            <tr><td colspan="6" class="py-4">⏳ جاري تحميل السجل...</td></tr>
+                        }
+                        else if (!history.Any())
+                        {
+                            <tr><td colspan="6" class="text-muted py-4">لا يوجد سجل فحوصات خلال هذه الفترة.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var h in history)
+                            {
+                                <tr>
+                                    <td>@h.InspectionDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="text-start ps-3 fw-bold">@h.SupplierName</td>
+                                    <td class="text-start ps-3">
+                                        <div>@h.ItemName</div>
+                                        <small class="text-muted">@h.ItemCode</small>
+                                    </td>
+                                    <td class="fw-bold">@h.Quantity.ToString("N2")</td>
+                                    <td>
+                                        @if (h.MovementType == "PURCHASE_RECEIPT")
+                                        {
+                                            <span class="badge bg-success px-3 py-2">✅ إفراج ومقبول</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger px-3 py-2">❌ مرفوض فني</span>
+                                        }
+                                    </td>
+                                    <td class="text-start ps-3 small">@h.Notes</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<VendorQcScoreDto>? ratings;
+    private List<QcInspectionHistoryDto>? history;
+
+    // افتراضياً: آخر 30 يوماً
+    private DateTime? fromDate = DateTime.Today.AddDays(-30);
+    private DateTime? toDate = DateTime.Today;
+
+    private bool isLoading = false;
+    private string apiBase = "https://localhost:7273/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            string queryParams = "";
+            if (fromDate.HasValue && toDate.HasValue)
+            {
+                queryParams = $"?fromDate={fromDate.Value:yyyy-MM-dd}&toDate={toDate.Value:yyyy-MM-dd}";
+            }
+            else if (fromDate.HasValue)
+            {
+                queryParams = $"?fromDate={fromDate.Value:yyyy-MM-dd}";
+            }
+            else if (toDate.HasValue)
+            {
+                queryParams = $"?toDate={toDate.Value:yyyy-MM-dd}";
+            }
+
+            ratings = await Http.GetFromJsonAsync<List<VendorQcScoreDto>>($"{apiBase}/VendorQc/ratings{queryParams}");
+            history = await Http.GetFromJsonAsync<List<QcInspectionHistoryDto>>($"{apiBase}/VendorQc/history{queryParams}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching QC data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ResetFilter()
+    {
+        fromDate = null;
+        toDate = null;
+        await LoadData();
+    }
+
+    public class VendorQcScoreDto
+    {
+        public long SupplierId { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public int TotalShipments { get; set; }
+        public decimal TotalReceivedQty { get; set; }
+        public decimal TotalAcceptedQty { get; set; }
+        public decimal TotalRejectedQty { get; set; }
+        public decimal AcceptanceRate { get; set; }
+        public string QualityGrade { get; set; } = "A";
+        public int RejectionIncidentsCount { get; set; }
+    }
+
+    public class QcInspectionHistoryDto
+    {
+        public long MovementId { get; set; }
+        public DateTime InspectionDate { get; set; }
+        public long SupplierId { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public long ItemId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string MovementType { get; set; } = string.Empty;
+        public decimal Quantity { get; set; }
+        public string Notes { get; set; } = string.Empty;
+    }
+}

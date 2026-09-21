@@ -1,0 +1,183 @@
+﻿@page "/form-reports"
+@inject HttpClient Http
+@using System.Text.Json
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">📊 أرشيف تقارير النماذج</h3>
+            <span class="text-muted">استعراض وتحليل البيانات المدخلة من الأقسام</span>
+        </div>
+    </div>
+
+    <!-- 1. اختيار النموذج لعرض تقاريره -->
+    <div class="card shadow-sm mb-4 border-0">
+        <div class="card-body bg-light rounded d-flex align-items-end gap-3">
+            <div class="flex-grow-1">
+                <label class="fw-bold mb-2 text-primary">اختر النموذج لاستعراض بياناته:</label>
+                <select class="form-select border-primary fw-bold" @onchange="LoadSubmissions">
+                    <option value="">-- اضغط هنا لاختيار نموذج --</option>
+                    @if (allForms != null)
+                    {
+                        @foreach (var form in allForms)
+                        {
+                            <option value="@form.Id">@form.FormName</option>
+                        }
+                    }
+                </select>
+            </div>
+            <button class="btn btn-outline-primary fw-bold px-4" @onclick="PrintReport" disabled="@(submissions == null || !submissions.Any())">
+                🖨️ طباعة
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. الجدول الديناميكي لعرض البيانات -->
+    @if (isLoading)
+    {
+        <div class="alert alert-info shadow-sm fw-bold">⏳ جاري تحميل البيانات...</div>
+    }
+    else if (submissions != null && !submissions.Any())
+    {
+        <div class="alert alert-warning shadow-sm fw-bold">⚠️ لا توجد أي بيانات أو تقارير مدخلة لهذا النموذج حتى الآن.</div>
+    }
+    else if (submissions != null && formFields != null)
+    {
+        <div class="card shadow border-0">
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>م</th>
+                            <!-- رسم أسماء الأعمدة ديناميكياً من التصميم -->
+                            @foreach (var field in formFields)
+                            {
+                                <th>@field.Label</th>
+                            }
+                            <th class="bg-secondary">المدخل</th>
+                            <th class="bg-secondary">وقت وتاريخ الإدخال</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{
+                            int index = 1;
+                        }
+                        @foreach (var sub in submissions)
+                        {
+                            // فك تشفير الإجابات لكل صف
+                            var rowData = new Dictionary<string, string>();
+                            try
+                            {
+                                rowData = JsonSerializer.Deserialize<Dictionary<string, string>>(sub.SubmissionData) ?? new();
+                            }
+                            catch { /* تجاهل الأخطاء في البيانات القديمة التالفة */ }
+
+                            <tr>
+                                <td class="fw-bold text-muted">@index</td>
+
+                                <!-- رسم خلايا البيانات ديناميكياً لتتطابق مع الأعمدة -->
+                                @foreach (var field in formFields)
+                                {
+                                    <td>
+                                        @if (rowData.ContainsKey(field.Label) && !string.IsNullOrWhiteSpace(rowData[field.Label]))
+                                        {
+                                            @if (field.Type == "image" || field.Type == "video" || field.Type == "audio")
+                                            {
+                                                <span class="badge bg-info text-dark">مرفق 📎</span>
+                                            }
+                                            else
+                                            {
+                                                @rowData[field.Label]
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                }
+                                <td class="fw-bold text-primary">رقم المستخدم: @sub.UserId</td>
+                                <td dir="ltr">@sub.SubmittedAt?.ToString("yyyy-MM-dd hh:mm tt")</td>
+                            </tr>
+                            index++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<DynamicFormDto>? allForms;
+    private DynamicFormDto? selectedForm;
+    private List<FormField>? formFields;
+    private List<FormSubmissionDto>? submissions;
+    private bool isLoading = false;
+    private string apiUrl = "https://localhost:7273/api/DynamicForms";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // هنا نجلب كل النماذج (حتى المعطلة، لأننا قد نحتاج رؤية تقاريرها القديمة)
+            allForms = await Http.GetFromJsonAsync<List<DynamicFormDto>>(apiUrl);
+        }
+        catch (Exception ex) { Console.WriteLine(ex.Message); }
+    }
+
+    private async Task LoadSubmissions(ChangeEventArgs e)
+    {
+        submissions = null;
+        formFields = null;
+
+        if (long.TryParse(e.Value?.ToString(), out long formId))
+        {
+            selectedForm = allForms?.FirstOrDefault(f => f.Id == formId);
+
+            if (selectedForm != null && !string.IsNullOrEmpty(selectedForm.FieldsSchema))
+            {
+                isLoading = true;
+
+                // 1. تحليل أعمدة الجدول
+                formFields = JsonSerializer.Deserialize<List<FormField>>(selectedForm.FieldsSchema);
+
+                // 2. جلب البيانات من السيرفر
+                try
+                {
+                    submissions = await Http.GetFromJsonAsync<List<FormSubmissionDto>>($"{apiUrl}/{formId}/submissions");
+                }
+                catch { /* معالجة الخطأ */ }
+
+                isLoading = false;
+            }
+        }
+    }
+
+    private void PrintReport()
+    {
+        // يمكننا ربطها بـ JS لاحقاً لطباعة الشاشة
+    }
+
+    public class DynamicFormDto
+    {
+        public long Id { get; set; }
+        public string FormName { get; set; } = string.Empty;
+        public string FieldsSchema { get; set; } = string.Empty;
+    }
+
+    public class FormField
+    {
+        public string Label { get; set; } = string.Empty;
+        public string Type { get; set; } = "text";
+    }
+
+    public class FormSubmissionDto
+    {
+        public long Id { get; set; }
+        public string SubmissionData { get; set; } = string.Empty;
+        public long? UserId { get; set; } // تم التعديل هنا
+        public DateTime? SubmittedAt { get; set; } // تم التعديل هنا
+    }
+}

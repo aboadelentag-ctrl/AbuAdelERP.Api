@@ -1,0 +1,341 @@
+﻿@page "/crates"
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container mt-4" dir="rtl">
+    <!-- عنوان الشاشة ورصيد المصنع وزر الإضافة -->
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
+        <div>
+            <h3 class="text-primary m-0 mb-1">إدارة حركة الإسبات</h3>
+            <span class="badge bg-secondary fs-6 shadow-sm">🏭 رصيد المصنع الداخلي: @factoryBalance سبت</span>
+        </div>
+        <button class="btn btn-success shadow-sm fw-bold" @onclick="ShowAddForm">
+            ➕ إضافة عميل جديد
+        </button>
+    </div>
+    <!-- نافذة إضافة وتعديل العميل (القديمة) -->
+    @if (showForm)
+    {
+        <div class="card shadow-sm mb-4 border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="m-0">@(currentClient.Id == 0 ? "إضافة عميل جديد" : "تعديل بيانات العميل")</h5>
+            </div>
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger py-2 mb-3 fw-bold">@errorMessage</div>
+                }
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">اسم العميل / المندوب <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" @bind-value="currentClient.Name" @bind-value:event="oninput" placeholder="أدخل اسم العميل..." />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">الرصيد الافتتاحي</label>
+                        <input type="number" class="form-control" @bind-value="currentClient.CrateBalance" @bind-value:event="oninput" />
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end mb-3">
+                        <button class="btn btn-primary w-100 fw-bold" @onclick="SaveClient">💾 حفظ العميل</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer text-start bg-light">
+                <button class="btn btn-secondary" @onclick="HideForm">إلغاء</button>
+            </div>
+        </div>
+    }
+
+    <!-- جدول عرض العملاء الرئيسي -->
+    @if (clients == null)
+    {
+        <div class="alert alert-info shadow-sm">
+            <strong>جاري تحميل البيانات...</strong> يرجى الانتظار.
+        </div>
+    }
+    else if (!clients.Any())
+    {
+        <div class="alert alert-warning shadow-sm">
+            لا يوجد عملاء أو أرصدة إسبات مسجلة حتى الآن.
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>رقم</th>
+                            <th>اسم العميل / المندوب</th>
+                            <th>الرصيد الحالي</th>
+                            <th>إدارة العهدة والحركات</th>
+                            <th>إعدادات العميل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var client in clients)
+                        {
+                            <tr>
+                                <td>@client.Id</td>
+                                <td class="fw-bold">@client.Name</td>
+                                <td>
+                                    <span class="badge @(client.CrateBalance > 0 ? "bg-danger" : "bg-success") fs-5">
+                                        @client.CrateBalance
+                                    </span>
+                                </td>
+                                <td>
+                                    <!-- أزرار الحركات الجديدة -->
+                                    <button class="btn btn-sm btn-primary mx-1 fw-bold" @onclick="() => ShowTransactionForm(client)">📦 صرف / استلام</button>
+                                    <button class="btn btn-sm btn-info mx-1 fw-bold text-white" @onclick="() => ShowHistory(client)">📜 كشف الحساب</button>
+                                </td>
+                                <td>
+                                    <!-- أزرار الإعدادات القديمة -->
+                                    <button class="btn btn-sm btn-outline-secondary mx-1" @onclick="() => EditClient(client)">✏️</button>
+                                    <button class="btn btn-sm btn-outline-danger mx-1" @onclick="() => DeleteClient(client.Id)">🗑️</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- نافذة منبثقة (Modal) لتسجيل حركة جديدة -->
+    @if (showTransactionModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-primary">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title">تسجيل حركة إسبات: @selectedClient?.Name</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="CloseTransactionModal"></button>
+                    </div>
+                    <div class="modal-body">
+                        @if (!string.IsNullOrEmpty(transactionErrorMessage))
+                        {
+                            <div class="alert alert-danger py-2 mb-3 fw-bold">@transactionErrorMessage</div>
+                        }
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">نوع الحركة</label>
+                            <select class="form-select border-primary" @bind="newTransaction.TransactionType">
+                                <option value="منصرف للعميل">🔴 منصرف للعميل (خروج إسبات)</option>
+                                <option value="مستلم من العميل">🟢 مستلم من العميل (رجوع إسبات)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">الكمية (عدد الإسبات)</label>
+                            <input type="number" class="form-control text-center fs-4 fw-bold text-primary" @bind-value="newTransaction.Quantity" @bind-value:event="oninput" min="1" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">ملاحظات (اختياري)</label>
+                            <textarea class="form-control" @bind="newTransaction.Notes" rows="2" placeholder="أسباب الصرف أو الاستلام..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseTransactionModal">إلغاء</button>
+                        <button type="button" class="btn btn-primary fw-bold" @onclick="SaveTransaction">💾 حفظ واعتماد الحركة</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- نافذة منبثقة (Modal) لعرض كشف الحساب (سجل الحركات) -->
+    @if (showHistoryModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content border-info">
+                    <div class="modal-header bg-info text-white">
+                        <h5 class="modal-title fw-bold">📜 كشف حساب إسبات: @selectedClient?.Name</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="CloseHistoryModal"></button>
+                    </div>
+                    <div class="modal-body p-0">
+                        @if (clientHistory == null)
+                        {
+                            <div class="p-3 text-center">جاري تحميل السجل...</div>
+                        }
+                        else if (!clientHistory.Any())
+                        {
+                            <div class="p-3 text-center text-muted">لا توجد حركات مسجلة لهذا العميل حتى الآن.</div>
+                        }
+                        else
+                        {
+                            <table class="table table-striped table-hover mb-0 text-center">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>التاريخ والوقت</th>
+                                        <th>نوع الحركة</th>
+                                        <th>الكمية</th>
+                                        <th>ملاحظات</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var trans in clientHistory)
+                                    {
+                                        <tr>
+                                            <td dir="ltr">@trans.TransactionDate.ToString("yyyy-MM-dd hh:mm tt")</td>
+                                            <td class="fw-bold @(trans.TransactionType == "منصرف للعميل" ? "text-danger" : "text-success")">
+                                                @trans.TransactionType
+                                            </td>
+                                            <td class="fw-bold fs-5">@trans.Quantity</td>
+                                            <td class="text-muted small">@trans.Notes</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                    <div class="modal-footer bg-light d-flex justify-content-between">
+                        <span class="fw-bold fs-5 text-primary">الرصيد الحالي: @selectedClient?.CrateBalance سبت</span>
+                        <button type="button" class="btn btn-secondary" @onclick="CloseHistoryModal">إغلاق</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // --- متغيرات إدارة العملاء ---
+    private int factoryBalance = 0;
+    private List<CrateClient>? clients;
+    private bool showForm = false;
+    private CrateClient currentClient = new CrateClient();
+    private string errorMessage = "";
+    
+    // --- متغيرات إدارة الحركات النوافذ المنبثقة ---
+    private bool showTransactionModal = false;
+    private bool showHistoryModal = false;
+    private CrateClient? selectedClient;
+    private CrateClientTransaction newTransaction = new CrateClientTransaction();
+    private List<CrateClientTransaction>? clientHistory;
+    private string transactionErrorMessage = "";
+
+    // ⚠️ تأكد أن البورت 7273 يطابق البورت في جهازك
+    private string clientApiUrl = "https://localhost:7273/api/CrateClients";
+    private string transApiUrl = "https://localhost:7273/api/CrateClientTransactions";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadClients();
+    }
+
+    // ========== دوال إدارة العملاء ==========
+    private async Task LoadClients()
+    {
+        try
+        {
+            clients = await Http.GetFromJsonAsync<List<CrateClient>>(clientApiUrl);
+            // جلب رصيد المصنع لعرضه
+            factoryBalance = await Http.GetFromJsonAsync<int>($"{transApiUrl}/factory-balance");
+        }
+        catch (Exception ex) { Console.WriteLine($"خطأ: {ex.Message}"); }
+    }
+
+    private void ShowAddForm() { currentClient = new CrateClient(); errorMessage = ""; showForm = true; }
+    private void EditClient(CrateClient client) { currentClient = new CrateClient { Id = client.Id, Name = client.Name, CrateBalance = client.CrateBalance }; errorMessage = ""; showForm = true; }
+    private void HideForm() { showForm = false; }
+
+    private async Task SaveClient()
+    {
+        errorMessage = "";
+        if (string.IsNullOrWhiteSpace(currentClient.Name)) { errorMessage = "⚠️ يرجى كتابة اسم العميل أولاً!"; return; }
+        
+        HttpResponseMessage response;
+        if (currentClient.Id == 0) response = await Http.PostAsJsonAsync(clientApiUrl, currentClient);
+        else response = await Http.PutAsJsonAsync($"{clientApiUrl}/{currentClient.Id}", currentClient);
+
+        if (response.IsSuccessStatusCode) { await LoadClients(); showForm = false; }
+        else errorMessage = $"⚠️ عذراً، رفض السيرفر الحفظ. كود الخطأ: {response.StatusCode}";
+    }
+
+    private async Task DeleteClient(int id) { await Http.DeleteAsync($"{clientApiUrl}/{id}"); await LoadClients(); }
+
+    // ========== دوال الحركات (العهد) ==========
+
+    // 1. فتح نافذة تسجيل حركة جديدة
+    private void ShowTransactionForm(CrateClient client)
+    {
+        selectedClient = client;
+        newTransaction = new CrateClientTransaction 
+        { 
+            CrateClientId = client.Id, 
+            TransactionType = "منصرف للعميل", // القيمة الافتراضية
+            Quantity = 1 
+        };
+        transactionErrorMessage = "";
+        showTransactionModal = true;
+    }
+
+    private void CloseTransactionModal() { showTransactionModal = false; }
+
+    // 2. حفظ الحركة الجديدة في السيرفر
+    private async Task SaveTransaction()
+    {
+        transactionErrorMessage = "";
+        if (newTransaction.Quantity <= 0)
+        {
+            transactionErrorMessage = "⚠️ يجب إدخال كمية صحيحة أكبر من الصفر.";
+            return;
+        }
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync(transApiUrl, newTransaction);
+            if (response.IsSuccessStatusCode)
+            {
+                showTransactionModal = false;
+                await LoadClients(); // تحديث الجدول الرئيسي ليعكس الرصيد الجديد
+            }
+            else
+            {
+                transactionErrorMessage = "⚠️ حدث خطأ أثناء تسجيل الحركة في قاعدة البيانات.";
+            }
+        }
+        catch (Exception ex)
+        {
+            transactionErrorMessage = $"⚠️ خطأ في الاتصال: {ex.Message}";
+        }
+    }
+
+    // 3. فتح نافذة كشف الحساب
+    private async Task ShowHistory(CrateClient client)
+    {
+        selectedClient = client;
+        clientHistory = null; // لتشغيل رسالة "جاري التحميل"
+        showHistoryModal = true;
+
+        try
+        {
+            // جلب سجل الحركات من السيرفر
+            clientHistory = await Http.GetFromJsonAsync<List<CrateClientTransaction>>($"{transApiUrl}/client/{client.Id}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"خطأ في جلب السجل: {ex.Message}");
+            clientHistory = new List<CrateClientTransaction>();
+        }
+    }
+
+    private void CloseHistoryModal() { showHistoryModal = false; }
+
+    // ========== تعريف هيكل البيانات ==========
+    public class CrateClient
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public int CrateBalance { get; set; }
+    }
+
+    public class CrateClientTransaction
+    {
+        public int Id { get; set; }
+        public int CrateClientId { get; set; }
+        public string TransactionType { get; set; } = string.Empty;
+        public int Quantity { get; set; }
+        public DateTime TransactionDate { get; set; }
+        public string? Notes { get; set; }
+    }
+}
