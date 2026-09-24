@@ -1,0 +1,1196 @@
+﻿@page "/production-operations"
+@page "/production-hub"
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded shadow-sm border-start border-primary border-4">
+        <div>
+            <h4 class="mb-1 text-dark fw-bold">⚙️ غرفة عمليات الإنتاج والتكاليف الموحدة (Production & Costing Hub)</h4>
+            <small class="text-muted">متابعة أوامر التشغيل، إدارة ورديات العمال، رقابة الهالك، والتقفيل المالي للوجبات</small>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadOrders">
+                <i class="bi bi-arrow-clockwise"></i> تحديث الأوامر
+            </button>
+            <button class="btn btn-primary btn-sm px-3 shadow-sm fw-bold" @onclick="OpenCreateOrderModal">
+                <i class="bi bi-plus-circle"></i> إصدار أمر تشغيل جديد
+            </button>
+        </div>
+    </div>
+
+    <!-- Notifications -->
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+            <i class="bi bi-check-circle me-1"></i> @successMessage
+            <button type="button" class="btn-close py-2" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+            <i class="bi bi-exclamation-triangle me-1"></i> @errorMessage
+            <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <!-- Quick Filter Tabs (نصف مصنع vs منتج تام) -->
+    <div class="card shadow-sm mb-3 border-0">
+        <div class="card-body p-2 d-flex flex-wrap gap-2 align-items-center bg-light rounded">
+            <span class="fw-bold text-secondary me-2 fs-6">مسار التشغيل:</span>
+            <button class="btn btn-sm @(selectedOrderTypeFilter == null ? "btn-dark" : "btn-outline-dark") rounded-pill px-3"
+                    @onclick="() => FilterByOrderType(null)">
+                الكل (@orders.Count)
+            </button>
+            <button class="btn btn-sm @(selectedOrderTypeFilter == "نصف مصنع" ? "btn-warning text-dark fw-bold" : "btn-outline-warning text-dark") rounded-pill px-3"
+                    @onclick='() => FilterByOrderType("نصف مصنع")'>
+                🥣 أوامر النصف مصنع والتجهيزات (@orders.Count(o => o.Details.Any(d => d.ItemType == "نصف مصنع")))
+            </button>
+            <button class="btn btn-sm @(selectedOrderTypeFilter == "منتج تام" ? "btn-primary" : "btn-outline-primary") rounded-pill px-3"
+                    @onclick='() => FilterByOrderType("منتج تام")'>
+                🍰 أوامر المنتج التام والطلبيات (@orders.Count(o => o.Details.Any(d => d.ItemType == "منتج تام")))
+            </button>
+        </div>
+    </div>
+
+    <!-- Active Orders Table -->
+    <div class="card shadow-sm border-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 text-center">
+                <thead class="table-dark small">
+                    <tr>
+                        <th>رقم الأمر</th>
+                        <th>تاريخ التشغيل</th>
+                        <th class="text-start">الصنف المطلوب</th>
+                        <th>النوع</th>
+                        <th>الكمية المخططة</th>
+                        <th>المنفذ الفعلي</th>
+                        <th>رقم اللوط (Batch)</th>
+                        <th>حالة البند</th>
+                        <th style="width: 140px;">الإجراء</th>
+                    </tr>
+                </thead>
+                <tbody class="small">
+                    @if (isLoadingOrders)
+                    {
+                        <tr>
+                            <td colspan="9" class="py-4 text-muted">
+                                <div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري تحميل أوامر التشغيل...
+                            </td>
+                        </tr>
+                    }
+                    else if (!FilteredOrders.Any())
+                    {
+                        <tr>
+                            <td colspan="9" class="py-4 text-muted">لا توجد أوامر تشغيل مفتوحة حالياً.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var order in FilteredOrders)
+                        {
+                            @foreach (var detail in order.Details)
+                            {
+                                <tr>
+                                    <td class="fw-bold font-monospace text-primary">@order.OrderNumber</td>
+                                    <td>@order.OrderDate.ToString("yyyy-MM-dd")</td>
+                                    <td class="text-start fw-bold text-dark">
+                                        @detail.ItemName
+                                        <br /><small class="text-muted font-monospace">@detail.ItemCode</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(detail.ItemType == "نصف مصنع" ? "bg-warning text-dark" : "bg-primary")">
+                                            @detail.ItemType
+                                        </span>
+                                    </td>
+                                    <td class="fw-bold">@detail.PlannedQuantity @detail.Unit</td>
+                                    <td class="fw-bold text-success">@(detail.ProducedQuantity > 0 ? $"{detail.ProducedQuantity} {detail.Unit}" : "-")</td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(detail.BatchNumber))
+                                        {
+                                            <span class="badge bg-light text-dark border font-monospace">@detail.BatchNumber</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">لم يولد بعد</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @(detail.Status == "Completed" ? "bg-success" : "bg-warning text-dark")">
+                                            @(detail.Status == "Completed" ? "مكتمل ومقفل" : "قيد التشغيل")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (detail.Status != "Completed")
+                                        {
+                                            <button class="btn btn-sm btn-primary py-1 px-2 fw-bold shadow-sm"
+                                                    @onclick="() => OpenExecutionModal(order, detail)">
+                                                ⚙️ تشغيل وتقفيل
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">✅ تم الترصيد</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================================= -->
+<!-- 1. نافذة إصدار أمر تشغيل جديد بتدفق الصالة الحقيقي (DEPARTMENT -> ITEMS -> STOCK -> MULTI) -->
+<!-- ========================================================================================= -->
+@if (isCreateOrderModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">
+                        ➕ إصدار أمر تشغيل وإنتاج جديد (متعدد الأصناف)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isCreateOrderModalOpen = false"></button>
+                </div>
+
+                <div class="modal-body p-3">
+
+                    <!-- الخطوة الأولى: المسار، القسم الإنتاجي، ومخزن الصالة -->
+                    <div class="card p-3 bg-light border-0 mb-3">
+                        <div class="row g-3 align-items-center">
+
+                            <!-- مسار التشغيل -->
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small text-secondary">1. مسار أمر التشغيل:</label>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-sm @(newOrderTrackChoice == "منتج تام" ? "btn-primary fw-bold" : "btn-outline-secondary") flex-fill"
+                                            @onclick='() => SetNewOrderTrack("منتج تام")'>
+                                        🍰 منتج تام (حلويات وتام)
+                                    </button>
+                                    <button type="button" class="btn btn-sm @(newOrderTrackChoice == "نصف مصنع" ? "btn-warning fw-bold text-dark" : "btn-outline-secondary") flex-fill"
+                                            @onclick='() => SetNewOrderTrack("نصف مصنع")'>
+                                        🥣 نصف مصنع (تجهيزات)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- اختيار القسم الإنتاجي أولاً -->
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small text-primary">2. القسم الإنتاجي (الصالة المسؤولة) <span class="text-danger">*</span></label>
+                                <select class="form-select form-select-sm fw-bold border-primary" @bind="newOrderDepartmentId" @bind:after="OnOrderDepartmentChanged">
+                                    @foreach (var dept in departments)
+                                    {
+                                        <option value="@dept.Id">@dept.DepartmentName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <!-- المخزن وتاريخ التشغيل -->
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold small text-secondary">المخزن المستهدف</label>
+                                <select class="form-select form-select-sm" @bind="newOrderWarehouseId">
+                                    @foreach (var w in warehouses)
+                                    {
+                                        <option value="@w.Id">@w.WarehouseName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold small text-secondary">تاريخ التشغيل</label>
+                                <input type="date" class="form-control form-control-sm"
+                                       value="@newOrderDateString"
+                                       @onchange="@((ChangeEventArgs e) => newOrderDateString = e.Value?.ToString() ?? "")" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- الخطوة الثانية: اختيار الصنف، عرض رصيده السابق، وتحديد الكمية المطلوبة -->
+                    <div class="card p-3 border-primary border-2 shadow-sm mb-3">
+                        <div class="fw-bold small text-dark mb-2">
+                            <i class="bi bi-cart-plus-fill text-primary me-1"></i> إضافة صنف لقائمة أمر التشغيل:
+                        </div>
+                        <div class="row g-2 align-items-end">
+
+                            <!-- قائمة الأصناف المرتبطة بالقسم والمسار -->
+                            <div class="col-md-5">
+                                <label class="form-label small fw-bold text-dark">الصنف التابع للقسم <span class="text-danger">*</span></label>
+                                <select class="form-select form-select-sm" @bind="currentLineItemId" @bind:after="OnOrderItemSelected">
+                                    @if (!AvailableItemsForSelectedDepartment.Any())
+                                    {
+                                        <option value="0">-- لا توجد أصناف بنوع (@newOrderTrackChoice) - اختر المسار الآخر --</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="0">-- اختر صنفاً للتشغيل (@AvailableItemsForSelectedDepartment.Count() صنف متاح) --</option>
+                                        @foreach (var item in AvailableItemsForSelectedDepartment)
+                                        {
+                                            <option value="@item.Id">@item.ItemName (@item.ItemCode)</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+
+                            <!-- الرصيد السابق / اللحظي للصنف بالمخزن -->
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold text-muted">الرصيد السابق بالمخزن</label>
+                                <input type="text" class="form-control form-control-sm bg-light text-center fw-bold text-primary"
+                                       value="@($"{currentLineItemStock:N2} {currentLineItemUnit}")" readonly />
+                            </div>
+
+                            <!-- الكمية المطلوبة للتشغيل -->
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold text-dark">الكمية المطلوبة <span class="text-danger">*</span></label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" step="0.01" class="form-control fw-bold text-success"
+                                           @bind="currentLineQuantity" />
+                                    <span class="input-group-text">@currentLineItemUnit</span>
+                                </div>
+                            </div>
+
+                            <!-- زر إضافة الصنف للقائمة -->
+                            <div class="col-md-3">
+                                <button type="button" class="btn btn-success btn-sm w-100 fw-bold shadow-sm"
+                                        disabled="@(currentLineItemId <= 0)"
+                                        @onclick="AddItemLineToOrder">
+                                    ➕ إضافة الصنف لأمر التشغيل
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- الخطوة الثالثة: جدول الأصناف المضافة داخل أمر التشغيل الحالي -->
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-header bg-dark text-white py-1 px-3 d-flex justify-content-between align-items-center">
+                            <span class="small fw-bold">الأصناف المندرجة في هذا الأمر (@orderItemsLines.Count صنف)</span>
+                            <span class="badge bg-warning text-dark font-monospace">إجمالي الكميات: @orderItemsLines.Sum(i => i.PlannedQuantity)</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm align-middle text-center mb-0 small">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 40px;">#</th>
+                                        <th>كود الصنف</th>
+                                        <th class="text-start">اسم الصنف المطلوب تشغيله</th>
+                                        <th>الرصيد السابق</th>
+                                        <th>الكمية المطلوبة للتشغيل</th>
+                                        <th>الوحدة</th>
+                                        <th style="width: 80px;">إجراء</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (!orderItemsLines.Any())
+                                    {
+                                        <tr>
+                                            <td colspan="7" class="py-3 text-muted">
+                                                لم تقم بإضافة أي أصناف للأمر بعد. اختر الصنف والكمية واضغط "إضافة الصنف لأمر التشغيل".
+                                            </td>
+                                        </tr>
+                                    }
+                                    @{
+                                        int idx = 1;
+                                    }
+                                    @foreach (var line in orderItemsLines)
+                                    {
+                                        <tr>
+                                            <td>@(idx++)</td>
+                                            <td class="font-monospace text-muted">@line.ItemCode</td>
+                                            <td class="text-start fw-bold text-dark">@line.ItemName</td>
+                                            <td class="font-monospace text-primary">@line.CurrentStock.ToString("N2") @line.Unit</td>
+                                            <td class="fw-bold text-success fs-6">@line.PlannedQuantity.ToString("N2")</td>
+                                            <td>@line.Unit</td>
+                                            <td>
+                                                <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2"
+                                                        @onclick="() => RemoveItemLine(line)">
+                                                    🗑️ حذف
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- ملاحظات عامة على أمر التشغيل -->
+                    <div class="row">
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-secondary">ملاحظات أمر التشغيل (اختياري - رقم أوردر الفروع، توجيهات الصالة):</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="مثال: تشغيلة حلويات شرقية خاصة بفرع المحطة / وردية الصباح"
+                                   @bind="newOrderNotes" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => isCreateOrderModalOpen = false">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm"
+                            disabled="@(isCreatingOrder || !orderItemsLines.Any())"
+                            @onclick="SubmitCreateBatchOrder">
+                        @if (isCreatingOrder)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري إصدار الأمر...</span>
+                        }
+                        else
+                        {
+                            <span><i class="bi bi-check-circle"></i> حفظ وإصدار أمر التشغيل لجميع الأصناف (@orderItemsLines.Count)</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ============================================================== -->
+<!-- 2. بطاقة التشغيل والتقفيل واحتساب التكاليف الشاملة (WIDE MODAL)   -->
+<!-- ============================================================== -->
+@if (isExecutionModalOpen && activeDetail != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+
+                <div class="modal-header bg-dark text-white py-2 px-3">
+                    <div>
+                        <h5 class="modal-title fw-bold fs-6 mb-0">
+                            ⚙️ تشغيل وتقفيل الوجبة: @activeDetail.ItemName (@activeOrder?.OrderNumber)
+                        </h5>
+                        <small class="text-info">النوع: @activeDetail.ItemType | الكمية المستهدفة: @activeDetail.PlannedQuantity @activeDetail.Unit</small>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseExecutionModal"></button>
+                </div>
+
+                <div class="bg-light border-bottom px-3 pt-2">
+                    <ul class="nav nav-tabs card-header-tabs">
+                        <li class="nav-item">
+                            <button class="nav-link @(activeTab == 1 ? "active fw-bold text-primary" : "text-secondary")"
+                                    @onclick="() => activeTab = 1">
+                                1. الإنتاج الفعلي وتوليد اللوط
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(activeTab == 2 ? "active fw-bold text-primary" : "text-secondary")"
+                                    @onclick="() => activeTab = 2">
+                                2. طاقم الوردية وساعات العمل (@crewMembers.Count(c => c.AttendanceStatus == "حاضر") حاضر)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(activeTab == 3 ? "active fw-bold text-primary" : "text-secondary")"
+                                    @onclick="() => activeTab = 3">
+                                3. حصر وتصنيف الهالك (Scrap)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(activeTab == 4 ? "active fw-bold text-primary" : "text-secondary")"
+                                    @onclick="() => activeTab = 4">
+                                4. ملخص التكاليف والاعتماد النهائي
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="modal-body p-3">
+                    <!-- TAB 1: PRODUCTION & LOT -->
+                    @if (activeTab == 1)
+                    {
+                        <div class="card p-3 border-0 bg-light mb-3">
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">مخرجات الصالة الفعلية</h6>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label fw-bold small">الإنتاج الفعلي الصالح <span class="text-danger">*</span></label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" step="0.01" class="form-control fw-bold text-success fs-6"
+                                               @bind="finalizeRequest.ProducedQuantity" />
+                                        <span class="input-group-text">@activeDetail.Unit</span>
+                                    </div>
+                                    <small class="text-muted">الكمية الصالحة المعتمدة من ميزان الصالة</small>
+                                </div>
+
+                                <div class="col-md-5">
+                                    <label class="form-label fw-bold small">رقم اللوط المولد آلياً (Lot / Batch No)</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace fw-bold text-primary"
+                                           @bind="finalizeRequest.BatchNumber" />
+                                    <small class="text-muted">رمز التتبع المرجعي الموحد للدفعة</small>
+                                </div>
+
+                                <div class="col-md-3">
+                                    <label class="form-label fw-bold small">تاريخ نهاية الصلاحية التقديري</label>
+                                    <input type="date" class="form-control form-control-sm" value="@DateTime.Now.AddDays(4).ToString("yyyy-MM-dd")" readonly />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">صالة الإنتاج المسؤولة</label>
+                                <select class="form-select form-select-sm" @bind="selectedDepartmentId">
+                                    @foreach (var dept in departments)
+                                    {
+                                        <option value="@dept.Id">@dept.DepartmentName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6 pt-4">
+                                <button class="btn btn-outline-primary btn-sm" @onclick="ReloadDepartmentCrew">
+                                    <i class="bi bi-people"></i> إعادة تحميل طاقم الصالة
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- TAB 2: CREW & LABOR ATTENDANCE -->
+                    @if (activeTab == 2)
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold small text-secondary">طاقم صالة التشغيل المسجل لهذه الوردية:</span>
+                            <button class="btn btn-success btn-sm py-0 px-2" @onclick="OpenAddSupportEmployeeModal">
+                                ➕ إضافة عامل دعم منتدب من صالة أخرى
+                            </button>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm align-middle text-center small">
+                                <thead class="table-secondary">
+                                    <tr>
+                                        <th>كود</th>
+                                        <th class="text-start">اسم العامل</th>
+                                        <th>المسمى الوظيفي</th>
+                                        <th>أجر الساعة</th>
+                                        <th style="width: 130px;">الحالة</th>
+                                        <th>وقت الحضور</th>
+                                        <th>وقت الانصراف</th>
+                                        <th style="width: 90px;">الساعات</th>
+                                        <th>تكلفة العامل</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (!crewMembers.Any())
+                                    {
+                                        <tr>
+                                            <td colspan="9" class="py-3 text-muted">لا يوجد عمال مسجلين في هذا القسم. اضغط زر إضافة عامل دعم.</td>
+                                        </tr>
+                                    }
+                                    @foreach (var crew in crewMembers)
+                                    {
+                                        <tr class="@(crew.AttendanceStatus != "حاضر" ? "table-light text-muted" : "")">
+                                            <td class="font-monospace">@crew.EmployeeCode</td>
+                                            <td class="text-start fw-bold">@crew.EmployeeName</td>
+                                            <td><span class="badge bg-light text-dark border">@crew.JobTitleName</span></td>
+                                            <td class="text-muted">@crew.HourlyRate.ToString("N1") ج.م</td>
+                                            <td>
+                                                <select class="form-select form-select-sm py-0 @(crew.AttendanceStatus == "حاضر" ? "text-success fw-bold" : "text-danger")"
+                                                        @bind="crew.AttendanceStatus">
+                                                    <option value="حاضر">حاضر 🟢</option>
+                                                    <option value="غائب">غائب 🔴</option>
+                                                    <option value="إجازة">إجازة 🟡</option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <input type="time" class="form-control form-control-sm py-0"
+                                                       value="@crew.CheckIn"
+                                                       @onchange="@((ChangeEventArgs e) => crew.CheckIn = e.Value?.ToString() ?? "07:00")"
+                                                       disabled="@(crew.AttendanceStatus != "حاضر")" />
+                                            </td>
+                                            <td>
+                                                <input type="time" class="form-control form-control-sm py-0"
+                                                       value="@crew.CheckOut"
+                                                       @onchange="@((ChangeEventArgs e) => crew.CheckOut = e.Value?.ToString() ?? "15:00")"
+                                                       disabled="@(crew.AttendanceStatus != "حاضر")" />
+                                            </td>
+                                            <td>
+                                                <input type="number" step="0.5" class="form-control form-control-sm py-0 text-center fw-bold"
+                                                       @bind="crew.HoursWorked"
+                                                       disabled="@(crew.AttendanceStatus != "حاضر")" />
+                                            </td>
+                                            <td class="fw-bold text-primary">
+                                                @(crew.AttendanceStatus == "حاضر" ? (crew.HoursWorked * crew.HourlyRate).ToString("N2") + " ج.م" : "0.00")
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot class="table-light fw-bold">
+                                    <tr>
+                                        <td colspan="7" class="text-start">إجمالي تكلفة أجور العمالة المحسوبة للدفعة:</td>
+                                        <td class="text-center">@TotalCrewHours س</td>
+                                        <td class="text-primary">@TotalLaborCost.ToString("N2") ج.م</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    }
+
+                    <!-- TAB 3: SCRAP & WASTE -->
+                    @if (activeTab == 3)
+                    {
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="card p-3 border-start border-4 border-warning h-100 bg-light">
+                                    <h6 class="fw-bold text-dark mb-1">هالك تشغيلي طبيعي (Normal Scrap)</h6>
+                                    <small class="text-muted mb-3">هالك التقطيع والفرم وتشذيب العجين المسموح به (يُحمّل على تكلفة المنتج)</small>
+
+                                    <label class="form-label fw-bold small">كمية الهالك الطبيعي (@activeDetail.Unit)</label>
+                                    <input type="number" step="0.01" class="form-control form-control-sm fw-bold mb-2"
+                                           @bind="finalizeRequest.NormalScrapQuantity" />
+
+                                    <label class="form-label fw-bold small">التكلفة المعيارية للكيلو/الوحدة للهالك (ج.م)</label>
+                                    <input type="number" step="0.01" class="form-control form-control-sm"
+                                           @bind="finalizeRequest.StandardUnitCost" />
+
+                                    <div class="mt-2 text-warning fw-bold small">
+                                        قيمة الهالك المحملة على التشغيلة: @((finalizeRequest.NormalScrapQuantity * finalizeRequest.StandardUnitCost).ToString("N2")) ج.م
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="card p-3 border-start border-4 border-danger h-100 bg-light">
+                                    <h6 class="fw-bold text-dark mb-1">هالك غير طبيعي / إهمال (Abnormal Loss)</h6>
+                                    <small class="text-muted mb-3">حرق صواني بالفرن، سقوط عجين، عيب خامة (يُعزل ويرحل كخسارة تشغيل)</small>
+
+                                    <label class="form-label fw-bold small">كمية الهالك غير الطبيعي (@activeDetail.Unit)</label>
+                                    <input type="number" step="0.01" class="form-control form-control-sm text-danger fw-bold mb-2"
+                                           @bind="finalizeRequest.AbnormalScrapQuantity" />
+
+                                    <label class="form-label fw-bold small">سبب الهالك والملاحظات</label>
+                                    <input type="text" class="form-control form-control-sm" placeholder="مثال: نسيان تسوية الفرن / عيب تقليب"
+                                           @bind="scrapGeneralReason" />
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- TAB 4: INSTANT BATCH COSTING -->
+                    @if (activeTab == 4)
+                    {
+                        <div class="card p-3 bg-light border-0">
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">عناصر تكلفة الدفعة والوجبة</h6>
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-4">
+                                    <label class="form-label fw-bold small">تكلفة الخامات الفعلية المستهلكة (ج.م)</label>
+                                    <input type="number" step="0.01" class="form-control form-control-sm"
+                                           @bind="finalizeRequest.ActualRawMaterialCost" />
+                                    <small class="text-muted">من واقع أذون صرف الخامات المعتمدة</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-bold small">أجور العمالة المباشرة (ج.م)</label>
+                                    <input type="text" class="form-control form-control-sm bg-white fw-bold text-primary"
+                                           value="@TotalLaborCost.ToString("N2")" readonly />
+                                    <small class="text-muted">محسوبة تلقائياً من ساعات الحضور</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-bold small">مصاريف غير مباشرة / Overhead (ج.م)</label>
+                                    <input type="number" step="0.01" class="form-control form-control-sm"
+                                           @bind="finalizeRequest.OverheadCost" />
+                                    <small class="text-muted">غاز، كهرباء، صيانة</small>
+                                </div>
+                            </div>
+
+                            <div class="p-3 bg-white border rounded shadow-sm">
+                                <div class="row text-center align-items-center">
+                                    <div class="col-md-4 border-end">
+                                        <div class="text-muted small">إجمالي تكلفة الوجبة الشاملة</div>
+                                        <h4 class="text-dark fw-bold mb-0">@CalculatedTotalBatchCost.ToString("N2") <small class="fs-6">ج.م</small></h4>
+                                    </div>
+                                    <div class="col-md-4 border-end">
+                                        <div class="text-muted small">صافي الإنتاج الصالح</div>
+                                        <h4 class="text-success fw-bold mb-0">@finalizeRequest.ProducedQuantity <small class="fs-6">@activeDetail.Unit</small></h4>
+                                    </div>
+                                    <div class="col-md-4 bg-light p-2 rounded">
+                                        <div class="text-primary fw-bold small">تكلفة الكيلو / الوحدة الفعلي</div>
+                                        <h3 class="text-primary fw-bold mb-0">@CalculatedUnitCost.ToString("N2") <small class="fs-6">ج.م/@activeDetail.Unit</small></h3>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseExecutionModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm"
+                            disabled="@isFinalizing"
+                            @onclick="SubmitFinalizeBatch">
+                        @if (isFinalizing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري الترصيد والاعتماد...</span>
+                        }
+                        else
+                        {
+                            <span>✅ اعتماد وتقفيل أمر التشغيل النهائي وترحيل التكاليف</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ============================================================== -->
+<!-- 3. Modal إضافة عامل دعم منتدب من صالة أخرى                     -->
+<!-- ============================================================== -->
+@if (isAddSupportModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-md modal-dialog-centered">
+            <div class="modal-content shadow border-0" dir="rtl">
+                <div class="modal-header bg-secondary text-white py-2">
+                    <h6 class="modal-title fw-bold">➕ إضافة عامل دعم منتدب للوردية</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isAddSupportModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <label class="form-label small fw-bold">اختر العامل من قائمة عمال المصنع:</label>
+                    <select class="form-select form-select-sm" @bind="selectedSupportEmployeeId">
+                        <option value="0">-- اختر العامل --</option>
+                        @foreach (var emp in allEmployees.Where(e => !crewMembers.Any(c => c.EmployeeId == e.EmployeeId)))
+                        {
+                            <option value="@emp.EmployeeId">@emp.EmployeeName - (@emp.JobTitleName)</option>
+                        }
+                    </select>
+                </div>
+                <div class="modal-footer py-1 bg-light">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => isAddSupportModalOpen = false">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="ConfirmAddSupportEmployee">إضافة للوردية</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // ==========================================
+    // DTOs المستقلة الخاصة بالواجهة
+    // ==========================================
+    public class ProductionOrderOverviewDto
+    {
+        public long OrderId { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public DateOnly OrderDate { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public long WarehouseId { get; set; }
+        public List<OrderDetailCardDto> Details { get; set; } = new();
+    }
+
+    public class OrderDetailCardDto
+    {
+        public long DetailId { get; set; }
+        public long ItemId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public decimal PlannedQuantity { get; set; }
+        public decimal ProducedQuantity { get; set; }
+        public string Unit { get; set; } = string.Empty;
+        public string? BatchNumber { get; set; }
+        public string Status { get; set; } = string.Empty;
+    }
+
+    public class CrewMemberDto
+    {
+        public long EmployeeId { get; set; }
+        public string EmployeeCode { get; set; } = string.Empty;
+        public string EmployeeName { get; set; } = string.Empty;
+        public string JobTitleName { get; set; } = string.Empty;
+        public decimal HourlyRate { get; set; }
+        public string AttendanceStatus { get; set; } = "حاضر";
+        public string? CheckIn { get; set; } = "07:00";
+        public string? CheckOut { get; set; } = "15:00";
+        public decimal HoursWorked { get; set; } = 8;
+        public decimal ScrapAttributed { get; set; } = 0;
+        public string? ScrapReason { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class BatchFinalizeRequestDto
+    {
+        public long OrderDetailId { get; set; }
+        public decimal ProducedQuantity { get; set; }
+        public string BatchNumber { get; set; } = string.Empty;
+        public decimal ActualRawMaterialCost { get; set; }
+        public decimal StandardUnitCost { get; set; }
+        public decimal OverheadCost { get; set; } = 0;
+        public decimal NormalScrapQuantity { get; set; } = 0;
+        public decimal AbnormalScrapQuantity { get; set; } = 0;
+        public List<CrewMemberDto>? CrewMembers { get; set; }
+    }
+
+    public class ItemLookupDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public long? DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
+        public decimal CurrentStock { get; set; }
+    }
+
+    public class OrderItemLineClientDto
+    {
+        public long ItemId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public decimal CurrentStock { get; set; }
+        public decimal PlannedQuantity { get; set; }
+        public string Unit { get; set; } = string.Empty;
+    }
+
+    public class WarehouseLookupDto
+    {
+        public long Id { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
+    }
+
+    public class DepartmentDto
+    {
+        public long Id { get; set; }
+        public string DepartmentName { get; set; } = string.Empty;
+    }
+
+    // ==========================================
+    // State & Variables
+    // ==========================================
+    private List<ProductionOrderOverviewDto> orders = new();
+    private List<DepartmentDto> departments = new();
+    private List<WarehouseLookupDto> warehouses = new();
+    private List<ItemLookupDto> allItems = new();
+    private List<CrewMemberDto> allEmployees = new();
+    private List<CrewMemberDto> crewMembers = new();
+
+    private ProductionOrderOverviewDto? activeOrder;
+    private OrderDetailCardDto? activeDetail;
+    private BatchFinalizeRequestDto finalizeRequest = new();
+
+    private bool isCreateOrderModalOpen = false;
+    private bool isCreatingOrder = false;
+    private string newOrderTrackChoice = "منتج تام";
+    private long newOrderDepartmentId = 1;
+    private long newOrderWarehouseId = 1;
+    private string newOrderDateString = DateTime.Now.ToString("yyyy-MM-dd");
+    private string newOrderNotes = "";
+
+    private long currentLineItemId = 0;
+    private decimal currentLineQuantity = 10;
+    private decimal currentLineItemStock = 0;
+    private string currentLineItemUnit = "كجم";
+    private List<OrderItemLineClientDto> orderItemsLines = new();
+
+    private bool isLoadingOrders = true;
+    private bool isExecutionModalOpen = false;
+    private bool isAddSupportModalOpen = false;
+    private bool isFinalizing = false;
+    private int activeTab = 1;
+
+    private string? selectedOrderTypeFilter = null;
+    private long selectedDepartmentId = 1;
+    private long selectedSupportEmployeeId = 0;
+    private string scrapGeneralReason = "";
+
+    private string? successMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDepartments();
+        await LoadWarehouses();
+        await LoadItems();
+        await LoadOrders();
+        await LoadAllEmployees();
+    }
+
+    private async Task LoadDepartments()
+    {
+        try
+        {
+            departments = await Http.GetFromJsonAsync<List<DepartmentDto>>("api/departments") ?? new();
+            if (departments.Any())
+            {
+                newOrderDepartmentId = departments.First().Id;
+                selectedDepartmentId = departments.First().Id;
+            }
+        }
+        catch { }
+    }
+
+    private async Task LoadWarehouses()
+    {
+        try
+        {
+            warehouses = await Http.GetFromJsonAsync<List<WarehouseLookupDto>>("api/warehouses") ?? new();
+            if (warehouses.Any()) newOrderWarehouseId = warehouses.First().Id;
+        }
+        catch { }
+    }
+
+    private async Task LoadItems()
+    {
+        try
+        {
+            allItems = await Http.GetFromJsonAsync<List<ItemLookupDto>>("api/items") ?? new();
+        }
+        catch { }
+    }
+
+    private async Task LoadOrders()
+    {
+        isLoadingOrders = true;
+        try
+        {
+            orders = await Http.GetFromJsonAsync<List<ProductionOrderOverviewDto>>("api/productionoperations/active-orders") ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"تعذر جلب أوامر التشغيل: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingOrders = false;
+        }
+    }
+
+    private async Task LoadAllEmployees()
+    {
+        try
+        {
+            allEmployees = await Http.GetFromJsonAsync<List<CrewMemberDto>>("api/productionoperations/all-active-employees") ?? new();
+        }
+        catch { }
+    }
+
+    private IEnumerable<ProductionOrderOverviewDto> FilteredOrders
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(selectedOrderTypeFilter)) return orders;
+            return orders.Where(o => o.Details.Any(d => d.ItemType == selectedOrderTypeFilter));
+        }
+    }
+
+    private void FilterByOrderType(string? type)
+    {
+        selectedOrderTypeFilter = type;
+    }
+
+    // ==========================================
+    // منطق الفلترة الذكية للأصناف المتاحة
+    // ==========================================
+    private IEnumerable<ItemLookupDto> AvailableItemsForSelectedDepartment
+    {
+        get
+        {
+            // 1. تصفية الأصناف بحسب المسار (منتج تام أو نصف مصنع)
+            var itemsByTrack = allItems.Where(i =>
+                string.Equals(i.ItemType?.Trim(), newOrderTrackChoice?.Trim(), StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+
+            // 2. البحث عن القسم المختار
+            var selectedDept = departments.FirstOrDefault(d => d.Id == newOrderDepartmentId);
+            var selectedDeptName = selectedDept?.DepartmentName?.Trim() ?? "";
+
+            // 3. الفلترة المزدوجة بالـ Id وبالاسم
+            var filteredByDept = itemsByTrack.Where(i =>
+                (i.DepartmentId.HasValue && i.DepartmentId.Value == newOrderDepartmentId) ||
+                (!string.IsNullOrEmpty(i.DepartmentName) && !string.IsNullOrEmpty(selectedDeptName) &&
+                 (i.DepartmentName.Contains(selectedDeptName) || selectedDeptName.Contains(i.DepartmentName)))
+            ).ToList();
+
+            // إذا تطابقت أصناف مع القسم نعرضها، وإلا نعرض أصناف المسار حتى لا تتعطل الصالة
+            return filteredByDept.Any() ? filteredByDept : itemsByTrack;
+        }
+    }
+
+    private void OpenCreateOrderModal()
+    {
+        // إذا كان النصف مصنع لا يحتوي على أصناف بعد، نفتح تلقائياً على "منتج تام"
+        if (allItems.Any(i => i.ItemType == "منتج تام") && !allItems.Any(i => i.ItemType == "نصف مصنع"))
+        {
+            newOrderTrackChoice = "منتج تام";
+        }
+        else
+        {
+            newOrderTrackChoice = selectedOrderTypeFilter ?? "منتج تام";
+        }
+
+        if (departments.Any()) newOrderDepartmentId = departments.First().Id;
+        if (warehouses.Any()) newOrderWarehouseId = warehouses.First().Id;
+        newOrderDateString = DateTime.Now.ToString("yyyy-MM-dd");
+        newOrderNotes = "";
+
+        currentLineItemId = 0;
+        currentLineQuantity = 10;
+        currentLineItemStock = 0;
+        currentLineItemUnit = "كجم";
+        orderItemsLines.Clear();
+
+        isCreateOrderModalOpen = true;
+    }
+
+    private void SetNewOrderTrack(string track)
+    {
+        newOrderTrackChoice = track;
+        currentLineItemId = 0;
+        currentLineItemStock = 0;
+        currentLineItemUnit = track == "نصف مصنع" ? "كجم" : "قطعة";
+    }
+
+    private void OnOrderDepartmentChanged()
+    {
+        currentLineItemId = 0;
+        currentLineItemStock = 0;
+    }
+
+    private void OnOrderItemSelected()
+    {
+        var item = allItems.FirstOrDefault(i => i.Id == currentLineItemId);
+        if (item != null)
+        {
+            currentLineItemUnit = item.Unit;
+            currentLineItemStock = item.CurrentStock;
+        }
+        else
+        {
+            currentLineItemStock = 0;
+        }
+    }
+
+    private void AddItemLineToOrder()
+    {
+        if (currentLineItemId <= 0 || currentLineQuantity <= 0)
+        {
+            errorMessage = "يرجى اختيار صنف وتحديد كمية صالحة أكبر من الصفر.";
+            return;
+        }
+
+        var item = allItems.FirstOrDefault(i => i.Id == currentLineItemId);
+        if (item == null) return;
+
+        var existing = orderItemsLines.FirstOrDefault(x => x.ItemId == currentLineItemId);
+        if (existing != null)
+        {
+            existing.PlannedQuantity += currentLineQuantity;
+        }
+        else
+        {
+            orderItemsLines.Add(new OrderItemLineClientDto
+            {
+                ItemId = item.Id,
+                ItemCode = item.ItemCode,
+                ItemName = item.ItemName,
+                CurrentStock = currentLineItemStock,
+                PlannedQuantity = currentLineQuantity,
+                Unit = currentLineItemUnit
+            });
+        }
+
+        currentLineItemId = 0;
+        currentLineQuantity = 10;
+        currentLineItemStock = 0;
+        errorMessage = null;
+    }
+
+    private void RemoveItemLine(OrderItemLineClientDto line)
+    {
+        orderItemsLines.Remove(line);
+    }
+
+    private async Task SubmitCreateBatchOrder()
+    {
+        if (!orderItemsLines.Any())
+        {
+            errorMessage = "يرجى إضافة صنف واحد على الأقل داخل أمر التشغيل.";
+            return;
+        }
+
+        isCreatingOrder = true;
+        errorMessage = null;
+
+        try
+        {
+            DateOnly.TryParse(newOrderDateString, out var parsedDate);
+            var payload = new
+            {
+                CompanyId = 1,
+                WarehouseId = newOrderWarehouseId,
+                DepartmentId = newOrderDepartmentId,
+                OrderDate = parsedDate != default ? parsedDate : DateOnly.FromDateTime(DateTime.UtcNow),
+                Notes = newOrderNotes,
+                Items = orderItemsLines.Select(line => new
+                {
+                    ItemId = line.ItemId,
+                    PlannedQuantity = line.PlannedQuantity,
+                    Unit = line.Unit,
+                    Notes = $"أمر تشغيل قسم: {departments.FirstOrDefault(d => d.Id == newOrderDepartmentId)?.DepartmentName}"
+                }).ToList()
+            };
+
+            var res = await Http.PostAsJsonAsync("api/productionoperations/create-order", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                successMessage = $"تم إصدار أمر التشغيل بنجاح شاملاً ({orderItemsLines.Count}) أصناف ونزوله في جدول التشغيل.";
+                isCreateOrderModalOpen = false;
+                await LoadOrders();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                errorMessage = $"فشل إصدار أمر التشغيل: {err}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isCreatingOrder = false;
+        }
+    }
+
+    // ==========================================
+    // منطق التقفيل واحتساب التكاليف
+    // ==========================================
+    private async Task OpenExecutionModal(ProductionOrderOverviewDto order, OrderDetailCardDto detail)
+    {
+        activeOrder = order;
+        activeDetail = detail;
+        activeTab = 1;
+
+        finalizeRequest = new BatchFinalizeRequestDto
+        {
+            OrderDetailId = detail.DetailId,
+            ProducedQuantity = detail.PlannedQuantity,
+            BatchNumber = string.IsNullOrEmpty(detail.BatchNumber)
+                ? $"LOT-{DateTime.Now:yyyyMMdd}-{detail.ItemCode}-{detail.DetailId}"
+                : detail.BatchNumber,
+            ActualRawMaterialCost = 0,
+            StandardUnitCost = 0,
+            OverheadCost = 0,
+            NormalScrapQuantity = 0,
+            AbnormalScrapQuantity = 0
+        };
+
+        await ReloadDepartmentCrew();
+        isExecutionModalOpen = true;
+    }
+
+    private async Task ReloadDepartmentCrew()
+    {
+        try
+        {
+            crewMembers = await Http.GetFromJsonAsync<List<CrewMemberDto>>($"api/productionoperations/department-crew/{selectedDepartmentId}") ?? new();
+        }
+        catch
+        {
+            crewMembers = new();
+        }
+    }
+
+    private void CloseExecutionModal()
+    {
+        isExecutionModalOpen = false;
+        activeOrder = null;
+        activeDetail = null;
+    }
+
+    private void OpenAddSupportEmployeeModal()
+    {
+        selectedSupportEmployeeId = 0;
+        isAddSupportModalOpen = true;
+    }
+
+    private void ConfirmAddSupportEmployee()
+    {
+        if (selectedSupportEmployeeId > 0)
+        {
+            var emp = allEmployees.FirstOrDefault(e => e.EmployeeId == selectedSupportEmployeeId);
+            if (emp != null && !crewMembers.Any(c => c.EmployeeId == emp.EmployeeId))
+            {
+                crewMembers.Add(new CrewMemberDto
+                {
+                    EmployeeId = emp.EmployeeId,
+                    EmployeeCode = emp.EmployeeCode,
+                    EmployeeName = emp.EmployeeName,
+                    JobTitleName = emp.JobTitleName,
+                    HourlyRate = emp.HourlyRate,
+                    AttendanceStatus = "حاضر",
+                    HoursWorked = 8,
+                    CheckIn = "07:00",
+                    CheckOut = "15:00"
+                });
+            }
+        }
+        isAddSupportModalOpen = false;
+    }
+
+    private decimal TotalCrewHours => crewMembers.Where(c => c.AttendanceStatus == "حاضر").Sum(c => c.HoursWorked);
+    private decimal TotalLaborCost => crewMembers.Where(c => c.AttendanceStatus == "حاضر").Sum(c => c.HoursWorked * c.HourlyRate);
+
+    private decimal CalculatedTotalBatchCost
+    {
+        get
+        {
+            decimal normalScrapCost = finalizeRequest.NormalScrapQuantity * finalizeRequest.StandardUnitCost;
+            return finalizeRequest.ActualRawMaterialCost + TotalLaborCost + finalizeRequest.OverheadCost + normalScrapCost;
+        }
+    }
+
+    private decimal CalculatedUnitCost
+    {
+        get
+        {
+            if (finalizeRequest.ProducedQuantity <= 0) return 0;
+            return CalculatedTotalBatchCost / finalizeRequest.ProducedQuantity;
+        }
+    }
+
+    private async Task SubmitFinalizeBatch()
+    {
+        if (finalizeRequest.ProducedQuantity <= 0)
+        {
+            errorMessage = "يرجى تحديد كمية الإنتاج الفعلي الصالح أكبر من الصفر.";
+            return;
+        }
+
+        isFinalizing = true;
+        errorMessage = null;
+
+        try
+        {
+            finalizeRequest.CrewMembers = crewMembers;
+            var response = await Http.PostAsJsonAsync("api/productionoperations/finalize-batch", finalizeRequest);
+
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = $"تم تقفيل واعتماد الوجبة بنجاح برقم لوط: ({finalizeRequest.BatchNumber}) وتكلفة فعلية: {CalculatedUnitCost:F2} ج.م";
+                CloseExecutionModal();
+                await LoadOrders();
+            }
+            else
+            {
+                var errorText = await response.Content.ReadAsStringAsync();
+                errorMessage = $"فشل تقفيل الدفعة: {errorText}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ أثناء الاتصال بالخادم: {ex.Message}";
+        }
+        finally
+        {
+            isFinalizing = false;
+        }
+    }
+}

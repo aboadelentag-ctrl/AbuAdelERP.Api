@@ -20,7 +20,9 @@ namespace AbuAdelERP.Api.Controllers
             _context = context;
         }
 
-        // DTO لنقل بيانات الصنف متضمناً ربط القسم الإنتاجي، وإعدادات الصلاحية، وحدود المخزون، وخصائص كيان التوافقية
+        // ==============================================================
+        // نماذج البيانات (DTOs)
+        // ==============================================================
         public class ItemApiDto
         {
             public long Id { get; set; }
@@ -32,7 +34,7 @@ namespace AbuAdelERP.Api.Controllers
             public string ItemName { get; set; } = string.Empty;
             public string ItemType { get; set; } = string.Empty;
             public string Unit { get; set; } = string.Empty;
-            public bool Active { get; set; }
+            public bool Active { get; set; } = true;
             public bool HasExpiryDate { get; set; } = true;
             public int? ShelfLifeDays { get; set; }
 
@@ -41,7 +43,7 @@ namespace AbuAdelERP.Api.Controllers
             public decimal SafetyStock { get; set; } = 0;
             public decimal MaxStock { get; set; } = 0;
 
-            // الخصائص التوافقية مع نظام كيان وقاعدة بيانات بوستجريس
+            // الخصائص التوافقية مع نظام كيان وقاعدة البيانات
             public decimal BasePrice { get; set; } = 0;
             public string? Barcode { get; set; }
             public bool IsVariant { get; set; } = false;
@@ -52,21 +54,21 @@ namespace AbuAdelERP.Api.Controllers
             public long? ParentItemId { get; set; }
         }
 
-        // كلاس استلام بيانات الإضافة السريعة (نص النسخ واللصق من شاشة كيان)
         public class BulkImportRequestDto
         {
             public string RawData { get; set; } = string.Empty;
             public long CompanyId { get; set; } = 1;
-            public long DefaultCategoryId { get; set; } = 1; // افتراضياً منتجات تامة
+            public long DefaultCategoryId { get; set; } = 1;
         }
 
-        // 1. جلب قائمة الأصناف مع إمكانية الفلترة بنوع الصنف (خامات / منتج تام / مواد تعبئة / أصول ومهمات)
+        // ==============================================================
+        // 1. جلب قائمة الأصناف مع الفلترة الاختيارية
+        // ==============================================================
         [HttpGet]
         public async Task<ActionResult<List<ItemApiDto>>> GetItems([FromQuery] string? itemType = null)
         {
             try
             {
-                // معالجة أولية تلقائية لصلاحيات الأصناف الغذائية غير المضبوطة
                 var unconfiguredFoodItems = await _context.Items
                     .Where(i => i.ItemType != "مواد تعبئة" && !i.HasExpiryDate && i.ShelfLifeDays == null)
                     .ToListAsync();
@@ -83,7 +85,6 @@ namespace AbuAdelERP.Api.Controllers
 
                 var query = _context.Items.AsNoTracking().AsQueryable();
 
-                // تطبيق الفلترة الاختيارية لنوع الصنف إن تم تمريرها
                 if (!string.IsNullOrWhiteSpace(itemType))
                 {
                     query = query.Where(i => i.ItemType == itemType);
@@ -124,142 +125,159 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب الأصناف: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب الأصناف: {ex.GetBaseException().Message}");
             }
         }
 
-        // 2. جلب صنف محدد بالمعرف
+        // ==============================================================
+        // 2. جلب صنف محدد
+        // ==============================================================
         [HttpGet("{id}")]
         public async Task<ActionResult<ItemApiDto>> GetItem(long id)
         {
-            var item = await _context.Items
-                .Include(i => i.Department)
-                .FirstOrDefaultAsync(i => i.Id == id);
-
-            if (item == null) return NotFound("الصنف غير موجود.");
-
-            return Ok(new ItemApiDto
+            try
             {
-                Id = item.Id,
-                CompanyId = item.CompanyId,
-                CategoryId = item.CategoryId,
-                DepartmentId = item.DepartmentId,
-                DepartmentName = item.Department != null ? item.Department.DepartmentName : item.DepartmentName,
-                ItemCode = item.ItemCode,
-                ItemName = item.ItemName,
-                ItemType = item.ItemType,
-                Unit = item.Unit,
-                Active = item.Active,
-                HasExpiryDate = item.HasExpiryDate,
-                ShelfLifeDays = item.ShelfLifeDays,
-                ReorderLevel = item.ReorderLevel,
-                SafetyStock = item.SafetyStock,
-                MaxStock = item.MaxStock,
-                BasePrice = item.BasePrice,
-                Barcode = item.Barcode,
-                IsVariant = item.IsVariant,
-                IsMerged = item.IsMerged,
-                IsContainer = item.IsContainer,
-                MultiUom = item.MultiUom,
-                HideDetailPrint = item.HideDetailPrint,
-                ParentItemId = item.ParentItemId
-            });
+                var item = await _context.Items
+                    .Include(i => i.Department)
+                    .FirstOrDefaultAsync(i => i.Id == id);
+
+                if (item == null) return NotFound("الصنف غير موجود.");
+
+                return Ok(new ItemApiDto
+                {
+                    Id = item.Id,
+                    CompanyId = item.CompanyId,
+                    CategoryId = item.CategoryId,
+                    DepartmentId = item.DepartmentId,
+                    DepartmentName = item.Department != null ? item.Department.DepartmentName : item.DepartmentName,
+                    ItemCode = item.ItemCode,
+                    ItemName = item.ItemName,
+                    ItemType = item.ItemType,
+                    Unit = item.Unit,
+                    Active = item.Active,
+                    HasExpiryDate = item.HasExpiryDate,
+                    ShelfLifeDays = item.ShelfLifeDays,
+                    ReorderLevel = item.ReorderLevel,
+                    SafetyStock = item.SafetyStock,
+                    MaxStock = item.MaxStock,
+                    BasePrice = item.BasePrice,
+                    Barcode = item.Barcode,
+                    IsVariant = item.IsVariant,
+                    IsMerged = item.IsMerged,
+                    IsContainer = item.IsContainer,
+                    MultiUom = item.MultiUom,
+                    HideDetailPrint = item.HideDetailPrint,
+                    ParentItemId = item.ParentItemId
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب الصنف: {ex.GetBaseException().Message}");
+            }
         }
 
-        // 3. تعديل صنف قائم وحفظ حدود المخزون والخصائص
+        // ==============================================================
+        // 3. تعديل صنف قائم
+        // ==============================================================
         [HttpPut("{id}")]
         public async Task<IActionResult> PutItem(long id, [FromBody] ItemApiDto dto)
         {
             if (dto == null) return BadRequest("بيانات غير صالحة.");
 
-            var item = await _context.Items.FindAsync(id);
-            if (item == null) return NotFound("الصنف غير موجود.");
-
-            item.CompanyId = dto.CompanyId > 0 ? dto.CompanyId : item.CompanyId;
-            item.CategoryId = dto.CategoryId > 0 ? dto.CategoryId : item.CategoryId;
-            item.DepartmentId = (dto.DepartmentId.HasValue && dto.DepartmentId.Value > 0) ? dto.DepartmentId : null;
-            item.DepartmentName = dto.DepartmentName;
-            item.ItemCode = dto.ItemCode;
-            item.ItemName = dto.ItemName;
-            item.ItemType = dto.ItemType;
-            item.Unit = dto.Unit;
-            item.Active = dto.Active;
-
-            item.HasExpiryDate = dto.HasExpiryDate;
-            item.ShelfLifeDays = dto.HasExpiryDate ? dto.ShelfLifeDays : null;
-
-            // محددات المخزون
-            item.ReorderLevel = dto.ReorderLevel;
-            item.SafetyStock = dto.SafetyStock;
-            item.MaxStock = dto.MaxStock;
-
-            // خصائص كيان وقاعدة البيانات
-            item.BasePrice = dto.BasePrice;
-            item.Barcode = dto.Barcode;
-            item.IsVariant = dto.IsVariant;
-            item.IsMerged = dto.IsMerged;
-            item.IsContainer = dto.IsContainer;
-            item.MultiUom = dto.MultiUom;
-            item.HideDetailPrint = dto.HideDetailPrint;
-
             try
             {
+                var item = await _context.Items.FindAsync(id);
+                if (item == null) return NotFound("الصنف غير موجود.");
+
+                item.CompanyId = dto.CompanyId > 0 ? dto.CompanyId : item.CompanyId;
+                item.CategoryId = dto.CategoryId > 0 ? dto.CategoryId : item.CategoryId;
+                item.DepartmentId = (dto.DepartmentId.HasValue && dto.DepartmentId.Value > 0) ? dto.DepartmentId : null;
+                item.DepartmentName = dto.DepartmentName;
+                item.ItemCode = dto.ItemCode?.Trim() ?? string.Empty;
+                item.ItemName = dto.ItemName?.Trim() ?? string.Empty;
+                item.ItemType = string.IsNullOrWhiteSpace(dto.ItemType) ? item.ItemType : dto.ItemType;
+                item.Unit = string.IsNullOrWhiteSpace(dto.Unit) ? item.Unit : dto.Unit;
+                item.Active = dto.Active;
+
+                item.HasExpiryDate = dto.HasExpiryDate;
+                item.ShelfLifeDays = dto.HasExpiryDate ? dto.ShelfLifeDays : null;
+
+                item.ReorderLevel = dto.ReorderLevel;
+                item.SafetyStock = dto.SafetyStock;
+                item.MaxStock = dto.MaxStock;
+
+                item.BasePrice = dto.BasePrice;
+                item.Barcode = string.IsNullOrWhiteSpace(dto.Barcode) ? null : dto.Barcode.Trim();
+                item.IsVariant = dto.IsVariant;
+                item.IsMerged = dto.IsMerged;
+                item.IsContainer = dto.IsContainer;
+                item.MultiUom = dto.MultiUom;
+                item.HideDetailPrint = dto.HideDetailPrint;
+                item.ParentItemId = (dto.ParentItemId.HasValue && dto.ParentItemId.Value > 0) ? dto.ParentItemId : null;
+
                 await _context.SaveChangesAsync();
                 return Ok(true);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء تحديث الصنف: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ أثناء تحديث الصنف: {ex.GetBaseException().Message}");
             }
         }
 
-        // 4. إضافة صنف جديد مع الخصائص التوافقية
+        // ==============================================================
+        // 4. إضافة صنف جديد (معالجة حقول الـ Foreign Key والـ Unique)
+        // ==============================================================
         [HttpPost]
         public async Task<ActionResult> PostItem([FromBody] ItemApiDto dto)
         {
             if (dto == null) return BadRequest("بيانات غير صالحة.");
 
-            var item = new Item
-            {
-                CompanyId = dto.CompanyId > 0 ? dto.CompanyId : 1,
-                CategoryId = dto.CategoryId > 0 ? dto.CategoryId : 1,
-                DepartmentId = (dto.DepartmentId.HasValue && dto.DepartmentId.Value > 0) ? dto.DepartmentId : null,
-                DepartmentName = dto.DepartmentName,
-                ItemCode = dto.ItemCode,
-                ItemName = dto.ItemName,
-                ItemType = string.IsNullOrWhiteSpace(dto.ItemType) ? "منتج تام" : dto.ItemType,
-                Unit = string.IsNullOrWhiteSpace(dto.Unit) ? "قطعة" : dto.Unit,
-                Active = dto.Active,
-                HasExpiryDate = dto.HasExpiryDate,
-                ShelfLifeDays = dto.HasExpiryDate ? dto.ShelfLifeDays : null,
-                ReorderLevel = dto.ReorderLevel,
-                SafetyStock = dto.SafetyStock,
-                MaxStock = dto.MaxStock,
-                BasePrice = dto.BasePrice,
-                Barcode = dto.Barcode,
-                IsVariant = dto.IsVariant,
-                IsMerged = dto.IsMerged,
-                IsContainer = dto.IsContainer,
-                MultiUom = dto.MultiUom,
-                HideDetailPrint = dto.HideDetailPrint,
-                ParentItemId = dto.ParentItemId,
-                CreatedAt = DateTime.UtcNow
-            };
-
             try
             {
+                // ضمان وجود CompanyId و CategoryId صالحين من قاعدة البيانات
+                var companyId = dto.CompanyId > 0 ? dto.CompanyId : ((await _context.Companies.FirstOrDefaultAsync())?.Id ?? 1);
+                var categoryId = dto.CategoryId > 0 ? dto.CategoryId : ((await _context.ItemCategories.FirstOrDefaultAsync())?.Id ?? 1);
+
+                var item = new Item
+                {
+                    CompanyId = companyId,
+                    CategoryId = categoryId,
+                    DepartmentId = (dto.DepartmentId.HasValue && dto.DepartmentId.Value > 0) ? dto.DepartmentId : null,
+                    DepartmentName = dto.DepartmentName,
+                    ItemCode = dto.ItemCode?.Trim() ?? string.Empty,
+                    ItemName = dto.ItemName?.Trim() ?? string.Empty,
+                    ItemType = string.IsNullOrWhiteSpace(dto.ItemType) ? "منتج تام" : dto.ItemType,
+                    Unit = string.IsNullOrWhiteSpace(dto.Unit) ? "قطعة" : dto.Unit,
+                    Active = dto.Active,
+                    HasExpiryDate = dto.HasExpiryDate,
+                    ShelfLifeDays = dto.HasExpiryDate ? dto.ShelfLifeDays : null,
+                    ReorderLevel = dto.ReorderLevel,
+                    SafetyStock = dto.SafetyStock,
+                    MaxStock = dto.MaxStock,
+                    BasePrice = dto.BasePrice,
+                    Barcode = string.IsNullOrWhiteSpace(dto.Barcode) ? null : dto.Barcode.Trim(),
+                    IsVariant = dto.IsVariant,
+                    IsMerged = dto.IsMerged,
+                    IsContainer = dto.IsContainer,
+                    MultiUom = dto.MultiUom,
+                    HideDetailPrint = dto.HideDetailPrint,
+                    ParentItemId = (dto.ParentItemId.HasValue && dto.ParentItemId.Value > 0) ? dto.ParentItemId : null,
+                    CreatedAt = DateTime.UtcNow
+                };
+
                 _context.Items.Add(item);
                 await _context.SaveChangesAsync();
                 return Ok(new { success = true, id = item.Id });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء إضافة الصنف: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ قاعدة البيانات: {ex.GetBaseException().Message}");
             }
         }
 
-        // 5. ميزة الإضافة السريعة المطابقة لشاشة كيان (Bulk Quick Import via Paste)
-        // تنسيق الأعمدة الثمانية: اسم الصنف | كود الصنف | القسم | النوع | الوحدة | معامل التحويل | السعر | الباركود
+        // ==============================================================
+        // 5. الإضافة السريعة بالنسخ واللصق
+        // ==============================================================
         [HttpPost("bulk-quick-import")]
         public async Task<IActionResult> BulkQuickImport([FromBody] BulkImportRequestDto request)
         {
@@ -306,7 +324,7 @@ namespace AbuAdelERP.Api.Controllers
                         existingItem.ItemName = itemName;
                         if (!string.IsNullOrEmpty(departmentName)) existingItem.DepartmentName = departmentName;
                         if (price > 0) existingItem.BasePrice = price;
-                        if (!string.IsNullOrEmpty(barcode)) existingItem.Barcode = barcode;
+                        if (!string.IsNullOrEmpty(barcode)) existingItem.Barcode = barcode.Trim();
                         if (!string.IsNullOrEmpty(variantName) && variantName != "عادي") existingItem.IsVariant = true;
                         if (conversionFactor > 1) existingItem.MultiUom = true;
 
@@ -316,15 +334,15 @@ namespace AbuAdelERP.Api.Controllers
                     {
                         var newItem = new Item
                         {
-                            CompanyId = request.CompanyId,
-                            CategoryId = request.DefaultCategoryId,
+                            CompanyId = request.CompanyId > 0 ? request.CompanyId : 1,
+                            CategoryId = request.DefaultCategoryId > 0 ? request.DefaultCategoryId : 1,
                             ItemCode = itemCode,
                             ItemName = itemName,
                             DepartmentName = departmentName,
                             ItemType = "منتج تام",
                             Unit = string.IsNullOrEmpty(unit) ? "قطعة" : unit,
                             BasePrice = price,
-                            Barcode = string.IsNullOrEmpty(barcode) ? null : barcode,
+                            Barcode = string.IsNullOrWhiteSpace(barcode) ? null : barcode.Trim(),
                             IsVariant = (!string.IsNullOrEmpty(variantName) && variantName != "عادي"),
                             MultiUom = (conversionFactor > 1),
                             Active = true,
@@ -347,11 +365,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"حدث خطأ أثناء معالجة البيانات: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"حدث خطأ أثناء معالجة البيانات: {ex.GetBaseException().Message}");
             }
         }
 
-        // 6. تحميل قالب الإكسيل التوافقي
+        // ==============================================================
+        // 6. تحميل قالب الإكسيل
+        // ==============================================================
         [HttpGet("download-template")]
         public IActionResult DownloadTemplate()
         {
@@ -362,7 +382,9 @@ namespace AbuAdelERP.Api.Controllers
             return File(bytes, "text/csv; charset=utf-8", "Items_Master_Template.csv");
         }
 
-        // 7. استيراد الإكسيل
+        // ==============================================================
+        // 7. استيراد ملف الإكسيل
+        // ==============================================================
         [HttpPost("import-excel")]
         public async Task<IActionResult> ImportExcel([FromForm] IFormFile file)
         {

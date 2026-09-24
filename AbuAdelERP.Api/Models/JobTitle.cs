@@ -20,7 +20,11 @@ public class JobTitle
     public string TitleName { get; set; } = string.Empty;
 
     [Column("job_grade")]
-    public int JobGrade { get; set; } = 1; // لتحديد المستوى الإداري (1 للإدارة العليا، وهكذا)
+    public int JobGrade { get; set; } = 1; // المستوى الإداري
+
+    // معدل تكلفة الساعة الاسترشادي لحساب تكلفة الدفعة والوجبة (دون التأثير على الراتب الشهري الثابت)
+    [Column("hourly_rate", TypeName = "decimal(18,2)")]
+    public decimal HourlyRate { get; set; } = 0;
 
     [Column("active")]
     public bool Active { get; set; } = true;

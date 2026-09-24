@@ -156,7 +156,6 @@ public partial class AppDbContext : DbContext
             entity.ToTable("departments", "erp");
             entity.HasIndex(e => new { e.CompanyId, e.DepartmentCode }, "departments_company_id_department_code_key").IsUnique();
 
-            // قيد (Restrict) لمنع انهيار PostgreSQL عند الدوران الذاتي
             entity.HasOne(d => d.ParentDepartment)
                 .WithMany(p => p.SubDepartments)
                 .HasForeignKey(d => d.ParentDepartmentId)
@@ -169,7 +168,6 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("departments_company_id_fkey");
         });
 
-        // إعدادات الموظفين والشجرة الإدارية
         modelBuilder.Entity<Employee>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("employees_pkey");
@@ -178,7 +176,7 @@ public partial class AppDbContext : DbContext
             entity.HasOne(e => e.Manager)
                 .WithMany()
                 .HasForeignKey(e => e.ManagerId)
-                .OnDelete(DeleteBehavior.Restrict) // منع الحذف المتسلسل الذاتي
+                .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("employees_manager_id_fkey");
 
             entity.HasOne(e => e.Department)
@@ -188,12 +186,65 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("employees_department_id_fkey");
         });
 
-        // إعدادات المسميات الوظيفية
         modelBuilder.Entity<JobTitle>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("job_titles_pkey");
             entity.ToTable("job_titles", "erp");
             entity.HasIndex(e => new { e.CompanyId, e.TitleName }, "ux_job_titles_company_title").IsUnique();
+        });
+
+        // ====== إعدادات جدول الأصناف Items ومطابقتها مع بوستجريس ======
+        modelBuilder.Entity<Item>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("items_pkey");
+            entity.ToTable("items", "erp");
+
+            entity.HasIndex(e => new { e.CompanyId, e.ItemCode }, "items_company_id_item_code_key").IsUnique();
+            entity.HasIndex(e => e.CategoryId, "idx_items_category_id");
+            entity.HasIndex(e => e.DepartmentId, "idx_items_department_id");
+
+            entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
+            entity.Property(e => e.CompanyId).HasColumnName("company_id");
+            entity.Property(e => e.CategoryId).HasColumnName("category_id");
+            entity.Property(e => e.DepartmentId).HasColumnName("department_id");
+            entity.Property(e => e.DepartmentName).HasColumnName("department_name");
+            entity.Property(e => e.ItemCode).HasMaxLength(100).HasColumnName("item_code");
+            entity.Property(e => e.ItemName).HasMaxLength(250).HasColumnName("item_name");
+            entity.Property(e => e.ItemType).HasMaxLength(30).HasColumnName("item_type");
+            entity.Property(e => e.Unit).HasMaxLength(50).HasColumnName("unit");
+            entity.Property(e => e.ParentItemId).HasColumnName("parent_item_id");
+            entity.Property(e => e.HasExpiryDate).HasDefaultValue(true).HasColumnName("has_expiry_date");
+            entity.Property(e => e.ShelfLifeDays).HasColumnName("shelf_life_days");
+            entity.Property(e => e.ReorderLevel).HasPrecision(18, 3).HasColumnName("reorder_level");
+            entity.Property(e => e.SafetyStock).HasPrecision(18, 3).HasColumnName("safety_stock");
+            entity.Property(e => e.MaxStock).HasPrecision(18, 3).HasColumnName("max_stock");
+            entity.Property(e => e.Active).HasDefaultValue(true).HasColumnName("active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
+            entity.Property(e => e.BasePrice).HasPrecision(18, 2).HasColumnName("base_price");
+            entity.Property(e => e.Barcode).HasMaxLength(100).HasColumnName("barcode");
+            entity.Property(e => e.IsVariant).HasDefaultValue(false).HasColumnName("is_variant");
+            entity.Property(e => e.IsMerged).HasDefaultValue(false).HasColumnName("is_merged");
+            entity.Property(e => e.IsContainer).HasDefaultValue(false).HasColumnName("is_container");
+            entity.Property(e => e.MultiUom).HasDefaultValue(false).HasColumnName("multi_uom");
+            entity.Property(e => e.HideDetailPrint).HasDefaultValue(false).HasColumnName("hide_detail_print");
+
+            entity.HasOne(d => d.ItemCategory)
+                .WithMany(p => p.Items)
+                .HasForeignKey(d => d.CategoryId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("items_category_id_fkey");
+
+            entity.HasOne(d => d.Department)
+                .WithMany()
+                .HasForeignKey(d => d.DepartmentId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("items_department_id_fkey");
+
+            entity.HasOne(d => d.ParentItem)
+                .WithMany(p => p.Variants)
+                .HasForeignKey(d => d.ParentItemId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("items_parent_item_id_fkey");
         });
 
         modelBuilder.Entity<DynamicForm>(entity =>
@@ -1098,7 +1149,6 @@ public partial class AppDbContext : DbContext
             entity.HasKey(e => e.Id).HasName("asset_balances_pkey");
             entity.ToTable("asset_balances", "erp");
 
-            // قيد فريد يمنع تكرار نفس الأصل لنفس الجهة
             entity.HasIndex(e => new { e.CompanyId, e.ItemId, e.PartyType, e.PartyId }, "ux_asset_balances_unique").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -1125,7 +1175,6 @@ public partial class AppDbContext : DbContext
             entity.HasKey(e => e.Id).HasName("asset_movements_pkey");
             entity.ToTable("asset_movements", "erp");
 
-            // فهارس لتسريع البحث في كشوف الحساب
             entity.HasIndex(e => new { e.FromPartyType, e.FromPartyId }, "idx_asset_movements_from");
             entity.HasIndex(e => new { e.ToPartyType, e.ToPartyId }, "idx_asset_movements_to");
             entity.HasIndex(e => e.ItemId, "idx_asset_movements_item");

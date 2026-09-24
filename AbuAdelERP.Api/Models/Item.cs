@@ -74,9 +74,7 @@ public class Item
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    // ==========================================
-    // الخصائص الجديدة المتوافقة مع نظام كيان وقاعدة البيانات
-    // ==========================================
+    // الخصائص التوافقية مع قاعدة البيانات ونظام كيان
     [Column("department_name")]
     public string? DepartmentName { get; set; }
 
