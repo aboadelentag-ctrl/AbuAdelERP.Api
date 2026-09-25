@@ -1,31 +1,52 @@
 ﻿using System;
-using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
-namespace AbuAdelERP.Api.Models;
-
-public partial class PurchaseOrderLine
+namespace AbuAdelERP.Api.Models
 {
-    public long Id { get; set; }
+    [Table("purchase_order_lines", Schema = "erp")]
+    public partial class PurchaseOrderLine
+    {
+        [Key]
+        [Column("id")]
+        public long Id { get; set; }
 
-    public long PurchaseOrderId { get; set; }
+        [Column("purchase_order_id")]
+        public long PurchaseOrderId { get; set; }
 
-    public long ItemId { get; set; }
+        [Column("item_id")]
+        public long ItemId { get; set; }
 
-    public decimal Quantity { get; set; }
+        [Column("quantity")]
+        public decimal Quantity { get; set; }
 
-    public decimal UnitPrice { get; set; }
+        [Column("unit_price")]
+        public decimal UnitPrice { get; set; } = 0;
 
-    public decimal DiscountAmount { get; set; }
+        // الحقول المطلوبة لخدمات ProcurementService و PurchasingService
+        [Column("received_quantity")]
+        public decimal ReceivedQuantity { get; set; } = 0;
 
-    public decimal TaxAmount { get; set; }
+        [Column("discount_amount")]
+        public decimal DiscountAmount { get; set; } = 0;
 
-    public decimal? LineTotal { get; set; }
+        [Column("tax_amount")]
+        public decimal TaxAmount { get; set; } = 0;
 
-    public decimal ReceivedQuantity { get; set; }
+        [Column("line_total")]
+        public decimal LineTotal { get; set; } = 0;
 
-    public string? Notes { get; set; }
+        // خانة الملاحظات الخاصة بالصنف
+        [Column("notes")]
+        public string? Notes { get; set; }
 
-    public virtual Item Item { get; set; } = null!;
+        [ForeignKey("PurchaseOrderId")]
+        [JsonIgnore]
+        public virtual PurchaseOrder? PurchaseOrder { get; set; }
 
-    public virtual PurchaseOrder PurchaseOrder { get; set; } = null!;
+        [ForeignKey("ItemId")]
+        [JsonIgnore]
+        public virtual Item? Item { get; set; }
+    }
 }

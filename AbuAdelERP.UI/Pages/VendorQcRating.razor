@@ -1,85 +1,175 @@
 ﻿@page "/vendor-qc-rating"
 @using System.Net.Http.Json
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using System.IO
 @inject HttpClient Http
+@inject IJSRuntime JS
 
-<div class="container-fluid p-0" dir="rtl">
-    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
-        <div>
-            <h3 class="fw-bold text-primary mb-1">📊 مؤشرات جودة الموردين وسجل الفحص الفني</h3>
-            <small class="text-muted">متابعة نسب القبول والرفض وتصنيف الموردين وفق معايير فحص استلام الخامات</small>
+<div class="container-fluid px-4 py-3" dir="rtl">
+
+    <!-- رأس الصفحة وأزرار التصدير والتحديث -->
+    <div class="card shadow-sm border-0 mb-3 bg-white border-start border-primary border-4">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h4 class="mb-1 text-dark fw-bold">📊 مؤشرات جودة الموردين وسجل الفحص الفني</h4>
+                <small class="text-muted">متابعة نسب القبول والرفض وتصنيف الموردين وفق معايير فحص استلام الخامات (ISO 22000 / HACCP)</small>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportRatingsToExcelAsync">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير تقرير تقييم الموردين
+                </button>
+                <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="ExportHistoryToExcelAsync">
+                    <i class="bi bi-file-earmark-text me-1"></i> تصدير سجل الفحوصات التفصيلي
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="LoadData" disabled="@isLoading">
+                    <i class="bi bi-arrow-clockwise"></i> تحديث المؤشرات
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- شريط البحث والفلترة بالتاريخ -->
-    <div class="card shadow-sm border-0 mb-4 bg-light">
-        <div class="card-body py-3">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label fw-bold small text-dark">📅 من تاريخ</label>
-                    <input type="date" class="form-control fw-bold border-primary" @bind="fromDate" />
+    <!-- تنبيهات النظام -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-3 py-2 fw-bold" role="alert">
+            <i class="bi @(isSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-1"></i> @statusMessage
+            <button type="button" class="btn-close py-2" @onclick='() => statusMessage = null'></button>
+        </div>
+    }
+
+    <!-- كروت ملخص الأداء العام للجودة (KPIs) -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-success border-4 bg-white p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-bold">إجمالي الموردين المفحوصين</div>
+                        <div class="fs-3 fw-bold text-success mt-1">@FilteredRatings.Count()</div>
+                    </div>
+                    <div class="bg-light p-2 rounded-circle border">
+                        <i class="bi bi-truck fs-4 text-success"></i>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label fw-bold small text-dark">📅 إلى تاريخ</label>
-                    <input type="date" class="form-control fw-bold border-primary" @bind="toDate" />
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-primary border-4 bg-white p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-bold">موردين بتصنيف ممتاز (Grade A)</div>
+                        <div class="fs-3 fw-bold text-primary mt-1">@FilteredRatings.Count(r => r.QualityGrade == "A")</div>
+                    </div>
+                    <div class="bg-light p-2 rounded-circle border">
+                        <i class="bi bi-award fs-4 text-primary"></i>
+                    </div>
                 </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-warning border-4 bg-white p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-bold">موردين تحت الملاحظة (Grade B)</div>
+                        <div class="fs-3 fw-bold text-warning mt-1">@FilteredRatings.Count(r => r.QualityGrade == "B")</div>
+                    </div>
+                    <div class="bg-light p-2 rounded-circle border">
+                        <i class="bi bi-exclamation-circle fs-4 text-warning"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 border-start border-danger border-4 bg-white p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-bold">موردين ذوو خطورة جودة (Grade C)</div>
+                        <div class="fs-3 fw-bold text-danger mt-1">@FilteredRatings.Count(r => r.QualityGrade == "C")</div>
+                    </div>
+                    <div class="bg-light p-2 rounded-circle border">
+                        <i class="bi bi-shield-slash fs-4 text-danger"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط البحث والفلترة المتعددة -->
+    <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <!-- 1. بحث عام بالاسم، الخامة، أو الملاحظات -->
                 <div class="col-md-3">
-                    <button class="btn btn-primary fw-bold w-100 py-2 shadow-sm" @onclick="LoadData" disabled="@isLoading">
-                        @(isLoading ? "⏳ جاري الفلترة..." : "🔍 تصفية المؤشرات")
+                    <label class="form-label small fw-bold text-secondary mb-1">🔍 بحث (مورد، خامة، LOT، أو ملاحظات)</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="ابحث باسم المورد أو الخامة أو رقم التشغيلة..." 
+                           @bind="searchTerm" @bind:event="oninput" />
+                </div>
+
+                <!-- 2. فلتر تصنيف الجودة -->
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-secondary mb-1">🏆 تصنيف الجودة</label>
+                    <select class="form-select form-select-sm fw-bold" @bind="selectedGradeFilter">
+                        <option value="all">-- كل التصنيفات --</option>
+                        <option value="A">Grade A (ممتاز ≥ 95%)</option>
+                        <option value="B">Grade B (تحت الملاحظة 85%-94%)</option>
+                        <option value="C">Grade C (مرفوض / خطر &lt; 85%)</option>
+                    </select>
+                </div>
+
+                <!-- 3. فلتر القرار الفني -->
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-secondary mb-1">⚖️ القرار الفني للفحص</label>
+                    <select class="form-select form-select-sm fw-bold" @bind="selectedDecisionFilter">
+                        <option value="all">-- كل القرارات --</option>
+                        <option value="PURCHASE_RECEIPT">✅ إفراج ومقبول فقط</option>
+                        <option value="REJECTED">❌ مرفوض فني فقط</option>
+                    </select>
+                </div>
+
+                <!-- 4. من تاريخ -->
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-secondary mb-1">📅 من تاريخ</label>
+                    <input type="date" class="form-control form-control-sm font-monospace" @bind="fromDate" />
+                </div>
+
+                <!-- 5. إلى تاريخ -->
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-secondary mb-1">📅 إلى تاريخ</label>
+                    <input type="date" class="form-control form-control-sm font-monospace" @bind="toDate" />
+                </div>
+
+                <div class="col-md-1 d-flex align-items-end">
+                    <button class="btn btn-outline-danger btn-sm w-100" title="تفريغ الفلاتر" @onclick="ResetFilter">✕</button>
+                </div>
+            </div>
+
+            @if (HasActiveFilters)
+            {
+                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                    <span class="small text-primary fw-bold">
+                        <i class="bi bi-funnel-fill me-1"></i> نتائج التصفية: (@FilteredRatings.Count() مورد مطابق | @FilteredHistory.Count() حركة فحص فني)
+                    </span>
+                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-bold" style="font-size: 0.78rem;" @onclick="ResetFilter">
+                        ✕ إلغاء الفلاتر وعرض الكل
                     </button>
                 </div>
-                <div class="col-md-3">
-                    <button class="btn btn-outline-secondary fw-bold w-100 py-2" @onclick="ResetFilter" disabled="@isLoading">
-                        🔄 إعادة ضبط (الكل)
-                    </button>
-                </div>
-            </div>
+            }
         </div>
     </div>
 
-    <!-- كروت ملخص الأداء العام -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 border-start border-success border-4 bg-white">
-                <div class="card-body">
-                    <div class="text-muted small fw-bold">إجمالي الموردين المفحوصين</div>
-                    <div class="fs-3 fw-bold text-success">@(ratings?.Count ?? 0)</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 border-start border-primary border-4 bg-white">
-                <div class="card-body">
-                    <div class="text-muted small fw-bold">موردين بتصنيف ممتاز (Grade A)</div>
-                    <div class="fs-3 fw-bold text-primary">@(ratings?.Count(r => r.QualityGrade == "A") ?? 0)</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 border-start border-warning border-4 bg-white">
-                <div class="card-body">
-                    <div class="text-muted small fw-bold">موردين تحت الملاحظة (Grade B)</div>
-                    <div class="fs-3 fw-bold text-warning">@(ratings?.Count(r => r.QualityGrade == "B") ?? 0)</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 border-start border-danger border-4 bg-white">
-                <div class="card-body">
-                    <div class="text-muted small fw-bold">موردين ذوو خطورة جودة (Grade C)</div>
-                    <div class="fs-3 fw-bold text-danger">@(ratings?.Count(r => r.QualityGrade == "C") ?? 0)</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- جدول تصنيف وتقييم الموردين -->
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-header bg-dark text-white py-3">
-            <h6 class="mb-0 fw-bold">🏆 تقييم أداء الموردين ومعدل مطابقة الجودة (% Acceptance Rate)</h6>
+    <!-- جدول تقييم أداء الموردين ومعدل مطابقة الجودة -->
+    <div class="card shadow-sm border-0 mb-4 bg-white">
+        <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold small">🏆 تقييم أداء الموردين ومعدل مطابقة الجودة (% Acceptance Rate)</h6>
+            <span class="badge bg-primary">المعروض: @FilteredRatings.Count() مورد</span>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-bordered table-hover mb-0 align-middle text-center">
+                <table class="table table-bordered table-hover mb-0 align-middle text-center small">
                     <thead class="table-light">
                         <tr>
                             <th style="width: 25%;" class="text-start ps-3">اسم المورد</th>
@@ -94,27 +184,27 @@
                     <tbody>
                         @if (ratings == null)
                         {
-                            <tr><td colspan="7" class="py-4">⏳ جاري حساب التقييمات للفترة المحددة...</td></tr>
+                            <tr><td colspan="7" class="py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري حساب التقييمات للفترة المحددة...</td></tr>
                         }
-                        else if (!ratings.Any())
+                        else if (!FilteredRatings.Any())
                         {
-                            <tr><td colspan="7" class="text-muted py-4">لا توجد حركات استلام وفحص جودة مسجلة خلال هذه الفترة.</td></tr>
+                            <tr><td colspan="7" class="text-muted py-4">لا توجد حركات استلام وفحص جودة مسجلة مطابقة للفلاتر الحالية.</td></tr>
                         }
                         else
                         {
-                            @foreach (var r in ratings)
+                            @foreach (var r in FilteredRatings)
                             {
                                 <tr>
                                     <td class="text-start ps-3 fw-bold text-primary">@r.SupplierName</td>
                                     <td><span class="badge bg-secondary">@r.TotalShipments شحنة</span></td>
-                                    <td class="fw-bold">@r.TotalReceivedQty.ToString("N2")</td>
-                                    <td class="text-success fw-bold">@r.TotalAcceptedQty.ToString("N2")</td>
-                                    <td class="text-danger fw-bold">@r.TotalRejectedQty.ToString("N2")</td>
+                                    <td class="fw-bold font-monospace">@r.TotalReceivedQty.ToString("N2")</td>
+                                    <td class="text-success fw-bold font-monospace">@r.TotalAcceptedQty.ToString("N2")</td>
+                                    <td class="text-danger fw-bold font-monospace">@r.TotalRejectedQty.ToString("N2")</td>
                                     <td>
                                         <div class="progress" style="height: 20px;">
                                             <div class="progress-bar @(r.AcceptanceRate >= 95 ? "bg-success" : r.AcceptanceRate >= 85 ? "bg-warning text-dark" : "bg-danger") fw-bold"
-                                                 role="progressbar" style="width: @r.AcceptanceRate%;">
-                                                @r.AcceptanceRate%
+                                                 role="progressbar" style="width: @(Math.Min(r.AcceptanceRate, 100))%;">
+                                                @r.AcceptanceRate.ToString("N1")%
                                             </div>
                                         </div>
                                     </td>
@@ -142,13 +232,14 @@
     </div>
 
     <!-- سجل الفحوصات التفصيلية وأسباب الرفض -->
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-header bg-secondary text-white py-3">
-            <h6 class="mb-0 fw-bold">📜 سجل الفحوصات الفنية للخامات وأسباب الرفض</h6>
+    <div class="card shadow-sm border-0 mb-3 bg-white">
+        <div class="card-header bg-secondary text-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold small">📜 سجل الفحوصات الفنية للخامات وأسباب الرفض</h6>
+            <span class="badge bg-light text-dark">المعروض: @FilteredHistory.Count() حركة استلام وفحص</span>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-striped table-hover mb-0 align-middle text-center">
+                <table class="table table-striped table-hover mb-0 align-middle text-center small">
                     <thead class="table-light">
                         <tr>
                             <th style="width: 14%;">تاريخ الفحص</th>
@@ -162,35 +253,35 @@
                     <tbody>
                         @if (history == null)
                         {
-                            <tr><td colspan="6" class="py-4">⏳ جاري تحميل السجل...</td></tr>
+                            <tr><td colspan="6" class="py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري تحميل السجل...</td></tr>
                         }
-                        else if (!history.Any())
+                        else if (!FilteredHistory.Any())
                         {
-                            <tr><td colspan="6" class="text-muted py-4">لا يوجد سجل فحوصات خلال هذه الفترة.</td></tr>
+                            <tr><td colspan="6" class="text-muted py-4">لا يوجد سجل فحوصات خلال هذه الفترة مطابق للفلاتر المحددة.</td></tr>
                         }
                         else
                         {
-                            @foreach (var h in history)
+                            @foreach (var h in FilteredHistory)
                             {
                                 <tr>
-                                    <td>@h.InspectionDate.ToString("yyyy-MM-dd HH:mm")</td>
-                                    <td class="text-start ps-3 fw-bold">@h.SupplierName</td>
+                                    <td class="font-monospace text-muted">@h.InspectionDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="text-start ps-3 fw-bold text-dark">@h.SupplierName</td>
                                     <td class="text-start ps-3">
-                                        <div>@h.ItemName</div>
-                                        <small class="text-muted">@h.ItemCode</small>
+                                        <div class="fw-bold text-primary">@h.ItemName</div>
+                                        <small class="text-muted font-monospace">@h.ItemCode</small>
                                     </td>
-                                    <td class="fw-bold">@h.Quantity.ToString("N2")</td>
+                                    <td class="fw-bold font-monospace">@h.Quantity.ToString("N2")</td>
                                     <td>
                                         @if (h.MovementType == "PURCHASE_RECEIPT")
                                         {
-                                            <span class="badge bg-success px-3 py-2">✅ إفراج ومقبول</span>
+                                            <span class="badge bg-success px-3 py-1">✅ إفراج ومقبول</span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-danger px-3 py-2">❌ مرفوض فني</span>
+                                            <span class="badge bg-danger px-3 py-1">❌ مرفوض فني</span>
                                         }
                                     </td>
-                                    <td class="text-start ps-3 small">@h.Notes</td>
+                                    <td class="text-start ps-3 small text-muted">@(string.IsNullOrEmpty(h.Notes) ? "-" : h.Notes)</td>
                                 </tr>
                             }
                         }
@@ -209,8 +300,14 @@
     private DateTime? fromDate = DateTime.Today.AddDays(-30);
     private DateTime? toDate = DateTime.Today;
 
+    // فلاتر البحث المحلية
+    private string searchTerm = "";
+    private string selectedGradeFilter = "all";
+    private string selectedDecisionFilter = "all";
+
     private bool isLoading = false;
-    private string apiBase = "https://localhost:7273/api";
+    private string? statusMessage;
+    private bool isSuccess = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -220,6 +317,7 @@
     private async Task LoadData()
     {
         isLoading = true;
+        statusMessage = null;
         try
         {
             string queryParams = "";
@@ -236,12 +334,22 @@
                 queryParams = $"?toDate={toDate.Value:yyyy-MM-dd}";
             }
 
-            ratings = await Http.GetFromJsonAsync<List<VendorQcScoreDto>>($"{apiBase}/VendorQc/ratings{queryParams}");
-            history = await Http.GetFromJsonAsync<List<QcInspectionHistoryDto>>($"{apiBase}/VendorQc/history{queryParams}");
+            try
+            {
+                ratings = await Http.GetFromJsonAsync<List<VendorQcScoreDto>>($"api/VendorQc/ratings{queryParams}");
+                history = await Http.GetFromJsonAsync<List<QcInspectionHistoryDto>>($"api/VendorQc/history{queryParams}");
+            }
+            catch
+            {
+                // مسار احتياطي في حال اختلاف الـ Port
+                ratings = await Http.GetFromJsonAsync<List<VendorQcScoreDto>>($"https://localhost:7273/api/VendorQc/ratings{queryParams}");
+                history = await Http.GetFromJsonAsync<List<QcInspectionHistoryDto>>($"https://localhost:7273/api/VendorQc/history{queryParams}");
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error fetching QC data: {ex.Message}");
+            isSuccess = false;
+            statusMessage = $"خطأ في جلب بيانات الفحص والجودة: {ex.Message}";
         }
         finally
         {
@@ -251,9 +359,163 @@
 
     private async Task ResetFilter()
     {
+        searchTerm = "";
+        selectedGradeFilter = "all";
+        selectedDecisionFilter = "all";
         fromDate = null;
         toDate = null;
         await LoadData();
+    }
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchTerm) ||
+        selectedGradeFilter != "all" ||
+        selectedDecisionFilter != "all" ||
+        fromDate.HasValue ||
+        toDate.HasValue;
+
+    private IEnumerable<VendorQcScoreDto> FilteredRatings
+    {
+        get
+        {
+            if (ratings == null) return Enumerable.Empty<VendorQcScoreDto>();
+            var query = ratings.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(r => r.SupplierName.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (selectedGradeFilter != "all")
+            {
+                query = query.Where(r => r.QualityGrade.Equals(selectedGradeFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query;
+        }
+    }
+
+    private IEnumerable<QcInspectionHistoryDto> FilteredHistory
+    {
+        get
+        {
+            if (history == null) return Enumerable.Empty<QcInspectionHistoryDto>();
+            var query = history.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(h =>
+                    h.SupplierName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    h.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    h.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(h.Notes) && h.Notes.Contains(term, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (selectedDecisionFilter != "all")
+            {
+                query = query.Where(h => h.MovementType.Equals(selectedDecisionFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query;
+        }
+    }
+
+    // ==========================================
+    // محرك التصدير إلى إكسيل (UTF-8 BOM)
+    // ==========================================
+    private async Task ExportRatingsToExcelAsync()
+    {
+        var list = FilteredRatings.ToList();
+        if (!list.Any())
+        {
+            isSuccess = false;
+            statusMessage = "لا توجد تقييمات مطابقة لتصديرها.";
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("اسم_المورد,عدد_الشحنات,إجمالي_الوارد,الكمية_المقبولة,الكمية_المرفوضة,معدل_القبول_النسبة,تصنيف_الجودة");
+
+            foreach (var r in list)
+            {
+                var gradeTitle = r.QualityGrade switch
+                {
+                    "A" => "A - ممتاز",
+                    "B" => "B - تحت الملاحظة",
+                    _ => "C - غير مطابق"
+                };
+                sb.AppendLine($"{EscapeCsv(r.SupplierName)},{r.TotalShipments},{r.TotalReceivedQty:F2},{r.TotalAcceptedQty:F2},{r.TotalRejectedQty:F2},{r.AcceptanceRate:F1}%,{gradeTitle}");
+            }
+
+            var fileName = $"تقرير_تقييم_جودة_الموردين_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await TriggerBrowserDownload(fileName, sb.ToString());
+            isSuccess = true;
+            statusMessage = $"تم تصدير تقييم ({list.Count}) مورد إلى إكسيل بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"فشل التصدير: {ex.Message}";
+        }
+    }
+
+    private async Task ExportHistoryToExcelAsync()
+    {
+        var list = FilteredHistory.ToList();
+        if (!list.Any())
+        {
+            isSuccess = false;
+            statusMessage = "لا يوجد سجل فحوصات مطابق لتصديره.";
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("تاريخ_الفحص,اسم_المورد,كود_الخامة,اسم_الخامة,الكمية,القرار_الفني,ملاحظات_مفتش_الجودة_والتشغيل");
+
+            foreach (var h in list)
+            {
+                var decision = h.MovementType == "PURCHASE_RECEIPT" ? "إفراج ومقبول" : "مرفوض فني";
+                var notes = (h.Notes ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+                sb.AppendLine($"{h.InspectionDate:yyyy-MM-dd HH:mm},{EscapeCsv(h.SupplierName)},{EscapeCsv(h.ItemCode)},{EscapeCsv(h.ItemName)},{h.Quantity:F2},{decision},{EscapeCsv(notes)}");
+            }
+
+            var fileName = $"سجل_الفحوصات_الفنية_للخامات_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await TriggerBrowserDownload(fileName, sb.ToString());
+            isSuccess = true;
+            statusMessage = $"تم تصدير ({list.Count}) حركة فحص واستلام إلى إكسيل بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"فشل التصدير: {ex.Message}";
+        }
+    }
+
+    private async Task TriggerBrowserDownload(string fileName, string content)
+    {
+        var utf8WithBom = "\uFEFF" + content;
+        var jsCommand = $@"
+            const a = document.createElement('a');
+            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(`{utf8WithBom}`);
+            a.download = '{fileName}';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        ";
+        await JS.InvokeVoidAsync("eval", jsCommand);
+    }
+
+    private string EscapeCsv(string val)
+    {
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        return val;
     }
 
     public class VendorQcScoreDto
