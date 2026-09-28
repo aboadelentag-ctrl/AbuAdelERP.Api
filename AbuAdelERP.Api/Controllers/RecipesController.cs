@@ -1,6 +1,10 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using AbuAdelERP.Api.DTOs;
 using AbuAdelERP.Api.Services;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace AbuAdelERP.Api.Controllers
 {
@@ -56,6 +60,37 @@ namespace AbuAdelERP.Api.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, $"خطأ في الحفظ: {ex.InnerException?.Message ?? ex.Message}");
+            }
+        }
+
+        // ==============================================================
+        // مسار استيراد معايير وخلطات التصنيع دفعة واحدة من الإكسيل
+        // ==============================================================
+        [HttpPost("bulk-import")]
+        public async Task<IActionResult> BulkImportRecipes([FromBody] List<SaveRecipeDto> dtoList)
+        {
+            if (dtoList == null || !dtoList.Any())
+                return BadRequest("لا توجد وصفات للاستيراد.");
+
+            try
+            {
+                int count = 0;
+                foreach (var dto in dtoList)
+                {
+                    var success = await _recipeService.SaveRecipeAsync(dto);
+                    if (success) count++;
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    count = count,
+                    message = $"تم استيراد وحفظ وتحديث ({count}) بطاقة معيار خلطة بنجاح!"
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ أثناء استيراد الوصفات: {ex.GetBaseException().Message}");
             }
         }
 

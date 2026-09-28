@@ -17,6 +17,9 @@ namespace AbuAdelERP.Api.Services
             _context = context;
         }
 
+        // ==============================================================
+        // 1. جلب كافة معايير خلطات التصنيع مع احتساب التكاليف اللحظية
+        // ==============================================================
         public async Task<List<RecipeDto>> GetAllRecipesAsync()
         {
             var recipes = await _context.Recipes
@@ -46,10 +49,11 @@ namespace AbuAdelERP.Api.Services
             return recipes.Select(r =>
             {
                 decimal totalCost = 0;
-                foreach (var line in r.RecipeLines)
+                foreach (var line in r.RecipeLines.Where(l => l.Quantity > 0))
                 {
                     decimal cost = latestCosts.ContainsKey(line.ComponentItemId) ? latestCosts[line.ComponentItemId] : 0;
-                    totalCost += (line.Quantity * (1 + (line.WastePercentage / 100))) * cost;
+                    decimal waste = line.WastePercentage;
+                    totalCost += (line.Quantity * (1m + (waste / 100m))) * cost;
                 }
 
                 return new RecipeDto
@@ -70,12 +74,15 @@ namespace AbuAdelERP.Api.Services
                     PreparationTimeMinutes = r.PreparationTimeMinutes,
                     Active = r.Active,
                     Notes = r.Notes,
-                    LinesCount = r.RecipeLines.Count,
+                    LinesCount = r.RecipeLines.Count(l => l.Quantity > 0),
                     TotalEstimatedCost = totalCost
                 };
             }).ToList();
         }
 
+        // ==============================================================
+        // 2. جلب تفاصيل بطاقة خلطة محددة
+        // ==============================================================
         public async Task<RecipeDto?> GetRecipeByIdAsync(long id)
         {
             var r = await _context.Recipes
@@ -109,22 +116,24 @@ namespace AbuAdelERP.Api.Services
             }
             catch { }
 
-            var linesDto = r.RecipeLines.Select(l =>
-            {
-                decimal unitCost = latestCosts.ContainsKey(l.ComponentItemId) ? latestCosts[l.ComponentItemId] : 0;
-                return new RecipeLineDto
+            var linesDto = r.RecipeLines
+                .Where(l => l.Quantity > 0)
+                .Select(l =>
                 {
-                    Id = l.Id,
-                    ComponentItemId = l.ComponentItemId,
-                    ComponentItemCode = itemsMap.ContainsKey(l.ComponentItemId) ? itemsMap[l.ComponentItemId].ItemCode : "",
-                    ComponentItemName = itemsMap.ContainsKey(l.ComponentItemId) ? itemsMap[l.ComponentItemId].ItemName : "",
-                    Quantity = l.Quantity,
-                    Unit = l.Unit,
-                    WastePercentage = l.WastePercentage,
-                    UnitCost = unitCost,
-                    Notes = l.Notes
-                };
-            }).ToList();
+                    decimal unitCost = latestCosts.ContainsKey(l.ComponentItemId) ? latestCosts[l.ComponentItemId] : 0;
+                    return new RecipeLineDto
+                    {
+                        Id = l.Id,
+                        ComponentItemId = l.ComponentItemId,
+                        ComponentItemCode = itemsMap.ContainsKey(l.ComponentItemId) ? itemsMap[l.ComponentItemId].ItemCode : "",
+                        ComponentItemName = itemsMap.ContainsKey(l.ComponentItemId) ? itemsMap[l.ComponentItemId].ItemName : "",
+                        Quantity = l.Quantity,
+                        Unit = l.Unit,
+                        WastePercentage = l.WastePercentage,
+                        UnitCost = unitCost,
+                        Notes = l.Notes
+                    };
+                }).ToList();
 
             decimal totalCost = linesDto.Sum(l => l.LineTotalCost);
 
@@ -152,103 +161,165 @@ namespace AbuAdelERP.Api.Services
             };
         }
 
+        // ==============================================================
+        // 3. حفظ واعتماد بطاقة المعايير (BOM) مع حماية قيود أوامر الإنتاج
+        // ==============================================================
         public async Task<bool> SaveRecipeAsync(SaveRecipeDto dto)
         {
             if (dto == null || dto.ProductItemId <= 0 || dto.Lines == null || dto.Lines.Count == 0)
                 return false;
 
-            DateTime now = DateTime.UtcNow;
-
-            if (dto.Id == 0)
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                var recipe = new Recipe
-                {
-                    CompanyId = dto.CompanyId > 0 ? dto.CompanyId : 1,
-                    ProductItemId = dto.ProductItemId,
-                    RecipeCode = string.IsNullOrWhiteSpace(dto.RecipeCode) ? $"BOM-{DateTime.UtcNow:yyyyMMdd}-{dto.ProductItemId}" : dto.RecipeCode,
-                    RecipeName = dto.RecipeName,
-                    BatchQuantity = dto.BatchQuantity,
-                    BatchUnit = dto.BatchUnit,
-                    YieldQuantity = dto.YieldQuantity,
-                    YieldUnit = dto.YieldUnit,
-                    PiecesPerBatch = dto.PiecesPerBatch,
-                    WastePercentage = dto.WastePercentage,
-                    PreparationTimeMinutes = dto.PreparationTimeMinutes,
-                    Active = dto.Active,
-                    Notes = dto.Notes,
-                    EffectiveFrom = DateOnly.FromDateTime(DateTime.Today),
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
+                DateTime now = DateTime.UtcNow;
+                Recipe? recipe;
 
-                _context.Recipes.Add(recipe);
+                if (dto.Id == 0)
+                {
+                    // إنشاء بطاقة خلطة جديدة
+                    recipe = new Recipe
+                    {
+                        CompanyId = dto.CompanyId > 0 ? dto.CompanyId : 1,
+                        ProductItemId = dto.ProductItemId,
+                        RecipeCode = string.IsNullOrWhiteSpace(dto.RecipeCode) ? $"BOM-{DateTime.UtcNow:yyyyMMdd}-{dto.ProductItemId}" : dto.RecipeCode.Trim(),
+                        RecipeName = dto.RecipeName.Trim(),
+                        BatchQuantity = dto.BatchQuantity,
+                        BatchUnit = !string.IsNullOrWhiteSpace(dto.BatchUnit) ? dto.BatchUnit : "كجم",
+                        YieldQuantity = dto.YieldQuantity > 0 ? dto.YieldQuantity : dto.BatchQuantity,
+                        YieldUnit = !string.IsNullOrWhiteSpace(dto.YieldUnit) ? dto.YieldUnit : dto.BatchUnit,
+                        PiecesPerBatch = dto.PiecesPerBatch,
+                        WastePercentage = dto.WastePercentage,
+                        PreparationTimeMinutes = dto.PreparationTimeMinutes,
+                        Active = dto.Active,
+                        Notes = dto.Notes,
+                        EffectiveFrom = DateOnly.FromDateTime(DateTime.Today),
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    };
+
+                    _context.Recipes.Add(recipe);
+                    await _context.SaveChangesAsync();
+
+                    int lineNum = 1;
+                    foreach (var l in dto.Lines)
+                    {
+                        if (l.ComponentItemId <= 0 || l.Quantity <= 0) continue;
+
+                        _context.RecipeLines.Add(new RecipeLine
+                        {
+                            RecipeId = recipe.Id,
+                            ComponentItemId = l.ComponentItemId,
+                            LineNumber = lineNum++,
+                            Quantity = l.Quantity,
+                            Unit = !string.IsNullOrWhiteSpace(l.Unit) ? l.Unit : "كجم",
+                            WastePercentage = l.WastePercentage,
+                            IsOptional = false,
+                            Notes = l.Notes,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        });
+                    }
+                }
+                else
+                {
+                    // تعديل خلطة قائمة (تطبيق منطق الـ Upsert الآمن لمنع كسر قيود أوامر الإنتاج السابقة)
+                    recipe = await _context.Recipes
+                        .Include(r => r.RecipeLines)
+                        .FirstOrDefaultAsync(r => r.Id == dto.Id);
+
+                    if (recipe == null) return false;
+
+                    recipe.ProductItemId = dto.ProductItemId;
+                    recipe.RecipeCode = !string.IsNullOrWhiteSpace(dto.RecipeCode) ? dto.RecipeCode.Trim() : recipe.RecipeCode;
+                    recipe.RecipeName = dto.RecipeName.Trim();
+                    recipe.BatchQuantity = dto.BatchQuantity;
+                    recipe.BatchUnit = !string.IsNullOrWhiteSpace(dto.BatchUnit) ? dto.BatchUnit : recipe.BatchUnit;
+                    recipe.YieldQuantity = dto.YieldQuantity > 0 ? dto.YieldQuantity : dto.BatchQuantity;
+                    recipe.YieldUnit = !string.IsNullOrWhiteSpace(dto.YieldUnit) ? dto.YieldUnit : recipe.BatchUnit;
+                    recipe.PiecesPerBatch = dto.PiecesPerBatch;
+                    recipe.WastePercentage = dto.WastePercentage;
+                    recipe.PreparationTimeMinutes = dto.PreparationTimeMinutes;
+                    recipe.Active = dto.Active;
+                    recipe.Notes = dto.Notes;
+                    recipe.UpdatedAt = now;
+
+                    // 1. تحديث أو إضافة السطور الواردة
+                    int lineNum = 1;
+                    var processedLineIds = new List<long>();
+
+                    foreach (var lineDto in dto.Lines)
+                    {
+                        if (lineDto.ComponentItemId <= 0 || lineDto.Quantity <= 0) continue;
+
+                        var existingLine = recipe.RecipeLines.FirstOrDefault(l =>
+                            (lineDto.Id > 0 && l.Id == lineDto.Id) ||
+                            (l.ComponentItemId == lineDto.ComponentItemId));
+
+                        if (existingLine != null)
+                        {
+                            existingLine.Quantity = lineDto.Quantity;
+                            existingLine.Unit = !string.IsNullOrWhiteSpace(lineDto.Unit) ? lineDto.Unit : existingLine.Unit;
+                            existingLine.WastePercentage = lineDto.WastePercentage;
+                            existingLine.Notes = lineDto.Notes;
+                            existingLine.LineNumber = lineNum++;
+                            existingLine.UpdatedAt = now;
+                            processedLineIds.Add(existingLine.Id);
+                        }
+                        else
+                        {
+                            var newLine = new RecipeLine
+                            {
+                                RecipeId = recipe.Id,
+                                ComponentItemId = lineDto.ComponentItemId,
+                                LineNumber = lineNum++,
+                                Quantity = lineDto.Quantity,
+                                Unit = !string.IsNullOrWhiteSpace(lineDto.Unit) ? lineDto.Unit : "كجم",
+                                WastePercentage = lineDto.WastePercentage,
+                                IsOptional = false,
+                                Notes = lineDto.Notes,
+                                CreatedAt = now,
+                                UpdatedAt = now
+                            };
+                            _context.RecipeLines.Add(newLine);
+                        }
+                    }
+
+                    // 2. معالجة السطور المستبعدة بأمان دون كسر قيد foreign key constraint
+                    var linesToRemove = recipe.RecipeLines.Where(l => !processedLineIds.Contains(l.Id)).ToList();
+                    foreach (var oldLine in linesToRemove)
+                    {
+                        bool isReferenced = await _context.ProductionStageMaterials
+                            .AnyAsync(psm => psm.RecipeLineId == oldLine.Id);
+
+                        if (isReferenced)
+                        {
+                            oldLine.Quantity = 0;
+                            oldLine.IsOptional = true;
+                            oldLine.Notes = "[مستبعد من المعيار المحدث - تم الاحتفاظ به لتوثيق أوامر الإنتاج السابقة]";
+                            oldLine.UpdatedAt = now;
+                        }
+                        else
+                        {
+                            _context.RecipeLines.Remove(oldLine);
+                        }
+                    }
+                }
+
                 await _context.SaveChangesAsync();
-
-                int lineNum = 1;
-                foreach (var l in dto.Lines)
-                {
-                    _context.RecipeLines.Add(new RecipeLine
-                    {
-                        RecipeId = recipe.Id,
-                        ComponentItemId = l.ComponentItemId,
-                        LineNumber = lineNum++,
-                        Quantity = l.Quantity,
-                        Unit = l.Unit,
-                        WastePercentage = l.WastePercentage,
-                        IsOptional = false,
-                        Notes = l.Notes,
-                        CreatedAt = now,
-                        UpdatedAt = now
-                    });
-                }
+                await transaction.CommitAsync();
+                return true;
             }
-            else
+            catch (Exception)
             {
-                var recipe = await _context.Recipes
-                    .Include(r => r.RecipeLines)
-                    .FirstOrDefaultAsync(r => r.Id == dto.Id);
-
-                if (recipe == null) return false;
-
-                recipe.ProductItemId = dto.ProductItemId;
-                recipe.RecipeCode = dto.RecipeCode;
-                recipe.RecipeName = dto.RecipeName;
-                recipe.BatchQuantity = dto.BatchQuantity;
-                recipe.BatchUnit = dto.BatchUnit;
-                recipe.YieldQuantity = dto.YieldQuantity;
-                recipe.YieldUnit = dto.YieldUnit;
-                recipe.PiecesPerBatch = dto.PiecesPerBatch;
-                recipe.WastePercentage = dto.WastePercentage;
-                recipe.PreparationTimeMinutes = dto.PreparationTimeMinutes;
-                recipe.Active = dto.Active;
-                recipe.Notes = dto.Notes;
-                recipe.UpdatedAt = now;
-
-                _context.RecipeLines.RemoveRange(recipe.RecipeLines);
-
-                int lineNum = 1;
-                foreach (var l in dto.Lines)
-                {
-                    _context.RecipeLines.Add(new RecipeLine
-                    {
-                        RecipeId = recipe.Id,
-                        ComponentItemId = l.ComponentItemId,
-                        LineNumber = lineNum++,
-                        Quantity = l.Quantity,
-                        Unit = l.Unit,
-                        WastePercentage = l.WastePercentage,
-                        IsOptional = false,
-                        Notes = l.Notes,
-                        CreatedAt = now,
-                        UpdatedAt = now
-                    });
-                }
+                await transaction.RollbackAsync();
+                throw;
             }
-
-            await _context.SaveChangesAsync();
-            return true;
         }
 
+        // ==============================================================
+        // 4. حذف أو إيقاف بطاقة المعايير بأمان
+        // ==============================================================
         public async Task<bool> DeleteRecipeAsync(long id)
         {
             var recipe = await _context.Recipes
@@ -256,6 +327,17 @@ namespace AbuAdelERP.Api.Services
                 .FirstOrDefaultAsync(r => r.Id == id);
 
             if (recipe == null) return false;
+
+            bool isUsedInProduction = await _context.ProductionOrderDetails.AnyAsync(pod => pod.RecipeId == id)
+                                   || await _context.ProductionOrderStages.AnyAsync(pos => pos.RecipeStageId == id);
+
+            if (isUsedInProduction)
+            {
+                recipe.Active = false;
+                recipe.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                return true;
+            }
 
             _context.RecipeLines.RemoveRange(recipe.RecipeLines);
             _context.Recipes.Remove(recipe);
