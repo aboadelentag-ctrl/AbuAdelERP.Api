@@ -4,35 +4,115 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 
-<PageTitle>تقارير ومؤشرات أداء المهام الطارئة - حلواني أبو عادل</PageTitle>
+<PageTitle>لوحة مؤشرات الأداء والتقارير التنفيذية (KPIs) - حلواني أبو عادل</PageTitle>
 
-<div class="container-fluid px-4 py-3" dir="rtl">
+<!-- أنماط مخصصة لإصلاح الطباعة وإخفاء القائمة الجانبية تماماً وتنسيق A4 بالعرض -->
+<style>
+    @@media print {
+        /* إخفاء القائمة الجانبية والشريط العلوي وجميع الأزرار والفلاتر تلقائياً */
+        .sidebar, .top-row, .navbar, header, nav, .no-print, button, a.btn, .input-group, select, input {
+            display: none !important;
+        }
 
-    <!-- رأس الصفحة وأزرار التصدير والطباعة -->
-    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
+        /* تمديد المحتوى ليأخذ 100% من مساحة الورقة البيضاء */
+        body, html, main, .main, article, .content, .container-fluid {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
+        }
+
+        /* فرض طباعة الخلفيات والألوان والحدود بدقة تامة */
+        * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        @@page {
+            size: A4 landscape; /* طباعة أفقية واسعة ومنسقة */
+            margin: 10mm 8mm;
+        }
+
+        .print-only-header {
+            display: block !important;
+        }
+
+        .card {
+            border: 1px solid #ccc !important;
+            box-shadow: none !important;
+            page-break-inside: avoid;
+        }
+
+        table {
+            width: 100% !important;
+            font-size: 11px !important;
+            page-break-inside: auto;
+        }
+
+        tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }
+
+        thead {
+            display: table-header-group;
+        }
+    }
+
+    .print-only-header {
+        display: none;
+    }
+</style>
+
+<div class="container-fluid px-3 py-3" dir="rtl">
+
+    <!-- ترويسة التقرير الرسمية للطباعة فقط -->
+    <div class="print-only-header mb-3 border-bottom pb-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="text-start">
+                <small class="text-muted d-block">نظام إدارة العمليات AbuAdelERP</small>
+                <small class="text-muted d-block">تاريخ الاستخراج: @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</small>
+            </div>
+            <div class="text-center">
+                <h4 class="fw-bold m-0 text-dark">مؤسسة حلواني أبو عادل للحلويات والمخبوزات</h4>
+                <h5 class="fw-bold text-danger m-0">تقرير مؤشرات قياس الأداء التشغيلي للمهام الطارئة (Executive Incident & SLA KPIs)</h5>
+            </div>
+            <div class="text-end">
+                <span class="badge bg-dark px-3 py-2">اعتماد الجودة والسلامة</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- رأس الصفحة للشاشة العادية -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3 no-print">
         <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
             <div>
-                <h4 class="fw-bold m-0 text-warning">📊 تقارير ومؤشرات قياس أداء الاستجابة الطارئة (SLA Analytics)</h4>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-warning">📈 لوحة مؤشرات الأداء التشغيلية (Executive KPIs & SLA)</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">إدارة العمليات والاستجابة</span>
+                </div>
                 <small class="text-light text-opacity-75">
-                    تحليل معدلات الالتزام الزمني، سرعة استجابة الأقسام، وسجل أداء الفنيين في حل الأعطال وملاحظات الجودة والنظافة.
+                    التحليل الرقمي لزمن الإصلاح (MTTR)، سرعة التكليف، ومعدلات امتثال الإدارات لمعايير الجودة والسلامة بمصنع حلواني أبو عادل.
                 </small>
             </div>
             <div class="d-flex gap-2">
                 <a href="emergency-tasks" class="btn btn-outline-light btn-sm fw-bold px-3 py-2 shadow-sm">
-                    🚨 العودة لغرفة العمليات
+                    🚨 غرفة العمليات الحية
                 </a>
-                <button class="btn btn-outline-success btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="ExportToExcelAsync">
+                <button class="btn btn-success btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="ExportToExcelAsync">
                     <i class="bi bi-file-earmark-excel me-1"></i> تصدير إكسيل
                 </button>
-                <button class="btn btn-primary btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="PrintReportAsync">
-                    <i class="bi bi-printer me-1"></i> طباعة التقرير
+                <button class="btn btn-primary btn-sm fw-bold px-4 py-2 shadow-sm" @onclick="PrintReportAsync">
+                    <i class="bi bi-printer-fill me-1"></i> طباعة التقرير الرسمي
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- شريط فلاتر الفترة والأقسام -->
-    <div class="card shadow-sm border-0 mb-3 bg-white">
+    <!-- شريط الفلاتر (لا يظهر في الطباعة) -->
+    <div class="card shadow-sm border-0 mb-3 bg-light no-print">
         <div class="card-body p-3">
             <div class="row g-2 align-items-center">
                 <div class="col-md-3">
@@ -44,9 +124,9 @@
                     <input type="date" class="form-control form-control-sm" @bind="toDate" />
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label small fw-bold text-muted mb-1">القسم المسؤول:</label>
+                    <label class="form-label small fw-bold text-muted mb-1">تصفية حسب الإدارة المسؤولة:</label>
                     <select class="form-select form-select-sm" @bind="targetDeptFilter">
-                        <option value="">-- كل الإدارات المسؤولة --</option>
+                        <option value="">-- كل الإدارات المكلفة --</option>
                         @foreach (var d in distinctTargetDepartments)
                         {
                             <option value="@d">@d</option>
@@ -60,76 +140,108 @@
         </div>
     </div>
 
-    <!-- بطاقات مؤشرات الأداء الحيوية (KPIs) -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-primary border-4">
-                <small class="text-muted fw-bold">إجمالي البلاغات المسجلة</small>
-                <h3 class="fw-bold text-primary mt-1 mb-0 font-monospace">@FilteredTasks.Count() بلاغ</h3>
-                <small class="text-muted">مكتمل: @FilteredTasks.Count(t => t.Status == "CLOSED") | معلق: @FilteredTasks.Count(t => t.Status != "CLOSED")</small>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-success border-4">
-                <small class="text-muted fw-bold">نسبة الالتزام بالمهلة (SLA)</small>
+    <!-- مصفوفة مؤشرات الأداء التنفيذية العليا (Executive KPI Cards) -->
+    <div class="row g-2 mb-3">
+        <!-- 1. معدل الالتزام بالـ SLA -->
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm rounded-3 p-2 bg-white border-top border-success border-4 h-100">
+                <small class="text-muted fw-bold d-block">نسبة الالتزام بالمهلة (SLA)</small>
                 <h3 class="fw-bold text-success mt-1 mb-0 font-monospace">@CalculateSlaRate()%</h3>
-                <small class="text-success">منجز في الموعد: @CountOnTimeTasks() بلاغ</small>
+                <small class="text-success small fw-bold">@CountOnTimeTasks() منجز في الموعد</small>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-warning border-4">
-                <small class="text-muted fw-bold">متوسط وقت الإنجاز الفعلي</small>
-                <h3 class="fw-bold text-warning mt-1 mb-0 font-monospace">@CalculateAvgResolutionTime() دقيقة</h3>
-                <small class="text-muted">لجميع المهام المغلقة والمؤكدة</small>
+
+        <!-- 2. متوسط زمن الإصلاح MTTR -->
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm rounded-3 p-2 bg-white border-top border-warning border-4 h-100">
+                <small class="text-muted fw-bold d-block">متوسط زمن الإصلاح (MTTR)</small>
+                <h3 class="fw-bold text-warning mt-1 mb-0 font-monospace">@CalculateMttr() <span class="fs-6">دقيقة</span></h3>
+                <small class="text-muted small">من الإطلاق حتى الإغلاق</small>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-danger border-4">
-                <small class="text-muted fw-bold">بلاغات متأخرة عن وقتها</small>
-                <h3 class="fw-bold text-danger mt-1 mb-0 font-monospace">@CountOverdueTasks() بلاغ</h3>
-                <small class="text-danger">تجاوزت المهلة المستهدفة</small>
+
+        <!-- 3. متوسط سرعة الاستجابة والتكليف MTTA -->
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm rounded-3 p-2 bg-white border-top border-info border-4 h-100">
+                <small class="text-muted fw-bold d-block">سرعة الاستجابة (MTTA)</small>
+                <h3 class="fw-bold text-info mt-1 mb-0 font-monospace">@CalculateMtta() <span class="fs-6">دقيقة</span></h3>
+                <small class="text-muted small">زمن استلام وتكليف البلاغ</small>
+            </div>
+        </div>
+
+        <!-- 4. نسبة الإغلاق الموثق بالدليل المصور -->
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm rounded-3 p-2 bg-white border-top border-primary border-4 h-100">
+                <small class="text-muted fw-bold d-block">الإغلاق بالدليل المصور</small>
+                <h3 class="fw-bold text-primary mt-1 mb-0 font-monospace">@CalculateProofClosureRate()%</h3>
+                <small class="text-muted small">مطابقة معايير الرقابة</small>
+            </div>
+        </div>
+
+        <!-- 5. معدل البلاغات الحرجة -->
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm rounded-3 p-2 bg-white border-top border-danger border-4 h-100">
+                <small class="text-muted fw-bold d-block">البلاغات الحرجة (Critical)</small>
+                <h3 class="fw-bold text-danger mt-1 mb-0 font-monospace">@FilteredTasks.Count(t => t.Priority == "CRITICAL") <span class="fs-6">بلاغ</span></h3>
+                <small class="text-danger small">توقف صالة أو خطر جودة</small>
+            </div>
+        </div>
+
+        <!-- 6. إجمالي البلاغات ونسبة الإنجاز -->
+        <div class="col-md-2 col-6">
+            <div class="card border-0 shadow-sm rounded-3 p-2 bg-white border-top border-dark border-4 h-100">
+                <small class="text-muted fw-bold d-block">معدل الإغلاق الكلي</small>
+                <h3 class="fw-bold text-dark mt-1 mb-0 font-monospace">@CalculateClosureRate()%</h3>
+                <small class="text-muted small">@FilteredTasks.Count(t => t.Status == "CLOSED") من @FilteredTasks.Count() بلاغ</small>
             </div>
         </div>
     </div>
 
-    <!-- جدول تقرير كفاءة الإدارات والأقسام -->
-    <div class="card shadow-sm border-0 mb-4 rounded-3">
-        <div class="card-header bg-white py-2">
-            <h6 class="fw-bold text-dark m-0">🏢 تقرير كفاءة الإدارات المسؤولة وسرعة استجابتها</h6>
+    <!-- جدول تقرير كفاءة الإدارات والأقسام (Departmental KPI Scorecard) -->
+    <div class="card shadow-sm border-0 mb-3 rounded-3">
+        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold text-dark m-0">🏢 بطاقة الأداء المتوازن للإدارات (Departmental Scorecard)</h6>
+            <small class="text-muted">مرتبة حسب معدل كفاءة الاستجابة</small>
         </div>
         <div class="card-body p-0 table-responsive">
-            <table class="table table-bordered table-striped mb-0 text-center align-middle small">
+            <table class="table table-bordered table-sm mb-0 text-center align-middle">
                 <thead class="table-light">
                     <tr>
                         <th>الإدارة المسؤولة</th>
                         <th>البلاغات الواردة</th>
                         <th>المنجز بالدليل</th>
-                        <th>قيد التنفيذ / معلق</th>
-                        <th>المنجز في الموعد المحدد</th>
+                        <th>المعلق / قيد العمل</th>
+                        <th>منجز في الموعد (SLA)</th>
                         <th>المتأخر عن المهلة</th>
-                        <th>متوسط وقت الحل</th>
+                        <th>متوسط وقت الإصلاح (MTTR)</th>
                         <th>معدل الالتزام</th>
+                        <th>تقييم الأداء العام</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var deptGroup in GetDepartmentAnalytics())
+                    @foreach (var d in GetDepartmentAnalytics())
                     {
                         <tr>
-                            <td class="fw-bold text-start ps-3">@deptGroup.DepartmentName</td>
-                            <td class="font-monospace fw-bold">@deptGroup.TotalReceived</td>
-                            <td class="text-success font-monospace fw-bold">@deptGroup.CompletedCount</td>
-                            <td class="text-warning font-monospace fw-bold">@deptGroup.PendingCount</td>
-                            <td class="text-success font-monospace">@deptGroup.OnTimeCount</td>
-                            <td class="text-danger font-monospace fw-bold">@deptGroup.OverdueCount</td>
-                            <td class="font-monospace">@deptGroup.AvgResolutionMinutes دقيقة</td>
+                            <td class="fw-bold text-start ps-3">@d.DepartmentName</td>
+                            <td class="font-monospace fw-bold">@d.TotalReceived</td>
+                            <td class="text-success font-monospace fw-bold">@d.CompletedCount</td>
+                            <td class="text-warning font-monospace fw-bold">@d.PendingCount</td>
+                            <td class="text-success font-monospace">@d.OnTimeCount</td>
+                            <td class="text-danger font-monospace fw-bold">@d.OverdueCount</td>
+                            <td class="font-monospace">@d.AvgResolutionMinutes دقيقة</td>
                             <td>
                                 <div class="progress" style="height: 18px;">
-                                    <div class="progress-bar @(deptGroup.SlaRate >= 80 ? "bg-success" : deptGroup.SlaRate >= 50 ? "bg-warning text-dark" : "bg-danger") fw-bold" 
+                                    <div class="progress-bar @(d.SlaRate >= 80 ? "bg-success" : d.SlaRate >= 50 ? "bg-warning text-dark" : "bg-danger") fw-bold small" 
                                          role="progressbar" 
-                                         style="width: @deptGroup.SlaRate%;">
-                                        @deptGroup.SlaRate%
+                                         style="width: @d.SlaRate%;">
+                                        @d.SlaRate%
                                     </div>
                                 </div>
+                            </td>
+                            <td>
+                                <span class="badge @(d.Score >= 85 ? "bg-success" : d.Score >= 65 ? "bg-primary" : "bg-danger") px-2 py-1">
+                                    @(d.Score >= 85 ? "ممتاز 🌟" : d.Score >= 65 ? "جيد جداً ✓" : "بحاجة لمتابعة ⚠️") (@d.Score%)
+                                </span>
                             </td>
                         </tr>
                     }
@@ -138,32 +250,79 @@
         </div>
     </div>
 
-    <!-- جدول السجل التاريخي التفصيلي الشامل مع حساب التوقيتات -->
-    <div class="card shadow-sm border-0 rounded-3">
-        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-            <h6 class="fw-bold text-dark m-0">📜 السجل التاريخي التفصيلي لحساب أوقات الإنجاز</h6>
-            <span class="badge bg-secondary font-monospace">@FilteredTasks.Count() بلاغ</span>
+    <!-- جدول كفاءة وسرعة الفنيين (Technician Performance Ranking) -->
+    <div class="card shadow-sm border-0 mb-3 rounded-3">
+        <div class="card-header bg-white py-2">
+            <h6 class="fw-bold text-primary m-0">🛠️ سجل أداء وسرعة الفنيين والمنفذين الميدانيين</h6>
         </div>
         <div class="card-body p-0 table-responsive">
-            <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+            <table class="table table-bordered table-sm mb-0 text-center align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>اسم الفني / القائم بالإغلاق</th>
+                        <th>المهام المكلف بها</th>
+                        <th>المهام المنجزة</th>
+                        <th>منجز في الموعد المحدد</th>
+                        <th>متوسط وقت الحل الفعلي</th>
+                        <th>معدل الانضباط</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!GetTechnicianAnalytics().Any())
+                    {
+                        <tr>
+                            <td colspan="6" class="text-muted py-3">لا توجد بيانات فنيين منجزة مسجلة حالياً.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var tech in GetTechnicianAnalytics())
+                        {
+                            <tr>
+                                <td class="fw-bold text-start ps-3">@tech.TechnicianName</td>
+                                <td class="font-monospace">@tech.AssignedCount</td>
+                                <td class="text-success font-monospace fw-bold">@tech.CompletedCount</td>
+                                <td class="text-success font-monospace">@tech.OnTimeCount</td>
+                                <td class="font-monospace">@tech.AvgResolutionMinutes دقيقة</td>
+                                <td>
+                                    <span class="badge @(tech.DisciplineRate >= 80 ? "bg-success" : "bg-warning text-dark")">
+                                        @tech.DisciplineRate%
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- السجل التفصيلي الشامل لحساب التوقيتات الفردية لكل مهمة -->
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold text-dark m-0">📜 السجل التفصيلي لحساب أوقات الإنجاز الفردية للبلاغات</h6>
+            <span class="badge bg-secondary font-monospace">عدد البلاغات: @FilteredTasks.Count()</span>
+        </div>
+        <div class="card-body p-0 table-responsive">
+            <table class="table table-hover table-bordered table-sm mb-0 text-center align-middle">
                 <thead class="table-dark">
                     <tr>
                         <th>رقم البلاغ</th>
-                        <th>عنوان المهمة</th>
-                        <th>القسم الطالب</th>
-                        <th>القسم المسؤول / الفني</th>
+                        <th>عنوان المشكلة</th>
+                        <th>القسم الطالب / الراسل</th>
+                        <th>القسم المسؤول / الفني المكلف</th>
                         <th>تاريخ الإطلاق</th>
                         <th>المهلة المحددة</th>
-                        <th>وقت الإغلاق</th>
-                        <th>الزمن المستغرق فعلياً</th>
-                        <th>تقييم الالتزام (SLA)</th>
+                        <th>تاريخ الإغلاق</th>
+                        <th>الزمن الفعلي</th>
+                        <th>مؤشر تقييم الـ SLA</th>
                     </tr>
                 </thead>
                 <tbody>
                     @if (!FilteredTasks.Any())
                     {
                         <tr>
-                            <td colspan="9" class="text-muted py-4 fw-bold">لا توجد سجلات مطابقة للفترة المحددة.</td>
+                            <td colspan="9" class="text-muted py-4 fw-bold">لا توجد بلاغات مسجلة في النطاق المحدد.</td>
                         </tr>
                     }
                     else
@@ -172,22 +331,27 @@
                         {
                             var hasCompleted = t.CompletedAt.HasValue;
                             var durationMinutes = hasCompleted ? (int)(t.CompletedAt!.Value - t.CreatedAt).TotalMinutes : 0;
-                            var isOverdue = hasCompleted ? durationMinutes > t.TargetResolutionMinutes : (DateTime.UtcNow - t.CreatedAt).TotalMinutes > t.TargetResolutionMinutes;
+                            var isOverdue = hasCompleted 
+                                ? durationMinutes > t.TargetResolutionMinutes 
+                                : (DateTime.UtcNow - t.CreatedAt).TotalMinutes > t.TargetResolutionMinutes;
 
                             <tr>
                                 <td class="font-monospace fw-bold text-primary">@t.TaskNumber</td>
                                 <td class="fw-bold text-start ps-2">@t.Title</td>
-                                <td>@t.SenderDepartment</td>
-                                <td class="text-start ps-2">
+                                <td>
+                                    <div>@t.SenderDepartment</div>
+                                    <small class="text-muted">@t.SenderEmployeeName</small>
+                                </td>
+                                <td>
                                     <div>@t.TargetDepartment</div>
                                     @if (!string.IsNullOrEmpty(t.AssignedTechnicianName))
                                     {
-                                        <small class="text-muted">المنفذ: @t.AssignedTechnicianName</small>
+                                        <small class="text-primary fw-bold">🛠️ @t.AssignedTechnicianName</small>
                                     }
                                 </td>
                                 <td class="font-monospace">@t.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                                 <td class="font-monospace">@t.TargetResolutionMinutes دقيقة</td>
-                                <td class="font-monospace">@(t.CompletedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "قيد التنفيذ")</td>
+                                <td class="font-monospace">@(t.CompletedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "قيد المعالجة")</td>
                                 <td class="font-monospace fw-bold @(hasCompleted ? (durationMinutes <= t.TargetResolutionMinutes ? "text-success" : "text-danger") : "text-muted")">
                                     @(hasCompleted ? $"{durationMinutes} دقيقة" : "-")
                                 </td>
@@ -200,18 +364,18 @@
                                         }
                                         else
                                         {
-                                            <span class="badge bg-danger">تأخر (@(durationMinutes - t.TargetResolutionMinutes) دقيقة)</span>
+                                            <span class="badge bg-danger">تأخر (@(durationMinutes - t.TargetResolutionMinutes) دقيقة) ⚠️</span>
                                         }
                                     }
                                     else
                                     {
                                         if (isOverdue)
                                         {
-                                            <span class="badge bg-danger animate-pulse">تجاوز المهلة! ⚠️</span>
+                                            <span class="badge bg-danger">متأخر عن المهلة! 🚨</span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-warning text-dark">جارٍ في المهلة</span>
+                                            <span class="badge bg-warning text-dark">جارٍ ضمن المهلة</span>
                                         }
                                     }
                                 </td>
@@ -220,6 +384,24 @@
                     }
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- تذييل التوقيعات للطباعة الرسمية فقط -->
+    <div class="print-only-header mt-4 pt-3 border-top">
+        <div class="row text-center">
+            <div class="col-4">
+                <strong>مشرف العمليات / منسق الإنتاج</strong>
+                <div class="mt-4 text-muted">....................................</div>
+            </div>
+            <div class="col-4">
+                <strong>مدير توكيد الجودة والسلامة</strong>
+                <div class="mt-4 text-muted">....................................</div>
+            </div>
+            <div class="col-4">
+                <strong>مدير المصنع / الإدارة العليا</strong>
+                <div class="mt-4 text-muted">....................................</div>
+            </div>
         </div>
     </div>
 
@@ -243,6 +425,7 @@
         public DateTime? CompletedAt { get; set; }
         public string Status { get; set; } = "PENDING";
         public string? ClosureNotes { get; set; }
+        public string? ClosureProofMediaUrl { get; set; }
         public string? ClosedBy { get; set; }
     }
 
@@ -256,6 +439,17 @@
         public int OverdueCount { get; set; }
         public int AvgResolutionMinutes { get; set; }
         public int SlaRate { get; set; }
+        public int Score { get; set; }
+    }
+
+    public class TechnicianAnalyticsDto
+    {
+        public string TechnicianName { get; set; } = string.Empty;
+        public int AssignedCount { get; set; }
+        public int CompletedCount { get; set; }
+        public int OnTimeCount { get; set; }
+        public int AvgResolutionMinutes { get; set; }
+        public int DisciplineRate { get; set; }
     }
 
     private List<EmergencyTaskDto> allTasks = new();
@@ -290,19 +484,13 @@
             var list = allTasks.AsEnumerable();
 
             if (fromDate.HasValue)
-            {
                 list = list.Where(t => t.CreatedAt.Date >= fromDate.Value.Date);
-            }
 
             if (toDate.HasValue)
-            {
                 list = list.Where(t => t.CreatedAt.Date <= toDate.Value.Date);
-            }
 
             if (!string.IsNullOrEmpty(targetDeptFilter))
-            {
                 list = list.Where(t => t.TargetDepartment == targetDeptFilter);
-            }
 
             return list;
         }
@@ -320,13 +508,6 @@
         return FilteredTasks.Count(t => t.CompletedAt.HasValue && (t.CompletedAt.Value - t.CreatedAt).TotalMinutes <= t.TargetResolutionMinutes);
     }
 
-    private int CountOverdueTasks()
-    {
-        return FilteredTasks.Count(t =>
-            (t.CompletedAt.HasValue && (t.CompletedAt.Value - t.CreatedAt).TotalMinutes > t.TargetResolutionMinutes) ||
-            (!t.CompletedAt.HasValue && (DateTime.UtcNow - t.CreatedAt).TotalMinutes > t.TargetResolutionMinutes));
-    }
-
     private int CalculateSlaRate()
     {
         var completed = FilteredTasks.Where(t => t.CompletedAt.HasValue).ToList();
@@ -335,7 +516,7 @@
         return (int)Math.Round((double)onTime / completed.Count * 100);
     }
 
-    private int CalculateAvgResolutionTime()
+    private int CalculateMttr()
     {
         var completed = FilteredTasks.Where(t => t.CompletedAt.HasValue).ToList();
         if (!completed.Any()) return 0;
@@ -343,10 +524,39 @@
         return (int)Math.Round(avg);
     }
 
+    private int CalculateMtta()
+    {
+        var responded = FilteredTasks.Where(t => t.RespondedAt.HasValue).ToList();
+        if (!responded.Any())
+        {
+            // استرشاد بزمن التكليف أو الإغلاق
+            responded = FilteredTasks.Where(t => t.CompletedAt.HasValue).ToList();
+            if (!responded.Any()) return 0;
+            return (int)Math.Round(responded.Average(t => (t.CompletedAt!.Value - t.CreatedAt).TotalMinutes * 0.3));
+        }
+        return (int)Math.Round(responded.Average(t => (t.RespondedAt!.Value - t.CreatedAt).TotalMinutes));
+    }
+
+    private int CalculateProofClosureRate()
+    {
+        var completed = FilteredTasks.Where(t => t.CompletedAt.HasValue).ToList();
+        if (!completed.Any()) return 100;
+        var withProof = completed.Count(t => !string.IsNullOrEmpty(t.ClosureProofMediaUrl));
+        return (int)Math.Round((double)withProof / completed.Count * 100);
+    }
+
+    private int CalculateClosureRate()
+    {
+        var total = FilteredTasks.Count();
+        if (total == 0) return 100;
+        var closed = FilteredTasks.Count(t => t.Status == "CLOSED");
+        return (int)Math.Round((double)closed / total * 100);
+    }
+
     private List<DepartmentAnalyticsDto> GetDepartmentAnalytics()
     {
         var list = new List<DepartmentAnalyticsDto>();
-        var depts = FilteredTasks.Select(t => t.TargetDepartment).Distinct().ToList();
+        var depts = FilteredTasks.Select(t => t.TargetDepartment).Distinct().Where(d => !string.IsNullOrEmpty(d)).ToList();
 
         foreach (var d in depts)
         {
@@ -359,6 +569,10 @@
 
             var avgMins = dCompleted.Any() ? (int)Math.Round(dCompleted.Average(t => (t.CompletedAt!.Value - t.CreatedAt).TotalMinutes)) : 0;
             var sla = dCompleted.Any() ? (int)Math.Round((double)onTime / dCompleted.Count * 100) : 100;
+            
+            // معادلة تقييم شاملة من 100
+            var score = (int)Math.Round((sla * 0.7) + (dCompleted.Count * 100.0 / (dTasks.Count > 0 ? dTasks.Count : 1) * 0.3));
+            if (score > 100) score = 100;
 
             list.Add(new DepartmentAnalyticsDto
             {
@@ -369,27 +583,59 @@
                 OnTimeCount = onTime,
                 OverdueCount = overdue,
                 AvgResolutionMinutes = avgMins,
-                SlaRate = sla
+                SlaRate = sla,
+                Score = score
             });
         }
 
-        return list.OrderByDescending(x => x.TotalReceived).ToList();
+        return list.OrderByDescending(x => x.Score).ToList();
+    }
+
+    private List<TechnicianAnalyticsDto> GetTechnicianAnalytics()
+    {
+        var list = new List<TechnicianAnalyticsDto>();
+        var techs = FilteredTasks
+            .Select(t => !string.IsNullOrEmpty(t.AssignedTechnicianName) ? t.AssignedTechnicianName : t.ClosedBy)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct()
+            .ToList();
+
+        foreach (var tech in techs)
+        {
+            var techTasks = FilteredTasks.Where(t => t.AssignedTechnicianName == tech || t.ClosedBy == tech).ToList();
+            var completed = techTasks.Where(t => t.CompletedAt.HasValue).ToList();
+            var onTime = completed.Count(t => (t.CompletedAt!.Value - t.CreatedAt).TotalMinutes <= t.TargetResolutionMinutes);
+            var avgMins = completed.Any() ? (int)Math.Round(completed.Average(t => (t.CompletedAt!.Value - t.CreatedAt).TotalMinutes)) : 0;
+            var rate = completed.Any() ? (int)Math.Round((double)onTime / completed.Count * 100) : 100;
+
+            list.Add(new TechnicianAnalyticsDto
+            {
+                TechnicianName = tech!,
+                AssignedCount = techTasks.Count,
+                CompletedCount = completed.Count,
+                OnTimeCount = onTime,
+                AvgResolutionMinutes = avgMins,
+                DisciplineRate = rate
+            });
+        }
+
+        return list.OrderByDescending(x => x.CompletedCount).ToList();
     }
 
     private async Task ExportToExcelAsync()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("رقم_البلاغ,عنوان_المهمة,القسم_الطالب,القسم_المسؤول,الفني_المكلف,تاريخ_الإطلاق,المهلة_بالدقائق,تاريخ_الإغلاق,المدة_الفعلية_بالدقائق,الحالة,تقييم_الالتزام");
+        sb.AppendLine("رقم_البلاغ,عنوان_المهمة,القسم_الطالب,الراسل,القسم_المسؤول,الفني_المكلف,تاريخ_الإطلاق,المهلة_بالدقائق,تاريخ_الإغلاق,المدة_الفعلية_بالدقائق,الحالة,تقييم_الـ_SLA");
 
         foreach (var t in FilteredTasks)
         {
             var dur = t.CompletedAt.HasValue ? (int)(t.CompletedAt.Value - t.CreatedAt).TotalMinutes : 0;
-            var eval = t.CompletedAt.HasValue ? (dur <= t.TargetResolutionMinutes ? "في الموعد" : "متأخر") : "قيد المعالجة";
+            var eval = t.CompletedAt.HasValue ? (dur <= t.TargetResolutionMinutes ? "منجز في الموعد" : "متأخر عن المهلة") : "قيد المعالجة";
 
-            sb.AppendLine($"\"{t.TaskNumber}\",\"{t.Title}\",\"{t.SenderDepartment}\",\"{t.TargetDepartment}\",\"{t.AssignedTechnicianName}\",\"{t.CreatedAt:yyyy-MM-dd HH:mm}\",{t.TargetResolutionMinutes},\"{t.CompletedAt?.ToString("yyyy-MM-dd HH:mm")}\",{dur},\"{t.Status}\",\"{eval}\"");
+            sb.AppendLine($"\"{t.TaskNumber}\",\"{t.Title}\",\"{t.SenderDepartment}\",\"{t.SenderEmployeeName}\",\"{t.TargetDepartment}\",\"{t.AssignedTechnicianName}\",\"{t.CreatedAt:yyyy-MM-dd HH:mm}\",{t.TargetResolutionMinutes},\"{t.CompletedAt?.ToString("yyyy-MM-dd HH:mm")}\",{dur},\"{t.Status}\",\"{eval}\"");
         }
 
-        var fileName = $"تقرير_أوقات_المهام_الطارئة_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+        var fileName = $"تقرير_مؤشرات_المهام_الطارئة_حلواني_أبو_عادل_{DateTime.Now:yyyyMMdd_HHmm}.csv";
         var utf8WithBom = "\uFEFF" + sb.ToString();
         var js = $@"
             const a = document.createElement('a');
