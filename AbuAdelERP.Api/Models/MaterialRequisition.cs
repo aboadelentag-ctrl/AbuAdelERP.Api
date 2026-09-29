@@ -79,6 +79,13 @@ namespace AbuAdelERP.Api.Models
         [ForeignKey("ItemId")]
         public virtual Item? Item { get; set; }
 
+        // المخزن المحدد لصرف هذه الخامة تحديداً (صرف متعدد المخازن)
+        [Column("from_warehouse_id")]
+        public long? FromWarehouseId { get; set; }
+
+        [ForeignKey("FromWarehouseId")]
+        public virtual Warehouse? FromWarehouse { get; set; }
+
         [Column("requested_qty")]
         public decimal RequestedQty { get; set; }
 

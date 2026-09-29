@@ -71,8 +71,9 @@ public partial class AppDbContext : DbContext
     public DbSet<MaterialRequisition> MaterialRequisitions { get; set; }
     public DbSet<MaterialRequisitionLine> MaterialRequisitionLines { get; set; }
     public DbSet<FinishedGoodsTransfer> FinishedGoodsTransfers { get; set; }
+    public DbSet<EmergencyTask> EmergencyTasks { get; set; }
 
-    // ====== الجداول الجديدة لإدارة الأصول الشاملة ======
+    // ====== الجداول لإدارة الأصول الشاملة ======
     public virtual DbSet<AssetBalance> AssetBalances { get; set; }
     public virtual DbSet<AssetMovement> AssetMovements { get; set; }
 
@@ -193,7 +194,7 @@ public partial class AppDbContext : DbContext
             entity.HasIndex(e => new { e.CompanyId, e.TitleName }, "ux_job_titles_company_title").IsUnique();
         });
 
-        // ====== إعدادات جدول الأصناف Items ومطابقتها مع بوستجريس ======
+        // ====== إعدادات جدول الأصناف Items ======
         modelBuilder.Entity<Item>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("items_pkey");
@@ -871,6 +872,7 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("stock_movements_warehouse_id_fkey");
         });
 
+        // ====== إعدادات جدول التحويلات بين المخازن ولجان فض المنازعات ======
         modelBuilder.Entity<StockTransfer>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("stock_transfers_pkey");
@@ -883,11 +885,17 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.CompanyId).HasColumnName("company_id");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
             entity.Property(e => e.FromWarehouseId).HasColumnName("from_warehouse_id");
-            entity.Property(e => e.Notes).HasColumnName("notes");
-            entity.Property(e => e.Status).HasMaxLength(30).HasDefaultValueSql("'DRAFT'").HasColumnName("status");
             entity.Property(e => e.ToWarehouseId).HasColumnName("to_warehouse_id");
             entity.Property(e => e.TransferDate).HasDefaultValueSql("CURRENT_DATE").HasColumnName("transfer_date");
             entity.Property(e => e.TransferNumber).HasMaxLength(50).HasColumnName("transfer_number");
+            entity.Property(e => e.Status).HasMaxLength(30).HasDefaultValueSql("'IN_TRANSIT'").HasColumnName("status");
+            entity.Property(e => e.Notes).HasColumnName("notes");
+            entity.Property(e => e.DriverName).HasMaxLength(150).HasColumnName("driver_name");
+            entity.Property(e => e.VehicleNumber).HasMaxLength(50).HasColumnName("vehicle_number");
+            entity.Property(e => e.CreatedBy).HasMaxLength(100).HasColumnName("created_by");
+            entity.Property(e => e.ReceivedBy).HasMaxLength(100).HasColumnName("received_by");
+            entity.Property(e => e.DispatchedAt).HasColumnName("dispatched_at");
+            entity.Property(e => e.CompletedAt).HasColumnName("completed_at");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("updated_at");
 
             entity.HasOne(d => d.Company).WithMany(p => p.StockTransfers)
@@ -913,10 +921,18 @@ public partial class AppDbContext : DbContext
             entity.HasIndex(e => e.ItemId, "idx_stock_transfer_lines_item");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TransferId).HasColumnName("transfer_id");
             entity.Property(e => e.ItemId).HasColumnName("item_id");
             entity.Property(e => e.Quantity).HasPrecision(18, 6).HasColumnName("quantity");
             entity.Property(e => e.ReceivedQuantity).HasPrecision(18, 6).HasColumnName("received_quantity");
-            entity.Property(e => e.TransferId).HasColumnName("transfer_id");
+            entity.Property(e => e.BatchNumber).HasMaxLength(100).HasColumnName("batch_number");
+            entity.Property(e => e.ExpiryDate).HasColumnName("expiry_date");
+            entity.Property(e => e.UnitCost).HasPrecision(18, 2).HasColumnName("unit_cost");
+            entity.Property(e => e.LineStatus).HasMaxLength(30).HasDefaultValueSql("'PENDING'").HasColumnName("line_status");
+            entity.Property(e => e.DiscrepancyReason).HasColumnName("discrepancy_reason");
+            entity.Property(e => e.ResolutionNotes).HasColumnName("resolution_notes");
+            entity.Property(e => e.LossQty).HasPrecision(18, 3).HasColumnName("loss_qty");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
 
             entity.HasOne(d => d.Item).WithMany()
                 .HasForeignKey(d => d.ItemId)
@@ -925,7 +941,7 @@ public partial class AppDbContext : DbContext
 
             entity.HasOne(d => d.Transfer).WithMany(p => p.StockTransferLines)
                 .HasForeignKey(d => d.TransferId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
+                .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("stock_transfer_lines_transfer_fk");
         });
 
@@ -1143,7 +1159,7 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("waste_records_warehouse_id_fkey");
         });
 
-        // ====== إعدادات وقيود الجداول الجديدة لإدارة الأصول الشاملة ======
+        // ====== إعدادات وقيود الجداول لإدارة الأصول الشاملة ======
         modelBuilder.Entity<AssetBalance>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("asset_balances_pkey");

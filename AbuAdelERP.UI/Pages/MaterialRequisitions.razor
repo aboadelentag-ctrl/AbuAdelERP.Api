@@ -1,21 +1,76 @@
 ﻿@page "/material-requisitions"
 @using AbuAdelERP.UI.Models
 @using System.Net.Http.Json
+@using System.Text
+@using System.IO
 @inject HttpClient Http
+@inject IJSRuntime JS
 
-<div class="container-fluid p-0" dir="rtl">
-    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
-        <div>
-            <h3 class="fw-bold text-primary mb-1">📋 طلب وصرف واستلام خامات الصالة الإنتاجية (Floor Stock Handshake)</h3>
-            <small class="text-muted">نظام متكامل لطلب الخامات، اقتراح التشغيلات الأقرب انتهاءً (FEFO)، والمطابقة صنفاً بصنف مع فض النزاعات المخزنية</small>
+<div class="container-fluid px-4 py-3" dir="rtl">
+
+    <!-- رأس الصفحة وأزرار التصدير والاستيراد والتحديث -->
+    <div class="card shadow-sm border-0 mb-3 bg-white border-start border-primary border-4">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h4 class="fw-bold text-primary mb-1">📋 طلب وصرف واستلام خامات الصالة الإنتاجية (Floor Stock Handshake)</h4>
+                <small class="text-muted">صرف متعدد المخازن: أمين المخزن يحدد مستودع الصرف لكل خامة على حدة واقتراح تشغيلات FEFO الخاصة بكل مخزن</small>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportRequisitionsToExcelAsync">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير سجل الطلبات (إكسيل)
+                </button>
+                <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
+                    <i class="bi bi-download me-1"></i> تحميل قالب طلب الخامات
+                </button>
+                <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
+                    <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد خامات الطلب من إكسيل
+                </button>
+                <button class="btn btn-outline-primary btn-sm fw-bold shadow-sm" @onclick="LoadRequisitions">
+                    🔄 تحديث البيانات
+                </button>
+            </div>
         </div>
-        <div class="d-flex gap-2">
-            <button class="btn btn-outline-primary fw-bold" @onclick="LoadRequisitions">🔄 تحديث البيانات</button>
+    </div>
+
+    <!-- تنبيهات النظام -->
+    @if (!string.IsNullOrEmpty(feedbackMessage))
+    {
+        <div class="alert alert-info border-0 shadow-sm alert-dismissible fade show py-2 mb-3 fw-bold" role="alert">
+            @feedbackMessage
+            <button type="button" class="btn-close py-2" @onclick='() => feedbackMessage = ""'></button>
+        </div>
+    }
+
+    <!-- بطاقات المؤشرات اللحظية (KPIs) -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-primary border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">إجمالي طلبات الصرف المسجلة</small>
+                <h4 class="mb-0 fw-bold text-primary mt-1 font-monospace">@requisitions.Count طلب</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">طلبات بانتظار الصرف وتخصيص اللوطات</small>
+                <h4 class="mb-0 fw-bold text-warning mt-1 font-monospace">@requisitions.Count(r => r.Status == "SUBMITTED") طلب</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-info border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">شحنات واردة بانتظار فحص الصالة</small>
+                <h4 class="mb-0 fw-bold text-info mt-1 font-monospace">@requisitions.Count(r => r.Status == "DISPATCHED") شحنة</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-danger border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">نزاعات كميات معلقة للمراجعة</small>
+                <h4 class="mb-0 fw-bold text-danger mt-1 font-monospace">@requisitions.Count(r => r.Status == "DISPUTED") نزاع</h4>
+            </div>
         </div>
     </div>
 
     <!-- أزرار التبديل بين محطات العمل الـ 4 -->
-    <ul class="nav nav-pills mb-3 bg-light p-2 rounded shadow-sm">
+    <ul class="nav nav-pills mb-3 bg-light p-2 rounded shadow-sm border">
         <li class="nav-item">
             <button class="nav-link fw-bold @(activeTab == "REQUEST" ? "active" : "")" @onclick='() => ChangeTab("REQUEST")'>
                 ✍️ 1. طلب خامات (مشرف القسم)
@@ -23,7 +78,7 @@
         </li>
         <li class="nav-item">
             <button class="nav-link fw-bold @(activeTab == "DISPATCH" ? "active" : "")" @onclick='() => ChangeTab("DISPATCH")'>
-                📦 2. صرف المخزن وتخصيص اللوطات (FEFO)
+                📦 2. صرف المخازن وتخصيص اللوطات (FEFO)
                 @if (requisitions.Any(r => r.Status == "SUBMITTED"))
                 {
                     <span class="badge bg-warning text-dark ms-1">@(requisitions.Count(r => r.Status == "SUBMITTED")) بانتظار الصرف</span>
@@ -50,60 +105,95 @@
         </li>
     </ul>
 
-    @if (!string.IsNullOrEmpty(feedbackMessage))
-    {
-        <div class="alert alert-info border-0 shadow-sm alert-dismissible fade show">
-            @feedbackMessage
-            <button type="button" class="btn-close" @onclick='() => feedbackMessage = ""'></button>
-        </div>
-    }
+    <!-- شريط فلاتر البحث المتقدمة للطلبات -->
+    <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <label class="form-label small fw-bold text-secondary mb-1">🔍 البحث برقم الطلب، القسم، الخامة، أو اللوط</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="ابحث برقم الإذن أو اسم الخامة أو القسم..." 
+                           @bind="searchTerm" @bind:event="oninput" />
+                </div>
 
-    <!-- تبويب 1: إنشاء طلب جديد -->
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-secondary mb-1">🏢 تصفية بحسب القسم الإنتاجي</label>
+                    <select class="form-select form-select-sm" @bind="selectedDeptFilter">
+                        <option value="0">-- كل الأقسام الإنتاجية --</option>
+                        @foreach (var d in departments)
+                        {
+                            <option value="@d.Id">@d.DepartmentName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-outline-danger btn-sm w-100 fw-bold" @onclick="ResetFilters">
+                        ✕ إلغاء الفلاتر
+                    </button>
+                </div>
+            </div>
+
+            @if (HasActiveFilters)
+            {
+                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                    <span class="small text-primary fw-bold">
+                        <i class="bi bi-funnel-fill me-1"></i> نتائج التصفية المطابقة: (@FilteredRequisitions.Count() طلب من أصل @requisitions.Count)
+                    </span>
+                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-bold" style="font-size: 0.78rem;" @onclick="ResetFilters">
+                        عرض الكل
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- محطة 1: إنشاء وتسجيل طلب جديد (بدون تحديد مخزن) -->
     @if (activeTab == "REQUEST")
     {
         <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
-            <div class="card-header bg-white py-3">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                 <h5 class="fw-bold text-primary m-0">➕ تسجيل طلب احتياج خامات للوردية الحالية</h5>
+                <span class="text-muted small">المشرف يحدد الخامات فقط، وكل خامة ستُصرف من مستودعها الخاص في المحطة التالية</span>
             </div>
             <div class="card-body bg-light">
                 <div class="row g-3 mb-3">
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold small">القسم الإنتاجي الطالب *</label>
-                        <select class="form-select border-primary" @bind="newReq.DepartmentId">
-                            <option value="0">-- اختر القسم --</option>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-dark">القسم الإنتاجي الطالب *</label>
+                        <select class="form-select border-primary fw-bold" @bind="newReq.DepartmentId">
+                            <option value="0">-- اختر القسم الإنتاجي الطالب --</option>
                             @foreach (var d in departments)
                             {
                                 <option value="@d.Id">@d.DepartmentName</option>
                             }
                         </select>
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold small">المخزن المنصرف منه *</label>
-                        <select class="form-select border-primary" @bind="newReq.FromWarehouseId">
-                            <option value="0">-- اختر المخزن --</option>
-                            @foreach (var w in warehouses)
-                            {
-                                <option value="@w.Id">@w.WarehouseName</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold small">اسم المشرف المسؤول</label>
-                        <input type="text" class="form-control" @bind="newReq.RequestedBy" />
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-dark">اسم المشرف المسؤول</label>
+                        <input type="text" class="form-control border-primary fw-bold" @bind="newReq.RequestedBy" placeholder="مثال: مشرف صالة الشرقي / الوردية الأولى" />
                     </div>
                 </div>
 
                 <div class="card border-0 shadow-sm mb-3">
                     <div class="card-header bg-white py-2 fw-bold text-dark d-flex justify-content-between align-items-center">
-                        <span>قائمة الخامات المطلوبة</span>
-                        <button class="btn btn-sm btn-outline-success fw-bold" @onclick="AddReqLine">➕ إضافة سطر خامة</button>
+                        <span class="text-primary">🧂 قائمة الخامات المطلوبة للتشغيل (@newReq.Lines.Count خامات):</span>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-info fw-bold" @onclick="DownloadTemplateAsync">
+                                <i class="bi bi-download me-1"></i> تحميل قالب الإكسيل
+                            </button>
+                            <button class="btn btn-sm btn-outline-success fw-bold" @onclick="OpenImportModal">
+                                <i class="bi bi-file-earmark-excel me-1"></i> استيراد من إكسيل للطلب
+                            </button>
+                            <button class="btn btn-sm btn-success fw-bold" @onclick="AddReqLine">
+                                ➕ إضافة سطر خامة
+                            </button>
+                        </div>
                     </div>
-                    <div class="card-body p-0">
-                        <table class="table table-bordered mb-0 align-middle text-center">
+                    <div class="card-body p-0 table-responsive">
+                        <table class="table table-bordered mb-0 align-middle text-center small">
                             <thead class="table-light">
                                 <tr>
-                                    <th style="width: 60%;">الخامة</th>
-                                    <th style="width: 30%;">الكمية المطلوبة</th>
+                                    <th style="width: 55%;">اسم الخامة أو المكون النصف مصنع *</th>
+                                    <th style="width: 35%;">الكمية المطلوبة</th>
                                     <th style="width: 10%;">حذف</th>
                                 </tr>
                             </thead>
@@ -112,8 +202,8 @@
                                 {
                                     <tr>
                                         <td>
-                                            <select class="form-select" @bind="line.ItemId">
-                                                <option value="0">-- اختر الخامة --</option>
+                                            <select class="form-select form-select-sm fw-bold" @bind="line.ItemId">
+                                                <option value="0">-- اختر الخامة أو المكون --</option>
                                                 @foreach (var itm in rawMaterials)
                                                 {
                                                     <option value="@itm.Id">@itm.ItemName (@itm.ItemCode) - @itm.Unit</option>
@@ -121,10 +211,10 @@
                                             </select>
                                         </td>
                                         <td>
-                                            <input type="number" step="0.01" class="form-control text-center fw-bold" @bind="line.RequestedQty" />
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-primary font-monospace" @bind="line.RequestedQty" />
                                         </td>
                                         <td>
-                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => newReq.Lines.Remove(line)">🗑️</button>
+                                            <button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => newReq.Lines.Remove(line)">🗑️</button>
                                         </td>
                                     </tr>
                                 }
@@ -133,14 +223,14 @@
                     </div>
                 </div>
 
-                <button class="btn btn-primary fw-bold px-4 py-2 shadow" @onclick="SubmitRequisition">
-                    🚀 إرسال الطلب للمخزن الرئيسي
+                <button class="btn btn-primary fw-bold px-4 py-2 shadow-sm" @onclick="SubmitRequisition">
+                    🚀 إرسال الطلب للمخازن المركزية
                 </button>
             </div>
         </div>
     }
 
-    <!-- تبويب 2: صرف المخزن وتخصيص اللوطات (FEFO) -->
+    <!-- محطة 2: صرف المخزن وتخصيص اللوطات (FEFO) - تحديد المخزن لكل سطر خامة -->
     @if (activeTab == "DISPATCH")
     {
         <div class="card shadow-sm border-0 border-top border-warning border-4 mb-4">
@@ -148,37 +238,37 @@
                 <h5 class="fw-bold text-dark m-0">📦 طلبات التشغيل الجديدة بانتظار الصرف وتخصيص اللوطات (FEFO)</h5>
             </div>
             <div class="card-body p-0 table-responsive">
-                <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
                     <thead class="table-dark">
                         <tr>
                             <th>رقم الطلب</th>
                             <th>القسم الطالب</th>
-                            <th>المخزن</th>
+                            <th>المشرف الطالب</th>
                             <th>تاريخ الطلب</th>
                             <th>الحالة</th>
                             <th>الإجراء المخزني</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @if (!requisitions.Any(r => r.Status == "SUBMITTED"))
+                        @if (!FilteredRequisitions.Any(r => r.Status == "SUBMITTED"))
                         {
                             <tr>
-                                <td colspan="6" class="text-muted py-4">لا توجد طلبات جديدة بانتظار الصرف حالياً.</td>
+                                <td colspan="6" class="text-muted py-4 fw-bold">لا توجد طلبات جديدة بانتظار الصرف حالياً.</td>
                             </tr>
                         }
                         else
                         {
-                            @foreach (var req in requisitions.Where(r => r.Status == "SUBMITTED"))
+                            @foreach (var req in FilteredRequisitions.Where(r => r.Status == "SUBMITTED"))
                             {
                                 <tr>
-                                    <td class="fw-bold text-primary">@req.RequisitionNumber</td>
+                                    <td class="fw-bold text-primary font-monospace">@req.RequisitionNumber</td>
                                     <td class="fw-bold">@req.DepartmentName</td>
-                                    <td>@req.FromWarehouseName</td>
-                                    <td>@req.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>@(!string.IsNullOrEmpty(req.RequestedBy) ? req.RequestedBy : "مشرف القسم")</td>
+                                    <td class="font-monospace">@req.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td><span class="badge bg-warning text-dark">بانتظار الصرف</span></td>
                                     <td>
-                                        <button class="btn btn-sm btn-warning text-dark fw-bold px-3 shadow-sm" @onclick="() => SelectForDispatch(req)">
-                                            🏷️ صرف وتخصيص اللوطات
+                                        <button class="btn btn-sm btn-warning text-dark fw-bold px-3 shadow-sm py-0" @onclick="() => SelectForDispatch(req)">
+                                            🏷️ تحديد المخازن وصرف اللوطات
                                         </button>
                                     </td>
                                 </tr>
@@ -193,53 +283,83 @@
         {
             <div class="card shadow-sm border-warning border-2 mb-4 bg-light">
                 <div class="card-header bg-warning text-dark py-2 fw-bold d-flex justify-content-between align-items-center">
-                    <span>تجهيز أسطر الطلب رقم: @selectedDispatchReq.RequisitionNumber</span>
-                    <button class="btn btn-sm btn-dark" @onclick="() => selectedDispatchReq = null">إغلاق</button>
+                    <span>📦 تجهيز وصرف أسطر الطلب رقم: @selectedDispatchReq.RequisitionNumber (قسم: @selectedDispatchReq.DepartmentName)</span>
+                    <button class="btn btn-sm btn-dark py-0" @onclick="() => selectedDispatchReq = null">إغلاق</button>
                 </div>
                 <div class="card-body">
-                    <table class="table table-bordered bg-white text-center align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>الخامة</th>
-                                <th>المطلوب</th>
-                                <th>الكمية المصروفة</th>
-                                <th>رقم التشغيلة (Batch)</th>
-                                <th>تاريخ الصلاحية</th>
-                                <th>تكلفة الوحدة</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var l in dispatchModel.Lines)
-                            {
-                                var originLine = selectedDispatchReq.Lines.First(x => x.Id == l.LineId);
+                    
+                    <div class="row g-2 mb-3 align-items-center">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold small text-dark mb-0">اسم القائم بالصرف (أمين المخزن):</label>
+                            <input type="text" class="form-control form-control-sm fw-bold border-primary" @bind="dispatchModel.DispatchedBy" />
+                        </div>
+                        <div class="col-md-8">
+                            <div class="alert alert-info py-1 px-3 mb-0 small border-0">
+                                💡 <strong>ملاحظة:</strong> يمكنك تحديد مخزن مختلف لكل خامة؛ وسيقوم النظام فوراً باقتراح التشغيلة الأقرب انتهاءً (FEFO) من ذلك المخزن تحديداً.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- جدول الصرف مع تحديد المخزن لكل سطر خامة -->
+                    <div class="table-responsive">
+                        <table class="table table-bordered bg-white text-center align-middle small mb-3">
+                            <thead class="table-light">
                                 <tr>
-                                    <td class="fw-bold text-start ps-3">@originLine.ItemName</td>
-                                    <td class="fw-bold text-primary">@originLine.RequestedQty.ToString("N2") @originLine.Unit</td>
-                                    <td>
-                                        <input type="number" step="0.01" class="form-control text-center fw-bold" @bind="l.DispatchedQty" />
-                                    </td>
-                                    <td>
-                                        <input type="text" class="form-control text-center" @bind="l.BatchNumber" placeholder="LOT-..." />
-                                    </td>
-                                    <td>
-                                        <input type="date" class="form-control text-center" @bind="l.ExpiryDate" />
-                                    </td>
-                                    <td>
-                                        <input type="number" step="0.01" class="form-control text-center" @bind="l.UnitCost" />
-                                    </td>
+                                    <th style="width: 20%;">الخامة المطلوبة</th>
+                                    <th style="width: 10%;">المطلوب</th>
+                                    <th style="width: 20%;">المخزن المنصرف منه *</th>
+                                    <th style="width: 12%;">الكمية المصروفة</th>
+                                    <th style="width: 15%;">رقم التشغيلة (Batch)</th>
+                                    <th style="width: 13%;">تاريخ الصلاحية</th>
+                                    <th style="width: 10%;">تكلفة الوحدة</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
-                    <button class="btn btn-success fw-bold px-4 py-2 shadow" @onclick="ConfirmDispatch">
-                        ✅ اعتماد خروج الشحنة بنظام FEFO
+                            </thead>
+                            <tbody>
+                                @foreach (var l in dispatchLinesView)
+                                {
+                                    var originLine = selectedDispatchReq.Lines.First(x => x.Id == l.LineId);
+                                    <tr>
+                                        <td class="fw-bold text-start ps-2">@originLine.ItemName</td>
+                                        <td class="fw-bold text-primary font-monospace">@originLine.RequestedQty.ToString("N2") @originLine.Unit</td>
+                                        
+                                        <!-- قائمة اختيار المخزن للسطر الحالي -->
+                                        <td>
+                                            <select class="form-select form-select-sm fw-bold border-danger" 
+                                                    value="@l.WarehouseId" 
+                                                    @onchange="(e) => OnLineWarehouseChanged(l, e)">
+                                                @foreach (var w in warehouses)
+                                                {
+                                                    <option value="@w.Id">@w.WarehouseName</option>
+                                                }
+                                            </select>
+                                        </td>
+
+                                        <td>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold font-monospace" @bind="l.DispatchedQty" />
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm text-center font-monospace" @bind="l.BatchNumber" placeholder="LOT-..." />
+                                        </td>
+                                        <td>
+                                            <input type="date" class="form-control form-control-sm text-center font-monospace" @bind="l.ExpiryDate" />
+                                        </td>
+                                        <td>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center font-monospace" @bind="l.UnitCost" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <button class="btn btn-success fw-bold px-4 py-2 shadow-sm" @onclick="ConfirmDispatch">
+                        ✅ اعتماد خروج الشحنة من المخازن المحددة بنظام FEFO
                     </button>
                 </div>
             </div>
         }
     }
 
-    <!-- تبويب 3: استلام ومطابقة الصالة صنفاً بصنف -->
+    <!-- محطة 3: استلام ومطابقة الصالة صنفاً بصنف مع توضيح مخزن كل خامة -->
     @if (activeTab == "RECEIVE")
     {
         <div class="card shadow-sm border-0 border-top border-success border-4 mb-4">
@@ -247,7 +367,7 @@
                 <h5 class="fw-bold text-success m-0">🔍 استلام الخامات بصالة الإنتاج والمطابقة المزدوجة صنفاً بصنف</h5>
             </div>
             <div class="card-body p-0 table-responsive">
-                <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
                     <thead class="table-dark">
                         <tr>
                             <th>رقم الطلب</th>
@@ -258,20 +378,20 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (!requisitions.Any(r => r.Status == "DISPATCHED" || r.Status == "DISPUTED"))
+                        @if (!FilteredRequisitions.Any(r => r.Status == "DISPATCHED" || r.Status == "DISPUTED"))
                         {
                             <tr>
-                                <td colspan="5" class="text-muted py-4">لا توجد شحنات واردة للصالة بانتظار الفحص حالياً.</td>
+                                <td colspan="5" class="text-muted py-4 fw-bold">لا توجد شحنات واردة للصالة بانتظار الفحص حالياً.</td>
                             </tr>
                         }
                         else
                         {
-                            @foreach (var req in requisitions.Where(r => r.Status == "DISPATCHED" || r.Status == "DISPUTED"))
+                            @foreach (var req in FilteredRequisitions.Where(r => r.Status == "DISPATCHED" || r.Status == "DISPUTED"))
                             {
                                 <tr>
-                                    <td class="fw-bold text-primary">@req.RequisitionNumber</td>
+                                    <td class="fw-bold text-primary font-monospace">@req.RequisitionNumber</td>
                                     <td class="fw-bold">@req.DepartmentName</td>
-                                    <td>@req.DispatchedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="font-monospace">@req.DispatchedAt?.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td>
                                         @if (req.Status == "DISPUTED")
                                         {
@@ -283,7 +403,7 @@
                                         }
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-primary fw-bold px-3" @onclick="() => SelectForReceiving(req)">
+                                        <button class="btn btn-sm btn-primary fw-bold px-3 py-0" @onclick="() => SelectForReceiving(req)">
                                             🔎 فحص واستلام بالصنف
                                         </button>
                                     </td>
@@ -300,87 +420,95 @@
             <div class="card shadow-sm border-success border-2 mb-4 bg-light">
                 <div class="card-header bg-success text-white py-2 fw-bold d-flex justify-content-between align-items-center">
                     <span>مطابقة أسطر الإذن: @selectedReceiveReq.RequisitionNumber (قسم: @selectedReceiveReq.DepartmentName)</span>
-                    <button class="btn btn-sm btn-light" @onclick="() => selectedReceiveReq = null">إغلاق</button>
+                    <button class="btn btn-sm btn-light py-0" @onclick="() => selectedReceiveReq = null">إغلاق</button>
                 </div>
                 <div class="card-body">
-                    <table class="table table-bordered bg-white text-center align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>الخامة</th>
-                                <th>المصروف من المخزن</th>
-                                <th>التشغيلة والصلاحية</th>
-                                <th>الكمية المستلمة فعلياً</th>
-                                <th>سبب الاختلاف (إن وجد)</th>
-                                <th>الحالة</th>
-                                <th>إجراء المشرف</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var line in selectedReceiveReq.Lines)
-                            {
-                                <tr class="@(line.LineStatus == "ACCEPTED" ? "table-success" : line.LineStatus == "DISPUTED" ? "table-danger" : "")">
-                                    <td class="fw-bold text-start ps-3">@line.ItemName (@line.ItemCode)</td>
-                                    <td class="fw-bold text-primary">@line.DispatchedQty.ToString("N2") @line.Unit</td>
-                                    <td>
-                                        <code>@line.BatchNumber</code>
-                                        <br />
-                                        <small class="text-muted">صلاحية: @line.ExpiryDate?.ToString("yyyy-MM-dd")</small>
-                                    </td>
-                                    <td style="width: 15%;">
-                                        <input type="number" step="0.01" class="form-control text-center fw-bold" @bind="line.ReceivedQty" disabled="@(line.LineStatus != "PENDING" && line.LineStatus != "DISPATCHED")" />
-                                    </td>
-                                    <td style="width: 20%;">
-                                        <input type="text" class="form-control form-control-sm" @bind="line.DiscrepancyReason" placeholder="اذكر سبب العجز أو الزيادة..." disabled="@(line.LineStatus != "PENDING" && line.LineStatus != "DISPATCHED")" />
-                                    </td>
-                                    <td>
-                                        @if (line.LineStatus == "ACCEPTED")
-                                        {
-                                            <span class="badge bg-success">تم القبول والمطابقة ✓</span>
-                                            @if (!string.IsNullOrWhiteSpace(line.WarehouseNotes))
-                                            {
-                                                <div class="text-muted small mt-1">ملاحظة المخزن: @line.WarehouseNotes</div>
-                                            }
-                                        }
-                                        else if (line.LineStatus == "DISPUTED")
-                                        {
-                                            <span class="badge bg-danger">خلاف معلق عند المخزن</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">قيد الفحص</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (line.LineStatus == "PENDING" || line.LineStatus == "DISPATCHED")
-                                        {
-                                            <div class="d-flex gap-1 justify-content-center">
-                                                <button class="btn btn-sm btn-success fw-bold" title="الكمية مطابقة تماماً" @onclick="() => AcceptLine(line, true)">
-                                                    ✓ مطابقة
-                                                </button>
-                                                <button class="btn btn-sm btn-outline-danger fw-bold" title="تسجيل فرق وعجز" @onclick="() => AcceptLine(line, false)">
-                                                    ⚠️ إثبات فرق
-                                                </button>
-                                            </div>
-                                        }
-                                        else if (line.LineStatus == "DISPUTED")
-                                        {
-                                            <small class="text-danger fw-bold">⏳ بانتظار تسوية المخزن</small>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-success fw-bold">✓ معتمد ومقفل</span>
-                                        }
-                                    </td>
+                    <div class="table-responsive">
+                        <table class="table table-bordered bg-white text-center align-middle small mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>الخامة</th>
+                                    <th>المخزن المنصرف منه</th>
+                                    <th>المصروف</th>
+                                    <th>التشغيلة والصلاحية</th>
+                                    <th>الكمية المستلمة فعلياً</th>
+                                    <th>سبب الاختلاف (إن وجد)</th>
+                                    <th>الحالة</th>
+                                    <th>إجراء المشرف</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in selectedReceiveReq.Lines)
+                                {
+                                    <tr class="@(line.LineStatus == "ACCEPTED" ? "table-success" : line.LineStatus == "DISPUTED" ? "table-danger" : "")">
+                                        <td class="fw-bold text-start ps-3">@line.ItemName (@line.ItemCode)</td>
+                                        <td>
+                                            <span class="badge bg-light text-dark border">
+                                                @(!string.IsNullOrEmpty(selectedReceiveReq.FromWarehouseName) ? selectedReceiveReq.FromWarehouseName : "مستودع الخامات")
+                                            </span>
+                                        </td>
+                                        <td class="fw-bold text-primary font-monospace">@line.DispatchedQty.ToString("N2") @line.Unit</td>
+                                        <td>
+                                            <code class="fw-bold">@line.BatchNumber</code>
+                                            <br />
+                                            <small class="text-muted font-monospace">صلاحية: @line.ExpiryDate?.ToString("yyyy-MM-dd")</small>
+                                        </td>
+                                        <td style="width: 15%;">
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold font-monospace" @bind="line.ReceivedQty" disabled="@(line.LineStatus != "PENDING" && line.LineStatus != "DISPATCHED")" />
+                                        </td>
+                                        <td style="width: 20%;">
+                                            <input type="text" class="form-control form-control-sm" @bind="line.DiscrepancyReason" placeholder="اذكر سبب العجز أو الزيادة..." disabled="@(line.LineStatus != "PENDING" && line.LineStatus != "DISPATCHED")" />
+                                        </td>
+                                        <td>
+                                            @if (line.LineStatus == "ACCEPTED")
+                                            {
+                                                <span class="badge bg-success">تم القبول والمطابقة ✓</span>
+                                                @if (!string.IsNullOrWhiteSpace(line.WarehouseNotes))
+                                                {
+                                                    <div class="text-muted small mt-1">ملاحظة المخزن: @line.WarehouseNotes</div>
+                                                }
+                                            }
+                                            else if (line.LineStatus == "DISPUTED")
+                                            {
+                                                <span class="badge bg-danger">خلاف معلق عند المخزن</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">قيد الفحص</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (line.LineStatus == "PENDING" || line.LineStatus == "DISPATCHED")
+                                            {
+                                                <div class="d-flex gap-1 justify-content-center">
+                                                    <button class="btn btn-sm btn-success fw-bold py-0 px-2" title="الكمية مطابقة تماماً" @onclick="() => AcceptLine(line, true)">
+                                                        ✓ مطابقة
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-danger fw-bold py-0 px-2" title="تسجيل فرق وعجز" @onclick="() => AcceptLine(line, false)">
+                                                        ⚠️ إثبات فرق
+                                                    </button>
+                                                </div>
+                                            }
+                                            else if (line.LineStatus == "DISPUTED")
+                                            {
+                                                <small class="text-danger fw-bold">⏳ بانتظار تسوية المخزن</small>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-success fw-bold">✓ معتمد ومقفل</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         }
     }
 
-    <!-- تبويب 4: فض النزاعات وتسوية الفروق (أمين المخزن) -->
+    <!-- محطة 4: فض النزاعات وتسوية الفروق (أمين المخزن) -->
     @if (activeTab == "DISPUTE")
     {
         <div class="card shadow-sm border-0 border-top border-danger border-4 mb-4">
@@ -389,7 +517,7 @@
                 <span class="badge bg-white text-danger fw-bold">صلاحية أمين المخزن</span>
             </div>
             <div class="card-body p-0 table-responsive">
-                <table class="table table-hover table-bordered mb-0 text-center align-middle">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
                     <thead class="table-light">
                         <tr>
                             <th>رقم الإذن</th>
@@ -400,32 +528,32 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (!requisitions.Any(r => r.Status == "DISPUTED"))
+                        @if (!FilteredRequisitions.Any(r => r.Status == "DISPUTED"))
                         {
                             <tr>
-                                <td colspan="5" class="text-success py-5 fw-bold fs-5">
+                                <td colspan="5" class="text-success py-5 fw-bold fs-6">
                                     🎉 ممتاز! لا توجد أي نزاعات أو خلافات كميات معلقة حالياً بين المخزن والصالة.
                                 </td>
                             </tr>
                         }
                         else
                         {
-                            @foreach (var disReq in requisitions.Where(r => r.Status == "DISPUTED"))
+                            @foreach (var disReq in FilteredRequisitions.Where(r => r.Status == "DISPUTED"))
                             {
                                 <tr>
-                                    <td class="fw-bold text-primary">@disReq.RequisitionNumber</td>
+                                    <td class="fw-bold text-primary font-monospace">@disReq.RequisitionNumber</td>
                                     <td class="fw-bold">@disReq.DepartmentName</td>
                                     <td>
                                         @foreach (var dl in disReq.Lines.Where(l => l.LineStatus == "DISPUTED"))
                                         {
-                                            <span class="badge bg-warning text-dark m-1 p-2">
+                                            <span class="badge bg-warning text-dark m-1 p-2 font-monospace">
                                                 @dl.ItemName: منصرف (@dl.DispatchedQty.ToString("N2")) ⟵ مستلم بالصالة (@dl.ReceivedQty.ToString("N2"))
                                             </span>
                                         }
                                     </td>
-                                    <td>@disReq.DispatchedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="font-monospace">@disReq.DispatchedAt?.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td>
-                                        <button class="btn btn-sm btn-danger fw-bold px-3 shadow-sm" @onclick="() => SelectForDisputeResolution(disReq)">
+                                        <button class="btn btn-sm btn-danger fw-bold px-3 shadow-sm py-0" @onclick="() => SelectForDisputeResolution(disReq)">
                                             ⚖️ فتح تسوية النزاع
                                         </button>
                                     </td>
@@ -442,52 +570,151 @@
             <div class="card shadow-sm border-danger border-2 mb-4 bg-white">
                 <div class="card-header bg-dark text-white py-2 fw-bold d-flex justify-content-between align-items-center">
                     <span>⚖️ مراجعة وتسوية خلاف الإذن رقم: @selectedDisputeReq.RequisitionNumber</span>
-                    <button class="btn btn-sm btn-outline-light" @onclick="() => selectedDisputeReq = null">إغلاق</button>
+                    <button class="btn btn-sm btn-outline-light py-0" @onclick="() => selectedDisputeReq = null">إغلاق</button>
                 </div>
                 <div class="card-body">
                     <div class="alert alert-warning border-0 small mb-3">
                         ℹ️ <strong>تعليمات التسوية:</strong> راجع سبب العجز المسجل من المشرف، ثم عدّل "الكمية المعتمدة نهائياً" واكتب سبب التسوية، ثم اضغط زر "اعتماد التسوية وترحيل الرصيد".
                     </div>
-                    <table class="table table-bordered text-center align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>الخامة</th>
-                                <th>المنصرف بالمخزن</th>
-                                <th>المستلم فعلياً بالصالة</th>
-                                <th>سبب العجز / الاختلاف</th>
-                                <th style="width: 18%;">الكمية المعتمدة نهائياً</th>
-                                <th style="width: 25%;">ملاحظات أمين المخزن للتسوية</th>
-                                <th>الإجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var dLine in selectedDisputeReq.Lines.Where(l => l.LineStatus == "DISPUTED"))
-                            {
+                    <div class="table-responsive">
+                        <table class="table table-bordered text-center align-middle small mb-0">
+                            <thead class="table-light">
                                 <tr>
-                                    <td class="fw-bold text-start ps-3">@dLine.ItemName (@dLine.ItemCode)</td>
-                                    <td class="fw-bold text-primary">@dLine.DispatchedQty.ToString("N2") @dLine.Unit</td>
-                                    <td class="fw-bold text-danger">@dLine.ReceivedQty.ToString("N2") @dLine.Unit</td>
-                                    <td class="text-danger small fw-bold">@dLine.DiscrepancyReason</td>
-                                    <td>
-                                        <input type="number" step="0.01" class="form-control text-center fw-bold border-success" @bind="dLine.ReceivedQty" />
-                                    </td>
-                                    <td>
-                                        <input type="text" class="form-control form-control-sm border-primary" placeholder="مثال: تم إقرار عجز الشكارة واعتماده كهدر نقل" @bind="dLine.WarehouseNotes" />
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-success fw-bold px-3 shadow" @onclick="() => ConfirmResolveDiscrepancy(dLine)">
-                                            ✅ اعتماد التسوية وترحيل الرصيد
-                                        </button>
-                                    </td>
+                                    <th>الخامة</th>
+                                    <th>المنصرف بالمخزن</th>
+                                    <th>المستلم فعلياً بالصالة</th>
+                                    <th>سبب العجز / الاختلاف</th>
+                                    <th style="width: 18%;">الكمية المعتمدة نهائياً</th>
+                                    <th style="width: 25%;">ملاحظات أمين المخزن للتسوية</th>
+                                    <th>الإجراء</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                @foreach (var dLine in selectedDisputeReq.Lines.Where(l => l.LineStatus == "DISPUTED"))
+                                {
+                                    <tr>
+                                        <td class="fw-bold text-start ps-3">@dLine.ItemName (@dLine.ItemCode)</td>
+                                        <td class="fw-bold text-primary font-monospace">@dLine.DispatchedQty.ToString("N2") @dLine.Unit</td>
+                                        <td class="fw-bold text-danger font-monospace">@dLine.ReceivedQty.ToString("N2") @dLine.Unit</td>
+                                        <td class="text-danger small fw-bold">@dLine.DiscrepancyReason</td>
+                                        <td>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold border-success font-monospace" @bind="dLine.ReceivedQty" />
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm border-primary" placeholder="مثال: تم إقرار عجز الشكارة واعتماده كهدر نقل" @bind="dLine.WarehouseNotes" />
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-success fw-bold px-3 shadow-sm py-0" @onclick="() => ConfirmResolveDiscrepancy(dLine)">
+                                                ✅ اعتماد التسوية وترحيل الرصيد
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         }
     }
 </div>
+
+<!-- ============================================================== -->
+<!-- نافذة استيراد خامات الطلب من إكسيل (IMPORT REQUISITION MODAL)  -->
+<!-- ============================================================== -->
+@if (isImportModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                
+                <div class="modal-header bg-success text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">
+                        <i class="bi bi-file-earmark-excel me-1"></i> استيراد كشف الخامات المطلوبة للوردية من ملف إكسيل
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseImportModal"></button>
+                </div>
+
+                <div class="modal-body p-3">
+                    <div class="alert alert-info py-2 small mb-3">
+                        <i class="bi bi-info-circle me-1"></i> 
+                        يتعرف النظام تلقائياً على كود الخامة أو اسمها، ويطابقها مع دليل الخامات المعتمدة، ثم يدرج الكميات مباشرة في جدول الطلب الحالي.
+                    </div>
+
+                    <div class="mb-3 p-3 border rounded bg-light">
+                        <label class="form-label small fw-bold text-dark">اختر ملف الإكسيل / CSV من جهازك:</label>
+                        <InputFile OnChange="HandleFileSelected" accept=".csv, text/csv" class="form-control form-control-sm" />
+                    </div>
+
+                    @if (importedPreviewList.Any())
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-bold text-dark">معاينة الخامات المقروءة من الملف (@importedPreviewList.Count خامة):</span>
+                            <span class="badge bg-success">جاهز للإدراج</span>
+                        </div>
+                        <div class="table-responsive" style="max-height: 280px;">
+                            <table class="table table-bordered table-sm align-middle text-center small mb-0">
+                                <thead class="table-secondary">
+                                    <tr>
+                                        <th>كود الخامة المقروء</th>
+                                        <th>اسم الخامة المقروء</th>
+                                        <th>الخامة المطابقة بالنظام</th>
+                                        <th>الكمية المطلوبة</th>
+                                        <th>الوحدة</th>
+                                        <th>الملاحظات</th>
+                                        <th>حالة المطابقة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in importedPreviewList)
+                                    {
+                                        <tr>
+                                            <td class="font-monospace fw-bold">@row.RawCode</td>
+                                            <td class="fw-bold text-start ps-2">@row.RawName</td>
+                                            <td class="text-start ps-2">
+                                                @if (row.MatchedItemId > 0)
+                                                {
+                                                    <span class="text-success fw-bold">✔ @row.MatchedItemName (@row.MatchedItemCode)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-danger fw-bold">✖ غير مطابق</span>
+                                                }
+                                            </td>
+                                            <td class="font-monospace fw-bold text-primary">@row.RequestedQty.ToString("N2")</td>
+                                            <td><span class="badge bg-light text-dark border">@row.Unit</span></td>
+                                            <td class="text-muted text-start ps-2">@row.Notes</td>
+                                            <td>
+                                                @if (row.MatchedItemId > 0)
+                                                {
+                                                    <span class="badge bg-success">مطابق وصالح</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger">يحتاج مراجعة</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
+                            disabled="@(!importedPreviewList.Any(r => r.MatchedItemId > 0))" 
+                            @onclick="ApplyImportedLines">
+                        <i class="bi bi-check-circle me-1"></i> تطبيق وإدراج الخامات في جدول الطلب الحالي (@importedPreviewList.Count(r => r.MatchedItemId > 0))
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private string activeTab = "REQUEST";
@@ -497,6 +724,7 @@
     private List<DepartmentOptionDto> departments = new();
     private List<WarehouseOptionDto> warehouses = new();
     private List<ItemOptionDto> rawMaterials = new();
+    private List<RequisitionImportRowPreview> importedPreviewList = new();
 
     private CreateRequisitionDto newReq = new()
     {
@@ -505,11 +733,43 @@
 
     private RequisitionDetailDto? selectedDispatchReq;
     private DispatchRequisitionDto dispatchModel = new();
+    
+    // قائمة تجهيز الصرف مع المخزن الخاص بكل سطر خامة
+    private List<DispatchLineViewModel> dispatchLinesView = new();
 
     private RequisitionDetailDto? selectedReceiveReq;
     private RequisitionDetailDto? selectedDisputeReq;
 
+    private bool isImportModalOpen = false;
+
+    // فلاتر البحث
+    private string searchTerm = "";
+    private long selectedDeptFilter = 0;
+
     private string apiBase = "https://localhost:7273/api";
+
+    public class DispatchLineViewModel
+    {
+        public long LineId { get; set; }
+        public long ItemId { get; set; }
+        public long WarehouseId { get; set; }
+        public decimal DispatchedQty { get; set; }
+        public string BatchNumber { get; set; } = string.Empty;
+        public DateTime? ExpiryDate { get; set; }
+        public decimal UnitCost { get; set; }
+    }
+
+    public class RequisitionImportRowPreview
+    {
+        public string RawCode { get; set; } = string.Empty;
+        public string RawName { get; set; } = string.Empty;
+        public long MatchedItemId { get; set; }
+        public string MatchedItemCode { get; set; } = string.Empty;
+        public string MatchedItemName { get; set; } = string.Empty;
+        public string Unit { get; set; } = "كجم";
+        public decimal RequestedQty { get; set; } = 1;
+        public string Notes { get; set; } = string.Empty;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -520,7 +780,6 @@
     private void ChangeTab(string tab)
     {
         activeTab = tab;
-        // إغلاق البطاقات المفتوحة عند التنقل لمنع عرض بيانات قديمة
         selectedDispatchReq = null;
         selectedReceiveReq = null;
         selectedDisputeReq = null;
@@ -532,14 +791,38 @@
         {
             var depts = await Http.GetFromJsonAsync<List<DepartmentOptionDto>>($"{apiBase}/Departments");
             if (depts != null) departments = depts;
+        }
+        catch
+        {
+            try { departments = await Http.GetFromJsonAsync<List<DepartmentOptionDto>>("api/Departments") ?? new(); } catch { }
+        }
 
+        try
+        {
             var whs = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>($"{apiBase}/Warehouses");
             if (whs != null) warehouses = whs;
-
-            var itms = await Http.GetFromJsonAsync<List<ItemOptionDto>>($"{apiBase}/Items");
-            if (itms != null) rawMaterials = itms.Where(i => i.ItemType == "خامات").ToList();
         }
-        catch { }
+        catch
+        {
+            try { warehouses = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>("api/Warehouses") ?? new(); } catch { }
+        }
+
+        try
+        {
+            var itms = await Http.GetFromJsonAsync<List<ItemOptionDto>>($"{apiBase}/Items");
+            if (itms != null) 
+                rawMaterials = itms.Where(i => i.ItemType == "خامات" || i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع").ToList();
+            if (!rawMaterials.Any() && itms != null) rawMaterials = itms;
+        }
+        catch
+        {
+            try
+            {
+                var itms = await Http.GetFromJsonAsync<List<ItemOptionDto>>("api/Items");
+                if (itms != null) rawMaterials = itms;
+            }
+            catch { }
+        }
     }
 
     private async Task LoadRequisitions()
@@ -549,10 +832,54 @@
             var data = await Http.GetFromJsonAsync<List<RequisitionDetailDto>>($"{apiBase}/MaterialRequisitions");
             if (data != null) requisitions = data;
         }
-        catch (Exception ex)
+        catch
         {
-            feedbackMessage = "خطأ في الاتصال: " + ex.Message;
+            try
+            {
+                var data = await Http.GetFromJsonAsync<List<RequisitionDetailDto>>("api/MaterialRequisitions");
+                if (data != null) requisitions = data;
+            }
+            catch (Exception ex)
+            {
+                feedbackMessage = "خطأ في الاتصال: " + ex.Message;
+            }
         }
+    }
+
+    private IEnumerable<RequisitionDetailDto> FilteredRequisitions
+    {
+        get
+        {
+            var query = requisitions.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(r =>
+                    r.RequisitionNumber.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    r.DepartmentName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(r.FromWarehouseName) && r.FromWarehouseName.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                    r.Lines.Any(l => l.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase) || 
+                                    (!string.IsNullOrEmpty(l.BatchNumber) && l.BatchNumber.Contains(term, StringComparison.OrdinalIgnoreCase))));
+            }
+
+            if (selectedDeptFilter > 0)
+            {
+                query = query.Where(r => r.DepartmentId == selectedDeptFilter);
+            }
+
+            return query;
+        }
+    }
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchTerm) ||
+        selectedDeptFilter > 0;
+
+    private void ResetFilters()
+    {
+        searchTerm = "";
+        selectedDeptFilter = 0;
     }
 
     private void AddReqLine()
@@ -560,25 +887,40 @@
         newReq.Lines.Add(new CreateRequisitionLineDto());
     }
 
+    // مشرف الصالة يرسل الطلب معتمداً على القسم والخامات فقط دون تحديد مخزن
     private async Task SubmitRequisition()
     {
-        if (newReq.DepartmentId == 0 || newReq.FromWarehouseId == 0)
+        if (newReq.DepartmentId == 0)
         {
-            feedbackMessage = "يرجى تحديد القسم والمخزن أولاً.";
+            feedbackMessage = "⚠️ يرجى تحديد القسم الإنتاجي الطالب أولاً.";
             return;
         }
 
         newReq.Lines.RemoveAll(l => l.ItemId == 0 || l.RequestedQty <= 0);
         if (!newReq.Lines.Any())
         {
-            feedbackMessage = "يرجى اختيار خامة واحدة على الأقل بكمية صالحة.";
+            feedbackMessage = "⚠️ يرجى اختيار خامة واحدة على الأقل بكمية صالحة أكبر من الصفر.";
             return;
         }
 
-        var response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions", newReq);
+        if (newReq.FromWarehouseId == 0)
+        {
+            newReq.FromWarehouseId = warehouses.FirstOrDefault()?.Id ?? 1;
+        }
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions", newReq);
+        }
+        catch
+        {
+            response = await Http.PostAsJsonAsync("api/MaterialRequisitions", newReq);
+        }
+
         if (response.IsSuccessStatusCode)
         {
-            feedbackMessage = "✅ تم إرسال طلب الخامات للمخزن بنجاح!";
+            feedbackMessage = "✅ تم إرسال طلب الخامات للمخازن بنجاح! بانتظار فحص وتحديد المستودعات من أمين المخزن.";
             newReq = new CreateRequisitionDto { Lines = new List<CreateRequisitionLineDto> { new CreateRequisitionLineDto() } };
             await LoadRequisitions();
             ChangeTab("DISPATCH");
@@ -592,35 +934,106 @@
     private async Task SelectForDispatch(RequisitionDetailDto req)
     {
         selectedDispatchReq = req;
+        dispatchLinesView.Clear();
+
+        long defaultWhId = req.FromWarehouseId > 0 ? req.FromWarehouseId : (warehouses.FirstOrDefault()?.Id ?? 1);
+
+        foreach (var l in req.Lines)
+        {
+            var lineModel = new DispatchLineViewModel
+            {
+                LineId = l.Id,
+                ItemId = l.ItemId,
+                WarehouseId = defaultWhId,
+                DispatchedQty = l.RequestedQty,
+                BatchNumber = "LOT-DEFAULT",
+                ExpiryDate = DateTime.Today.AddYears(1),
+                UnitCost = 5.0m
+            };
+
+            await FetchFefoForLine(lineModel);
+            dispatchLinesView.Add(lineModel);
+        }
+
         dispatchModel = new DispatchRequisitionDto
         {
             RequisitionId = req.Id,
             DispatchedBy = "أمين المخزن",
             Lines = new List<DispatchLineDto>()
         };
+    }
 
-        foreach (var l in req.Lines)
+    // عند تغيير المخزن لسطر خامة محدد، يُعاد استدعاء الـ FEFO لذلك السطر فوراً
+    private async Task OnLineWarehouseChanged(DispatchLineViewModel line, ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var newWhId) && newWhId > 0)
         {
-            var fefo = await Http.GetFromJsonAsync<List<FefoBatchSuggestionDto>>($"{apiBase}/MaterialRequisitions/fefo-suggestions?itemId={l.ItemId}&warehouseId={req.FromWarehouseId}");
-            var topFefo = fefo?.FirstOrDefault();
-
-            dispatchModel.Lines.Add(new DispatchLineDto
-            {
-                LineId = l.Id,
-                DispatchedQty = l.RequestedQty,
-                BatchNumber = topFefo?.BatchNumber ?? "LOT-DEFAULT",
-                ExpiryDate = topFefo?.ExpiryDate ?? DateTime.Today.AddYears(1),
-                UnitCost = topFefo?.UnitCost ?? 5.0m
-            });
+            line.WarehouseId = newWhId;
+            await FetchFefoForLine(line);
         }
+    }
+
+    private async Task FetchFefoForLine(DispatchLineViewModel line)
+    {
+        try
+        {
+            List<FefoBatchSuggestionDto>? fefo = null;
+            try
+            {
+                fefo = await Http.GetFromJsonAsync<List<FefoBatchSuggestionDto>>($"{apiBase}/MaterialRequisitions/fefo-suggestions?itemId={line.ItemId}&warehouseId={line.WarehouseId}");
+            }
+            catch
+            {
+                try
+                {
+                    fefo = await Http.GetFromJsonAsync<List<FefoBatchSuggestionDto>>($"api/MaterialRequisitions/fefo-suggestions?itemId={line.ItemId}&warehouseId={line.WarehouseId}");
+                }
+                catch { }
+            }
+
+            var topFefo = fefo?.FirstOrDefault();
+            if (topFefo != null)
+            {
+                line.BatchNumber = topFefo.BatchNumber;
+                line.ExpiryDate = topFefo.ExpiryDate ?? DateTime.Today.AddYears(1);
+                line.UnitCost = topFefo.UnitCost;
+            }
+            else
+            {
+                line.BatchNumber = $"LOT-{DateTime.Now:yyyyMMdd}";
+                line.ExpiryDate = DateTime.Today.AddYears(1);
+                line.UnitCost = 1.0m;
+            }
+        }
+        catch { }
     }
 
     private async Task ConfirmDispatch()
     {
-        var response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/dispatch", dispatchModel);
+        if (selectedDispatchReq == null) return;
+
+        dispatchModel.Lines = dispatchLinesView.Select(l => new DispatchLineDto
+        {
+            LineId = l.LineId,
+            DispatchedQty = l.DispatchedQty,
+            BatchNumber = l.BatchNumber,
+            ExpiryDate = l.ExpiryDate,
+            UnitCost = l.UnitCost
+        }).ToList();
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/dispatch", dispatchModel);
+        }
+        catch
+        {
+            response = await Http.PostAsJsonAsync("api/MaterialRequisitions/dispatch", dispatchModel);
+        }
+
         if (response.IsSuccessStatusCode)
         {
-            feedbackMessage = "✅ تم صرف الشحنة وتثبيت أرقام التشغيلات بنجاح!";
+            feedbackMessage = "✅ تم اعتماد خروج الشحنة من المخازن المحددة بنجاح!";
             selectedDispatchReq = null;
             await LoadRequisitions();
             ChangeTab("RECEIVE");
@@ -651,7 +1064,16 @@
             ReceivedBy = "مشرف الصالة"
         };
 
-        var response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/receive-line", dto);
+        HttpResponseMessage response;
+        try
+        {
+            response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/receive-line", dto);
+        }
+        catch
+        {
+            response = await Http.PostAsJsonAsync("api/MaterialRequisitions/receive-line", dto);
+        }
+
         if (response.IsSuccessStatusCode)
         {
             line.LineStatus = isExact ? "ACCEPTED" : "DISPUTED";
@@ -660,7 +1082,6 @@
             
             await LoadRequisitions();
 
-            // إذا اكتملت جميع الخطوط ولم يعد هناك ما يستدعي بقاء البطاقة مفتوحة
             if (selectedReceiveReq != null && selectedReceiveReq.Lines.All(l => l.LineStatus == "ACCEPTED"))
             {
                 selectedReceiveReq = null;
@@ -688,7 +1109,16 @@
                 WarehouseResolutionNotes = !string.IsNullOrWhiteSpace(line.WarehouseNotes) ? line.WarehouseNotes : "تمت المراجعة والاتفاق على الكمية"
             };
 
-            var response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/resolve-discrepancy", dto);
+            HttpResponseMessage response;
+            try
+            {
+                response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/resolve-discrepancy", dto);
+            }
+            catch
+            {
+                response = await Http.PostAsJsonAsync("api/MaterialRequisitions/resolve-discrepancy", dto);
+            }
+
             if (response.IsSuccessStatusCode)
             {
                 feedbackMessage = $"✅ تم فض النزاع واعتماد الكمية النهائية ({line.ReceivedQty:N2} {line.Unit}) وتم ترحيل وخصم الرصيد بنجاح!";
@@ -705,6 +1135,215 @@
         {
             feedbackMessage = $"❌ خطأ: {ex.Message}";
         }
+    }
+
+    // ==========================================
+    // تصدير واستيراد الإكسيل
+    // ==========================================
+    private async Task ExportRequisitionsToExcelAsync()
+    {
+        var list = FilteredRequisitions.ToList();
+        if (!list.Any())
+        {
+            feedbackMessage = "لا توجد طلبات لتصديرها.";
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("رقم_الطلب,القسم_الطالب,المخزن,تاريخ_الطلب,حالة_الطلب,كود_الخامة,اسم_الخامة,الوحدة,الكمية_المطلوبة,الكمية_المصروفة,الكمية_المستلمة,رقم_التشغيلة_LOT,تاريخ_الصلاحية,حالة_السطر,سبب_الخلاف,ملاحظات_المخزن");
+
+            foreach (var req in list)
+            {
+                var whName = !string.IsNullOrEmpty(req.FromWarehouseName) ? req.FromWarehouseName : "المخزن الرئيسي";
+                if (req.Lines != null && req.Lines.Any())
+                {
+                    foreach (var l in req.Lines)
+                    {
+                        var expDate = l.ExpiryDate?.ToString("yyyy-MM-dd") ?? "-";
+                        var discReason = (l.DiscrepancyReason ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+                        var whNotes = (l.WarehouseNotes ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+
+                        sb.AppendLine($"{EscapeCsv(req.RequisitionNumber)},{EscapeCsv(req.DepartmentName)},{EscapeCsv(whName)},{req.CreatedAt:yyyy-MM-dd HH:mm},{EscapeCsv(TranslateStatus(req.Status))},{EscapeCsv(l.ItemCode)},{EscapeCsv(l.ItemName)},{EscapeCsv(l.Unit)},{l.RequestedQty:F2},{l.DispatchedQty:F2},{l.ReceivedQty:F2},{EscapeCsv(l.BatchNumber ?? "-")},{expDate},{EscapeCsv(TranslateLineStatus(l.LineStatus))},{EscapeCsv(discReason)},{EscapeCsv(whNotes)}");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine($"{EscapeCsv(req.RequisitionNumber)},{EscapeCsv(req.DepartmentName)},{EscapeCsv(whName)},{req.CreatedAt:yyyy-MM-dd HH:mm},{EscapeCsv(TranslateStatus(req.Status))},-,-,-,0,0,0,-,-,-,-,-");
+                }
+            }
+
+            var fileName = $"سجل_طلبات_وصرف_خامات_الصالة_أبو_عادل_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await TriggerBrowserDownload(fileName, sb.ToString());
+            feedbackMessage = $"✅ تم تصدير بيانات ({list.Count}) طلب بتفاصيلها إلى إكسيل بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"❌ فشل التصدير: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadTemplateAsync()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_الخامة,اسم_الخامة,الكمية_المطلوبة,ملاحظات");
+            sb.AppendLine("101001,سكر أبيض ناعم,50,طلب تشغيل وردية الصباح قسم الشرقي");
+            sb.AppendLine("101002,سميد,100,تجهيز عجين بسبوسة");
+            sb.AppendLine("101003,دقيق فاخر,75,خبز اسبونج قسم الجاتوه");
+            sb.AppendLine("101004,عسل جلوكوز,25,تسقية وشربات");
+
+            await TriggerBrowserDownload("قالب_طلب_خامات_الصالة_أبو_عادل.csv", sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"فشل تحميل القالب: {ex.Message}";
+        }
+    }
+
+    private void OpenImportModal()
+    {
+        importedPreviewList.Clear();
+        isImportModalOpen = true;
+    }
+
+    private void CloseImportModal()
+    {
+        isImportModalOpen = false;
+        importedPreviewList.Clear();
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        importedPreviewList.Clear();
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024), Encoding.UTF8);
+            var content = await reader.ReadToEndAsync();
+            var lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (lines.Length <= 1) return;
+
+            var header = lines[0].Split(',');
+            int codeIdx = 0, nameIdx = 1, qtyIdx = 2, notesIdx = 3;
+
+            for (int i = 0; i < header.Length; i++)
+            {
+                var h = header[i].Trim().ToLower();
+                if (h.Contains("كود") || h.Contains("code")) codeIdx = i;
+                else if (h.Contains("اسم") || h.Contains("خام") || h.Contains("item")) nameIdx = i;
+                else if (h.Contains("كمي") || h.Contains("qty")) qtyIdx = i;
+                else if (h.Contains("ملاحظ") || h.Contains("notes")) notesIdx = i;
+            }
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var cols = line.Split(',');
+
+                if (cols.Length >= 2)
+                {
+                    string code = codeIdx < cols.Length ? cols[codeIdx].Trim() : "";
+                    string name = nameIdx < cols.Length ? cols[nameIdx].Trim() : "";
+                    decimal.TryParse(qtyIdx < cols.Length ? cols[qtyIdx].Trim() : "1", out var qty);
+                    string notes = notesIdx < cols.Length ? cols[notesIdx].Trim() : "";
+
+                    var matched = rawMaterials.FirstOrDefault(m =>
+                        (!string.IsNullOrEmpty(code) && m.ItemCode.Equals(code, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(name) && m.ItemName.Contains(name, StringComparison.OrdinalIgnoreCase)));
+
+                    importedPreviewList.Add(new RequisitionImportRowPreview
+                    {
+                        RawCode = code,
+                        RawName = name,
+                        MatchedItemId = matched?.Id ?? 0,
+                        MatchedItemCode = matched?.ItemCode ?? code,
+                        MatchedItemName = matched?.ItemName ?? "غير مطابق",
+                        Unit = matched?.Unit ?? "كجم",
+                        RequestedQty = qty > 0 ? qty : 1,
+                        Notes = notes
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"خطأ في قراءة ملف الإكسيل: {ex.Message}";
+        }
+    }
+
+    private void ApplyImportedLines()
+    {
+        var valid = importedPreviewList.Where(l => l.MatchedItemId > 0 && l.RequestedQty > 0).ToList();
+        if (!valid.Any()) return;
+
+        newReq.Lines.RemoveAll(l => l.ItemId == 0 && l.RequestedQty <= 0);
+
+        foreach (var v in valid)
+        {
+            var existing = newReq.Lines.FirstOrDefault(l => l.ItemId == v.MatchedItemId);
+            if (existing != null)
+            {
+                existing.RequestedQty += v.RequestedQty;
+            }
+            else
+            {
+                newReq.Lines.Add(new CreateRequisitionLineDto
+                {
+                    ItemId = v.MatchedItemId,
+                    RequestedQty = v.RequestedQty
+                });
+            }
+        }
+
+        feedbackMessage = $"✅ تم إدراج ({valid.Count}) خامة من ملف الإكسيل في جدول الطلب الحالي بنجاح!";
+        CloseImportModal();
+    }
+
+    private string TranslateStatus(string? status) => status switch
+    {
+        "SUBMITTED" => "بانتظار الصرف",
+        "DISPATCHED" => "تم الصرف / بانتظار الاستلام",
+        "COMPLETED" => "مكتمل ومطابق",
+        "DISPUTED" => "نزاع كميات معلق",
+        _ => status ?? "غير محدد"
+    };
+
+    private string TranslateLineStatus(string? lineStatus) => lineStatus switch
+    {
+        "ACCEPTED" => "مطابق ومقبول",
+        "DISPUTED" => "خلاف كميات",
+        "PENDING" => "قيد الفحص",
+        "DISPATCHED" => "منصرف",
+        _ => lineStatus ?? "معلق"
+    };
+
+    private async Task TriggerBrowserDownload(string fileName, string content)
+    {
+        var utf8WithBom = "\uFEFF" + content;
+        var jsCommand = $@"
+            const a = document.createElement('a');
+            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(`{utf8WithBom}`);
+            a.download = '{fileName}';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        ";
+        await JS.InvokeVoidAsync("eval", jsCommand);
+    }
+
+    private string EscapeCsv(string val)
+    {
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        return val;
     }
 
     public class DepartmentOptionDto

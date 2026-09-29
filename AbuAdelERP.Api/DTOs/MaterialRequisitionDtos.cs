@@ -28,6 +28,7 @@ namespace AbuAdelERP.Api.DTOs
     public class DispatchLineDto
     {
         public long LineId { get; set; }
+        public long WarehouseId { get; set; } // المخزن المحدد لصرف هذا الصنف تحديداً
         public decimal DispatchedQty { get; set; }
         public string BatchNumber { get; set; } = string.Empty;
         public DateTime? ExpiryDate { get; set; }
@@ -76,6 +77,8 @@ namespace AbuAdelERP.Api.DTOs
         public string ItemCode { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
         public string Unit { get; set; } = string.Empty;
+        public long? WarehouseId { get; set; } // كود المخزن المنصرف منه السطر
+        public string WarehouseName { get; set; } = string.Empty; // اسم المخزن
         public decimal RequestedQty { get; set; }
         public decimal DispatchedQty { get; set; }
         public decimal ReceivedQty { get; set; }

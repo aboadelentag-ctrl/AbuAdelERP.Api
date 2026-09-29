@@ -16,17 +16,20 @@
         <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
                 <h4 class="fw-bold mb-1 text-primary">📋 معايير وبطاقات خلطات التصنيع (BOM / Recipes)</h4>
-                <small class="text-muted">نظام شجرة التصنيع متعددة المستويات (تجهيز النصف مصنع للوردية الأولى + تفنيش الأوردرات للوردية الثانية)</small>
+                <small class="text-muted">نظام شجرة التصنيع متعددة المستويات (تجهيز النصف مصنع الوزني والقطعي للوردية الأولى + تفنيش الأوردرات للوردية الثانية)</small>
             </div>
             <div class="d-flex flex-wrap gap-2">
                 <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportRecipesToExcelAsync">
                     <i class="bi bi-file-earmark-excel me-1"></i> تصدير تفاصيل الوصفات (إكسيل)
                 </button>
                 <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
-                    <i class="bi bi-download me-1"></i> تحميل قالب خلطات الـ BOM
+                    <i class="bi bi-download me-1"></i> تحميل قالب خلطات الـ BOM الشامل
                 </button>
                 <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
                     <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد خلطات من إكسيل
+                </button>
+                <button class="btn btn-outline-primary btn-sm fw-bold shadow-sm" @onclick="OpenQuickItemModal">
+                    ➕ إضافة صنف جديد للدليل
                 </button>
                 <button class="btn btn-primary btn-sm fw-bold shadow-sm" @onclick="CreateNewRecipe">
                     ➕ إنشاء معيار / خلطة جديدة
@@ -57,20 +60,20 @@
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-info border-4 p-3 bg-white">
-                <small class="text-muted fw-bold">خلطات تجهيز نصف مصنع (وردية 1)</small>
-                <h4 class="mb-0 fw-bold text-dark mt-1">@CountSemiFinishedRecipes خلطة عجين/وسيط</h4>
+                <small class="text-muted fw-bold">نصف مصنع وزني (عجائن / كجم)</small>
+                <h4 class="mb-0 fw-bold text-dark mt-1">@CountWeightSemiFinished خلطة وزنية</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">نصف مصنع قطعي (بلكات / تارت)</small>
+                <h4 class="mb-0 fw-bold text-warning mt-1">@CountPieceSemiFinished خلطة قطعية</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-success border-4 p-3 bg-white">
                 <small class="text-muted fw-bold">خلطات تفنيش تام (وردية 2)</small>
                 <h4 class="mb-0 fw-bold text-success mt-1">@CountFinishedRecipes خلطة تفنيش</h4>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
-                <small class="text-muted fw-bold">الخلطات المعتمدة النشطة</small>
-                <h4 class="mb-0 fw-bold text-warning mt-1 font-monospace">@(recipesList?.Count(r => r.Active) ?? 0) نشطة</h4>
             </div>
         </div>
     </div>
@@ -86,13 +89,14 @@
                            @bind="searchTerm" @bind:event="oninput" />
                 </div>
 
-                <!-- 2. فلتر مستوى التصنيع والوردية -->
+                <!-- 2. فلتر مرحلة التصنيع ونوع الصنف -->
                 <div class="col-md-3">
                     <label class="form-label small fw-bold text-secondary mb-1">🏭 مرحلة التصنيع (الوردية)</label>
                     <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedStageFilter">
                         <option value="all">-- كل المراحل والورديات --</option>
-                        <option value="semi">🥣 معايير تجهيز وسيط / عجين (الوردية الأولى)</option>
-                        <option value="finished">🎂 معايير تفنيش منتج تام (الوردية الثانية)</option>
+                        <option value="semi_weight">🥣 نصف مصنع وزني (عجائن / شربات - كجم)</option>
+                        <option value="semi_piece">🍰 نصف مصنع قطعي (بلكات اسبونج / تارت)</option>
+                        <option value="finished">🎂 تفنيش منتج تام (أوردرات الوردية 2)</option>
                     </select>
                 </div>
 
@@ -104,12 +108,13 @@
                         <option value="كجم">كجم (وزن)</option>
                         <option value="صاج">صاج</option>
                         <option value="بلكة">بلكة</option>
-                        <option value="حلة">حلة</option>
+                        <option value="قطعة">قطعة</option>
                         <option value="دستة">دستة</option>
+                        <option value="حلة">حلة</option>
                     </select>
                 </div>
 
-                <!-- 4. فلتر المنتج المستهدف -->
+                <!-- 4. فلتر الصنف المستهدف -->
                 <div class="col-md-2">
                     <label class="form-label small fw-bold text-secondary mb-1">🎯 الصنف المستهدف</label>
                     <select class="form-select form-select-sm" @bind="selectedProductFilter">
@@ -158,19 +163,23 @@
                     <h5 class="mb-0 fs-6 fw-bold">
                         @(activeRecipe.Id == 0 ? "➕ إنشاء بطاقة تشغيل جديدة" : $"✏️ تعديل بطاقة خلطة: {activeRecipe.RecipeName}")
                     </h5>
-                    <small class="text-white-50">تحديد مدخلات ومخرجات كل مرحلة بدقة لضبط التكلفة والمخزون</small>
+                    <small class="text-white-50">تحديد مدخلات ومخرجات كل مرحلة بدقة لضبط التكلفة والمخزون بين الورديتين</small>
                 </div>
                 <button class="btn btn-sm btn-light text-primary fw-bold" @onclick="() => isEditing = false">إلغاء والعودة للقائمة</button>
             </div>
             <div class="card-body p-4 bg-white">
                 <div class="row g-3 mb-3">
                     
-                    <!-- 1. اختيار المنتج المستهدف (تام أو وسيط) -->
-                    <div class="col-md-4">
-                        <label class="form-label small fw-bold text-dark">
-                            المنتج التام أو الوسيط المراد تصنيعه *
-                            <span class="badge bg-light text-primary border ms-1">(@GetSelectedProductStageLabel())</span>
-                        </label>
+                    <!-- 1. اختيار المنتج المستهدف (تام أو وسيط) مع زر إضافة سريع -->
+                    <div class="col-md-5">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label small fw-bold text-dark mb-0">
+                                المنتج المراد تصنيعه وإدخاله المخزن *
+                            </label>
+                            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none fw-bold small text-primary" @onclick="OpenQuickItemModal">
+                                ➕ صنف جديد غير مسجل؟
+                            </button>
+                        </div>
                         <select class="form-select border-primary fw-bold" value="@activeRecipe.ProductItemId" @onchange="OnTargetProductSelected">
                             <option value="0">-- اختر المنتج المراد تصنيعه --</option>
                             <optgroup label="🎂 منتجات تامة (أوردرات وتفنيش الوردية الثانية)">
@@ -179,21 +188,22 @@
                                     <option value="@p.Id">@p.ItemName (@p.ItemCode)</option>
                                 }
                             </optgroup>
-                            <optgroup label="🥣 أصناف نصف مصنعة / وسيطة (عجائن وتجهيز الوردية الأولى)">
+                            <optgroup label="🥣 أصناف نصف مصنعة / وسيطة (تجهيز الوردية الأولى)">
                                 @foreach (var p in targetProductsList.Where(i => i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع"))
                                 {
                                     <option value="@p.Id">@p.ItemName (@p.ItemCode)</option>
                                 }
                             </optgroup>
                         </select>
+                        <small class="text-muted d-block mt-1">المرحلة الحالية: <span class="badge bg-light text-dark border">@GetSelectedProductStageLabel()</span></small>
                     </div>
 
                     <div class="col-md-4">
                         <label class="form-label small fw-bold text-dark">اسم الخلطة / المعيار التصنيعي *</label>
-                        <input class="form-control border-primary fw-bold" placeholder="مثال: خلطة عجين بسبوسة سوبر / تفنيش صاج بسبوسة مكسرات" @bind="activeRecipe.RecipeName" />
+                        <input class="form-control border-primary fw-bold" placeholder="مثال: خلطة عجين بسبوسة / تفنيش بسبوسة مكسرات / بلكة اسبونج فانيليا" @bind="activeRecipe.RecipeName" />
                     </div>
 
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label small fw-bold text-dark">كود الوصفة (BOM Code)</label>
                         <input class="form-control font-monospace" placeholder="BOM-..." @bind="activeRecipe.RecipeCode" />
                     </div>
@@ -210,8 +220,9 @@
                             <option value="كجم">كجم (وزن)</option>
                             <option value="صاج">صاج</option>
                             <option value="بلكة">بلكة</option>
-                            <option value="حلة">حلة</option>
+                            <option value="قطعة">قطعة</option>
                             <option value="دستة">دستة</option>
+                            <option value="حلة">حلة</option>
                         </select>
                     </div>
                     <div class="col-md-2">
@@ -219,10 +230,10 @@
                         <input type="number" step="0.01" class="form-control font-monospace text-center" @bind="activeRecipe.YieldQuantity" />
                     </div>
                     <div class="col-md-2">
-                        <label class="form-label small fw-bold text-danger">عدد القطع (0 للوزن/العجين) *</label>
-                        <input type="number" class="form-control font-monospace text-center fw-bold border-danger" 
+                        <label class="form-label small fw-bold text-primary">عدد القطع (0 إذا كان بالوزن)</label>
+                        <input type="number" class="form-control font-monospace text-center fw-bold border-primary" 
                                placeholder="0 للأصناف الوزنية" @bind="activeRecipe.PiecesPerBatch" />
-                        <small class="text-muted" style="font-size: 0.72rem;">اجعلها 0 للبسبوسة والعجائن</small>
+                        <small class="text-muted" style="font-size: 0.72rem;">0 للبسبوسة والعجائن، >0 للجاتوه والقطع</small>
                     </div>
                     <div class="col-md-2">
                         <label class="form-label small fw-bold">فاقد تشغيل/خبز (%)</label>
@@ -237,7 +248,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div>
                         <h6 class="fw-bold mb-0 text-primary">🧂 مقادير الخامات والمكونات الوسيطة الداخلة في الخلطة:</h6>
-                        <small class="text-muted">تدعم سحب الخامات الأولية وكذلك المكونات النصف مصنعة المحضرة مسبقاً</small>
+                        <small class="text-muted">يمكن لوردية التفنيش سحب الخامات الأولية وكذلك المكونات النصف مصنعة المحضرة مسبقاً (بالبلكة أو بالكجم)</small>
                     </div>
                     <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="AddIngredientLine">
                         ➕ إضافة مكون / خامة للخلطة
@@ -274,7 +285,7 @@
                                         <td>
                                             <select class="form-select form-select-sm fw-bold" @bind="line.ComponentItemId" @bind:after="() => UpdateLineItemInfo(line)">
                                                 <option value="0">-- اختر المكون أو الخامة --</option>
-                                                <optgroup label="🥣 أصناف نصف مصنعة ووسيطة (إنتاج الوردية الأولى)">
+                                                <optgroup label="🥣 أصناف نصف مصنعة (بلكات اسبونج، عجائن، كريمة)">
                                                     @foreach (var rm in allIngredientsList.Where(i => i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع"))
                                                     {
                                                         <option value="@rm.Id">@rm.ItemName (@rm.ItemCode)</option>
@@ -320,7 +331,7 @@
         </div>
     }
 
-    <!-- جدول استعراض بطاقات الخلتات المسجلة -->
+    <!-- جدول استعراض بطاقات الخلطات المسجلة -->
     <div class="card shadow-sm border-0">
         <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
             <h6 class="mb-0 fw-bold small">📋 سجل معايير ووصفات الإنتاج المسجلة</h6>
@@ -401,6 +412,59 @@
         </div>
     </div>
 </div>
+
+<!-- ============================================================== -->
+<!-- نافذة منبثقة: إضافة صنف جديد للدليل سريعاً (Quick Add Item)   -->
+<!-- ============================================================== -->
+@if (isQuickItemModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-md modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">
+                        ➕ إضافة صنف جديد لدليل الأصناف (خامة / نصف مصنع / تام)
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isQuickItemModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">كود الصنف *</label>
+                        <input type="text" class="form-control form-control-sm font-monospace fw-bold" @bind="newQuickItem.ItemCode" placeholder="مثال: 201005 أو 302005" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">اسم الصنف *</label>
+                        <input type="text" class="form-control form-control-sm fw-bold" @bind="newQuickItem.ItemName" placeholder="مثال: ديسك اسبونج شيكولاتة / عجين بلح الشام" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">نوع الصنف *</label>
+                        <select class="form-select form-select-sm fw-bold" @bind="newQuickItem.ItemType">
+                            <option value="نصف مصنع">🥣 نصف مصنع / وسيط (تجهيز الوردية الأولى)</option>
+                            <option value="منتج تام">🎂 منتج تام جاهز للبيع (تفنيش الوردية الثانية)</option>
+                            <option value="خامات">🌾 خامات ومستلزمات إنتاج أولية</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">الوحدة الافتراضية *</label>
+                        <select class="form-select form-select-sm fw-bold" @bind="newQuickItem.Unit">
+                            <option value="كجم">كجم</option>
+                            <option value="بلكة">بلكة</option>
+                            <option value="قطعة">قطعة</option>
+                            <option value="صاج">صاج</option>
+                            <option value="دستة">دستة</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => isQuickItemModalOpen = false">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" disabled="@isSavingQuickItem" @onclick="SaveQuickItemAsync">
+                        @(isSavingQuickItem ? "جاري الحفظ..." : "💾 حفظ وإدراج بالقائمة فوراً")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 <!-- ============================================================== -->
 <!-- نافذة استيراد خلطات التصنيع من إكسيل                           -->
@@ -517,6 +581,14 @@
         public string Unit { get; set; } = string.Empty;
     }
 
+    public class QuickItemCreateDto
+    {
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = "نصف مصنع";
+        public string Unit { get; set; } = "كجم";
+    }
+
     public class RecipeImportPreviewDto
     {
         public string RecipeCode { get; set; } = string.Empty;
@@ -540,6 +612,10 @@
     private List<RecipeImportPreviewDto> importedPreviewList = new();
 
     private SaveRecipeDto activeRecipe = new();
+    private QuickItemCreateDto newQuickItem = new();
+    private bool isQuickItemModalOpen = false;
+    private bool isSavingQuickItem = false;
+
     private bool isEditing = false;
     private bool isSavingImport = false;
     private bool isImportModalOpen = false;
@@ -591,10 +667,16 @@
         }
     }
 
-    private int CountSemiFinishedRecipes =>
+    private int CountWeightSemiFinished =>
         recipesList?.Count(r => {
             var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
-            return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع");
+            return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch == 0 || r.BatchUnit == "كجم");
+        }) ?? 0;
+
+    private int CountPieceSemiFinished =>
+        recipesList?.Count(r => {
+            var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+            return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch > 0 && r.BatchUnit != "كجم");
         }) ?? 0;
 
     private int CountFinishedRecipes =>
@@ -607,7 +689,10 @@
     {
         var item = allItems?.FirstOrDefault(i => i.Id == activeRecipe.ProductItemId);
         if (item == null) return "غير محدد";
-        if (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") return "🥣 نصف مصنع / وسيط (وردية 1)";
+        if (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع")
+        {
+            return activeRecipe.PiecesPerBatch > 0 ? "🥣 نصف مصنع قطعي (بلكة/تارت)" : "🥣 نصف مصنع وزني (عجين/كجم)";
+        }
         return "🎂 منتج تام (وردية 2)";
     }
 
@@ -622,14 +707,23 @@
                 bool isSemi = (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع");
                 if (isSemi)
                 {
-                    activeRecipe.BatchUnit = "كجم";
-                    activeRecipe.PiecesPerBatch = 0; // إلزامي للأصناف الوزنية
+                    // التحقق هل الصنف الوسيط بلكة/قطعة أم عجين وزني
+                    if (item.ItemName.Contains("اسبونج") || item.ItemName.Contains("بلكة") || item.ItemName.Contains("تارت") || item.Unit == "بلكة" || item.Unit == "قطعة")
+                    {
+                        activeRecipe.BatchUnit = !string.IsNullOrEmpty(item.Unit) ? item.Unit : "بلكة";
+                        activeRecipe.PiecesPerBatch = 1;
+                    }
+                    else
+                    {
+                        activeRecipe.BatchUnit = "كجم";
+                        activeRecipe.PiecesPerBatch = 0; // وزني
+                    }
                     if (string.IsNullOrWhiteSpace(activeRecipe.RecipeName)) activeRecipe.RecipeName = $"خلطة {item.ItemName}";
                     if (string.IsNullOrWhiteSpace(activeRecipe.RecipeCode)) activeRecipe.RecipeCode = $"BOM-{item.ItemCode}";
                 }
                 else
                 {
-                    if (item.ItemName.Contains("جاتوه") || item.ItemName.Contains("تورتة"))
+                    if (item.ItemName.Contains("جاتوه") || item.ItemName.Contains("تورتة") || item.Unit == "دستة")
                     {
                         activeRecipe.BatchUnit = "بلكة";
                         activeRecipe.PiecesPerBatch = 24;
@@ -662,11 +756,18 @@
                     (!string.IsNullOrEmpty(r.ProductItemName) && r.ProductItemName.Contains(term, StringComparison.OrdinalIgnoreCase)));
             }
 
-            if (selectedStageFilter == "semi")
+            if (selectedStageFilter == "semi_weight")
             {
                 query = query.Where(r => {
                     var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
-                    return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع");
+                    return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch == 0 || r.BatchUnit == "كجم");
+                });
+            }
+            else if (selectedStageFilter == "semi_piece")
+            {
+                query = query.Where(r => {
+                    var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+                    return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch > 0 && r.BatchUnit != "كجم");
                 });
             }
             else if (selectedStageFilter == "finished")
@@ -829,6 +930,62 @@
         }
     }
 
+    private void OpenQuickItemModal()
+    {
+        newQuickItem = new QuickItemCreateDto
+        {
+            ItemCode = $"ITM-{DateTime.Now:yyyyMMdd}-{new Random().Next(10, 99)}",
+            ItemType = "نصف مصنع",
+            Unit = "كجم"
+        };
+        isQuickItemModalOpen = true;
+    }
+
+    private async Task SaveQuickItemAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newQuickItem.ItemName))
+        {
+            statusMessage = "يرجى إدخال اسم الصنف.";
+            isSuccess = false;
+            return;
+        }
+
+        isSavingQuickItem = true;
+        try
+        {
+            var res = await Http.PostAsJsonAsync($"{apiBase}/items", newQuickItem);
+            if (res.IsSuccessStatusCode)
+            {
+                var created = await res.Content.ReadFromJsonAsync<ItemLookupDto>();
+                await LoadData();
+                isQuickItemModalOpen = false;
+                isSuccess = true;
+                statusMessage = $"تم إنشاء صنف [{newQuickItem.ItemName}] وإدراجه في الدليل بنجاح!";
+
+                if (created != null && isEditing)
+                {
+                    activeRecipe.ProductItemId = created.Id;
+                    OnTargetProductSelected(new ChangeEventArgs { Value = created.Id.ToString() });
+                }
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"تعذر حفظ الصنف: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isSavingQuickItem = false;
+        }
+    }
+
     private async Task ExportRecipesToExcelAsync()
     {
         var list = FilteredRecipes.ToList();
@@ -858,7 +1015,9 @@
                 }
 
                 var targetItem = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
-                string stage = (targetItem != null && (targetItem.ItemType == "منتج وسيط" || targetItem.ItemType == "نصف مصنع")) ? "تجهيز وسيط (وردية 1)" : "تفنيش تام (وردية 2)";
+                string stage = (targetItem != null && (targetItem.ItemType == "منتج وسيط" || targetItem.ItemType == "نصف مصنع")) 
+                    ? (r.PiecesPerBatch > 0 ? "تجهيز وسيط قطعي (وردية 1)" : "تجهيز وسيط وزني (وردية 1)")
+                    : "تفنيش تام (وردية 2)";
                 var statusStr = r.Active ? "نشطة" : "معطلة";
 
                 if (lines != null && lines.Any())
@@ -896,18 +1055,25 @@
             var sb = new StringBuilder();
             sb.AppendLine("كود_الوصفة,اسم_الخلطة_المعيار,المنتج_المستهدف,حجم_الوجبة,وحدة_الوجبة,عدد_القطع,الخرج_الصافي,فاقد_التشغيل_%,وقت_التحضير_دقيقة,كود_المكون,اسم_المكون,كمية_المكون,وحدة_المكون,فاقد_المكون_%,ملاحظات_المكون");
             
-            // 1. مثال الوردية الأولى (تجهيز عجين بسبوسة وسيط - عدد القطع = 0)
+            // 1. نصف مصنع وزني (وردية 1 - عجين بسبوسة - عدد القطع = 0)
             sb.AppendLine("BOM-201001,خلطة عجين بسبوسة معيار 10 كجم,عجين بسبوسه,10,كجم,0,10,0,30,101002,سميد,5,كجم,0,سميد وسط درجة أولى");
             sb.AppendLine("BOM-201001,خلطة عجين بسبوسة معيار 10 كجم,عجين بسبوسه,10,كجم,0,10,0,30,101003,دقيق,4,كجم,0,دقيق فاخر منخول");
             sb.AppendLine("BOM-201001,خلطة عجين بسبوسة معيار 10 كجم,عجين بسبوسه,10,كجم,0,10,0,30,101001,سكر,1,كجم,0,سكر أبيض ناعم");
 
-            // 2. مثال الوردية الثانية (تفنيش صاج بسبوسة مكسرات - يسحب العجين المحضر + المكسرات + الشربات)
+            // 2. نصف مصنع قطعي (وردية 1 - ديسك/بلكة اسبونج فانيليا 40*60 - بلكة - 1 قطعة أو 24 ديسك)
+            sb.AppendLine("BOM-202001,خبز بلكة اسبونج فانيليا 40*60,اسبونج فانيليا,1,بلكة,1,1,3,45,101003,دقيق,2,كجم,2,دقيق فاخر");
+            sb.AppendLine("BOM-202001,خبز بلكة اسبونج فانيليا 40*60,اسبونج فانيليا,1,بلكة,1,1,3,45,101001,سكر,1.5,كجم,0,سكر ناعم");
+            sb.AppendLine("BOM-202001,خبز بلكة اسبونج فانيليا 40*60,اسبونج فانيليا,1,بلكة,1,1,3,45,101008,بيض مزارع طازج,30,قطعة,0,فصل بياض وصفار");
+
+            // 3. منتج تام وزني (وردية 2 - تفنيش بسبوسة مكسرات - يسحب العجين النصف مصنع + المكسرات + الشربات)
             sb.AppendLine("BOM-301002,تفنيش صاج بسبوسة مكسرات سوبر,بسبوسه مكسرات,1,صاج,0,1,3,45,201001,عجين بسبوسه,8,كجم,0,سحب من إنتاج الوردية الأولى");
             sb.AppendLine("BOM-301002,تفنيش صاج بسبوسة مكسرات سوبر,بسبوسه مكسرات,1,صاج,0,1,3,45,101005,مكسرات مشكلة,0.75,كجم,2,بندق ولوز للتزيين");
             sb.AppendLine("BOM-301002,تفنيش صاج بسبوسة مكسرات سوبر,بسبوسه مكسرات,1,صاج,0,1,3,45,101006,شربات تسقية,2,كجم,0,تسقية ساخنة");
 
-            // 3. مثال جاتوه بالقطعة (عدد القطع = 24)
-            sb.AppendLine("BOM-302001,تفنيش بلكة جاتوه سبيشيال,جاتوه اسبيشيال ابيض,1,بلكة,24,1,5,60,101003,دقيق,2,كجم,2,دقيق فاخر منخول");
+            // 4. منتج تام قطعي (وردية 2 - تفنيش بلكة جاتوه اسبيشيال أبيض - يسحب بلكة الاسبونج المحضرة + الكريمة والجيلي لإنتاج 24 قطعة)
+            sb.AppendLine("BOM-302001-78,تفنيش بلكة جاتوه سبيشيال ابيض,جاتوه اسبيشيال ابيض,1,بلكة,24,1,5,60,202001,اسبونج فانيليا,1,بلكة,0,سحب بلكة مخبوزة من الوردية 1");
+            sb.AppendLine("BOM-302001-78,تفنيش بلكة جاتوه سبيشيال ابيض,جاتوه اسبيشيال ابيض,1,بلكة,24,1,5,60,202005,كريمة بيضاء جاهزة,1.2,كجم,0,حشو وتجليس");
+            sb.AppendLine("BOM-302001-78,تفنيش بلكة جاتوه سبيشيال ابيض,جاتوه اسبيشيال ابيض,1,بلكة,24,1,5,60,101009,جيلي تلميع وكمبوت,0.3,كجم,0,فنش الوجه");
 
             await TriggerBrowserDownload("قالب_معايير_خلطات_التصنيع_BOM_الشامل.csv", sb.ToString());
         }

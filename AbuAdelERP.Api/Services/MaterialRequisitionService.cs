@@ -34,6 +34,7 @@ namespace AbuAdelERP.Api.Services
                 .Include(r => r.Department)
                 .Include(r => r.FromWarehouse)
                 .Include(r => r.Lines).ThenInclude(l => l.Item)
+                .Include(r => r.Lines).ThenInclude(l => l.FromWarehouse)
                 .AsNoTracking();
 
             if (!string.IsNullOrWhiteSpace(status))
@@ -51,20 +52,26 @@ namespace AbuAdelERP.Api.Services
                 .Include(r => r.Department)
                 .Include(r => r.FromWarehouse)
                 .Include(r => r.Lines).ThenInclude(l => l.Item)
+                .Include(r => r.Lines).ThenInclude(l => l.FromWarehouse)
                 .FirstOrDefaultAsync(r => r.Id == id);
 
             return req == null ? null : MapToDetailDto(req);
         }
 
+        // 1. إنشاء الطلب بدون إلزام المشرف باختيار مخزن
         public async Task<RequisitionDetailDto> CreateRequisitionAsync(CreateRequisitionDto dto)
         {
             string reqNumber = $"MR-{DateTime.UtcNow:yyyyMMdd}-{new Random().Next(1000, 9999)}";
+
+            long initialWarehouseId = dto.FromWarehouseId > 0
+                ? dto.FromWarehouseId
+                : (await _context.Warehouses.OrderBy(w => w.Id).Select(w => w.Id).FirstOrDefaultAsync());
 
             var req = new MaterialRequisition
             {
                 RequisitionNumber = reqNumber,
                 DepartmentId = dto.DepartmentId,
-                FromWarehouseId = dto.FromWarehouseId,
+                FromWarehouseId = initialWarehouseId,
                 Status = "SUBMITTED",
                 Notes = dto.Notes,
                 RequestedBy = dto.RequestedBy,
@@ -73,6 +80,8 @@ namespace AbuAdelERP.Api.Services
 
             foreach (var line in dto.Lines)
             {
+                if (line.ItemId <= 0 || line.RequestedQty <= 0) continue;
+
                 req.Lines.Add(new MaterialRequisitionLine
                 {
                     ItemId = line.ItemId,
@@ -119,6 +128,7 @@ namespace AbuAdelERP.Api.Services
             return suggestions.OrderBy(s => s.ExpiryDate ?? DateTime.MaxValue).ToList();
         }
 
+        // 2. صرف الشحنة وتثبيت مخزن كل سطـر خامة على حدة
         public async Task<bool> DispatchRequisitionAsync(DispatchRequisitionDto dto)
         {
             var req = await _context.MaterialRequisitions
@@ -136,6 +146,8 @@ namespace AbuAdelERP.Api.Services
                 var line = req.Lines.FirstOrDefault(l => l.Id == dl.LineId);
                 if (line != null)
                 {
+                    // حفظ المخزن المنصرف منه السطر تحديداً
+                    line.FromWarehouseId = dl.WarehouseId > 0 ? dl.WarehouseId : req.FromWarehouseId;
                     line.DispatchedQty = dl.DispatchedQty;
                     line.BatchNumber = dl.BatchNumber;
                     line.ExpiryDate = dl.ExpiryDate.HasValue ? DateTime.SpecifyKind(dl.ExpiryDate.Value.Date, DateTimeKind.Utc) : null;
@@ -236,6 +248,7 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
+        // 3. خصم الرصيد وترحيل حركة الصرف وفقاً لمخزن كل سطر خامة
         private async Task FinalizeInventoryTransferAsync(MaterialRequisition req)
         {
             req.Status = "COMPLETED";
@@ -243,36 +256,57 @@ namespace AbuAdelERP.Api.Services
 
             var lines = await _context.MaterialRequisitionLines
                 .Include(l => l.Item)
+                .Include(l => l.FromWarehouse)
                 .Where(l => l.RequisitionId == req.Id)
                 .ToListAsync();
 
             foreach (var line in lines)
             {
-                // 1. خصم الكمية من رصيد المخزن الرئيسي
+                // تحديد المخزن المنصرف منه هذا السطر تحديداً
+                long actualWarehouseId = (line.FromWarehouseId.HasValue && line.FromWarehouseId.Value > 0)
+                    ? line.FromWarehouseId.Value
+                    : req.FromWarehouseId;
+
+                // 1. خصم الكمية من رصيد المستودع الفعلي المخصص للسطر
                 var sourceBalance = await _context.StockBalances
-                    .FirstOrDefaultAsync(b => b.ItemId == line.ItemId && b.WarehouseId == req.FromWarehouseId);
+                    .FirstOrDefaultAsync(b => b.ItemId == line.ItemId && b.WarehouseId == actualWarehouseId);
 
                 if (sourceBalance != null)
                 {
                     sourceBalance.Quantity -= line.ReceivedQty;
                     sourceBalance.AvailableQuantity -= line.ReceivedQty;
+                    sourceBalance.LastUpdatedAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    _context.StockBalances.Add(new StockBalance
+                    {
+                        CompanyId = (line.Item != null && line.Item.CompanyId > 0) ? line.Item.CompanyId : 1,
+                        ItemId = line.ItemId,
+                        WarehouseId = actualWarehouseId,
+                        Quantity = -line.ReceivedQty,
+                        AvailableQuantity = -line.ReceivedQty,
+                        ReservedQuantity = 0,
+                        LastUpdatedAt = DateTime.UtcNow
+                    });
                 }
 
                 long itemCompanyId = (line.Item != null && line.Item.CompanyId > 0) ? line.Item.CompanyId : 1;
+                string whName = line.FromWarehouse?.WarehouseName ?? req.FromWarehouse?.WarehouseName ?? "مستودع";
 
-                // 2. تسجيل حركة الصرف في سجل الحركات بوجود معرّف الشركة لتفادي كسر الـ Foreign Key
+                // 2. تسجيل حركة الصرف لهذا المخزن بعينه
                 _context.StockMovements.Add(new StockMovement
                 {
                     CompanyId = itemCompanyId,
                     ItemId = line.ItemId,
-                    WarehouseId = req.FromWarehouseId,
+                    WarehouseId = actualWarehouseId,
                     MovementType = "PRODUCTION_ISSUE",
                     Quantity = line.ReceivedQty,
                     UnitCost = line.UnitCost,
                     ReferenceType = "MATERIAL_REQUISITION",
                     ReferenceId = req.Id,
                     MovementAt = DateTime.UtcNow,
-                    Notes = $"صرف لصالة التشغيل | تشغيلة: {line.BatchNumber} | صلاحية: {line.ExpiryDate:yyyy-MM-dd} | إذن رقم: {req.RequisitionNumber}"
+                    Notes = $"صرف لصالة التشغيل | مخزن: {whName} | تشغيلة: {line.BatchNumber} | صلاحية: {line.ExpiryDate:yyyy-MM-dd} | إذن رقم: {req.RequisitionNumber}"
                 });
             }
         }
@@ -302,6 +336,8 @@ namespace AbuAdelERP.Api.Services
                     ItemCode = l.Item?.ItemCode ?? "",
                     ItemName = l.Item?.ItemName ?? "صنف",
                     Unit = l.Item?.Unit ?? "",
+                    WarehouseId = l.FromWarehouseId ?? r.FromWarehouseId,
+                    WarehouseName = l.FromWarehouse?.WarehouseName ?? r.FromWarehouse?.WarehouseName ?? "المخزن الرئيسي",
                     RequestedQty = l.RequestedQty,
                     DispatchedQty = l.DispatchedQty,
                     ReceivedQty = l.ReceivedQty,

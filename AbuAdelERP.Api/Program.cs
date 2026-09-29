@@ -15,7 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2. تسجيل جميع الخدمات وربطها بالبنية التحتية (تم إضافة خدمة الموردين هنا)
+// 2. تسجيل جميع الخدمات وربطها بحاوية الاعتمادية (Dependency Injection)
 builder.Services.AddScoped<IItemService, ItemService>();
 builder.Services.AddScoped<IWarehouseService, WarehouseService>();
 builder.Services.AddScoped<IStockService, StockService>();
@@ -39,9 +39,13 @@ builder.Services.AddScoped<IStockCardService, StockCardService>();
 builder.Services.AddScoped<IMaterialRequisitionService, MaterialRequisitionService>();
 builder.Services.AddScoped<IFinishedGoodsTransferService, FinishedGoodsTransferService>();
 
+// ====== إضافة خدمة التحويلات بين المخازن ولجان فض المنازعات ======
+builder.Services.AddScoped<IStockTransferService, StockTransferService>();
+
 // 3. محرك الحماية الفعلي (JWT)
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "AbuAdelSuperSecretKeyForJwtAuthentication2026";
 var keyBytes = Encoding.ASCII.GetBytes(jwtKey);
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -63,7 +67,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 4. واجهة العرض الافتراضية النقية
+// 4. واجهة العرض الافتراضية النقية (Swagger & CORS)
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
