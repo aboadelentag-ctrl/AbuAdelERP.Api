@@ -1,16 +1,133 @@
 ﻿@inherits LayoutComponentBase
-<div class="page">
+@using AbuAdelERP.UI.Services
+@using Blazored.LocalStorage
+@implements IDisposable
+@inject AppState State
+@inject ILocalStorageService LocalStorage
+@inject NavigationManager Nav
+
+<div class="page" dir="rtl">
+    <!-- القائمة الجانبية للنظام -->
     <div class="sidebar">
         <NavMenu />
     </div>
 
     <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        <!-- الشريط العلوي التنفيذي المعتمد لمصنع حلواني أبو عادل -->
+        <div class="top-row px-4 d-flex justify-content-between align-items-center bg-white shadow-sm border-bottom py-2">
+            
+            <!-- الشعار والهوية -->
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-danger p-2 fs-6 shadow-sm">حلواني أبو عادل</span>
+                <span class="text-muted small fw-bold d-none d-md-inline">نظام تخطيط وإدارة الموارد والإنتاج الصناعي (ERP)</span>
+            </div>
+
+            <!-- بيانات الموظف النشط وزر تسجيل الخروج -->
+            <div class="d-flex align-items-center gap-3">
+                @if (State.IsLoggedIn)
+                {
+                    <div class="text-end">
+                        <div class="fw-bold text-dark small d-flex align-items-center justify-content-end gap-1">
+                            <span>👤 @State.FullName</span>
+                            @if (!string.IsNullOrEmpty(State.EmployeeCode))
+                            {
+                                <span class="badge bg-dark font-monospace" style="font-size: 11px;">[@State.EmployeeCode]</span>
+                            }
+                        </div>
+                        <div class="d-flex gap-1 justify-content-end align-items-center mt-1">
+                            <span class="badge bg-light text-primary border" style="font-size: 10px;">
+                                🏭 @(!string.IsNullOrEmpty(State.DepartmentName) ? State.DepartmentName : "عام")
+                            </span>
+                            <span class="badge bg-secondary" style="font-size: 10px;">
+                                @(!string.IsNullOrEmpty(State.Role) ? State.Role : "مستخدم")
+                            </span>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-danger btn-sm fw-bold px-3 py-1 shadow-sm d-flex align-items-center gap-2" @onclick="HandleLogout">
+                        <i class="bi bi-box-arrow-right fs-6"></i>
+                        <span>تسجيل الخروج</span>
+                    </button>
+                }
+                else
+                {
+                    <a href="login" class="btn btn-outline-danger btn-sm fw-bold px-3 py-1 shadow-sm">
+                        🔐 تسجيل الدخول
+                    </a>
+                }
+            </div>
         </div>
 
-        <article class="content px-4">
+        <!-- مساحة عرض الشاشات والصفحات -->
+        <article class="content px-4 py-3">
             @Body
         </article>
     </main>
 </div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. الاشتراك في حدث تغير الجلسة لتحديث الواجهة فوراً
+        State.OnChange += StateHasChanged;
+
+        // 2. التحقق الآمن من الجلسة في التخزين المحلي
+        try
+        {
+            var token = await LocalStorage.GetItemAsync<string>("authToken");
+            var currentRelativeUri = Nav.ToBaseRelativePath(Nav.Uri).ToLowerInvariant();
+            var isLoginPage = currentRelativeUri.StartsWith("login");
+
+            if (string.IsNullOrEmpty(token))
+            {
+                if (!isLoginPage)
+                {
+                    Nav.NavigateTo("login");
+                }
+            }
+            else if (!State.IsLoggedIn)
+            {
+                var user = await LocalStorage.GetItemAsync<string>("username");
+                var empCode = await LocalStorage.GetItemAsync<string>("employeeCode");
+                var fullName = await LocalStorage.GetItemAsync<string>("fullName");
+                var role = await LocalStorage.GetItemAsync<string>("userRole");
+                var dept = await LocalStorage.GetItemAsync<string>("departmentName");
+                var perms = await LocalStorage.GetItemAsync<List<string>>("userPermissions");
+
+                State.SetUserSession(
+                    0,
+                    !string.IsNullOrEmpty(empCode) ? empCode : (user ?? "EMP"),
+                    user ?? "admin",
+                    fullName ?? "أحمد عبد العزيز",
+                    role ?? "Admin",
+                    null,
+                    dept ?? "الإدارة العليا والتشغيل",
+                    perms ?? new List<string>()
+                );
+            }
+        }
+        catch
+        {
+            // حماية الـ Layout من الانهيار في القراءة الأولى للكاش
+        }
+    }
+
+    private async Task HandleLogout()
+    {
+        try
+        {
+            // مسح بيانات الجلسة بالكامل من المتصفح والذاكرة
+            await LocalStorage.ClearAsync();
+            State.ClearSession();
+        }
+        catch { }
+
+        // التوجيه الإجباري لشاشة تسجيل الدخول
+        Nav.NavigateTo("login", forceLoad: true);
+    }
+
+    public void Dispose()
+    {
+        State.OnChange -= StateHasChanged;
+    }
+}

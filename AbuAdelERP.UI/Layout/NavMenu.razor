@@ -1,189 +1,282 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+﻿@using AbuAdelERP.UI.Services
+@implements IDisposable
+@inject AppState State
+
+<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand fw-bold" href="/">AbuAdelERP</a>
-        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
-            <span class="navbar-toggler-icon"></span>
-        </button>
+        <a class="navbar-brand fw-bold text-white d-flex align-items-center gap-2" href="">
+            <span class="fs-4">AbuAdelERP</span>
+        </a>
     </div>
 </div>
 
-<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
-    <nav class="flex-column">
-        <!-- 1. لوحة التحكم والإعدادات الإدارية -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
-                <span class="bi bi-speedometer2 me-2" aria-hidden="true"></span> الرئيسية
-            </NavLink>
-        </div>
-        <!-- غرفة عمليات المهام الطارئة (SOS) -->
-<div class="nav-item px-3 my-1">
-    <NavLink class="nav-link rounded-2 text-danger fw-bold bg-danger bg-opacity-10 border border-danger border-opacity-25 shadow-sm" href="emergency-tasks">
-        <span class="bi bi-lightning-charge-fill me-2" aria-hidden="true"></span>
-        <span>🚨 المهام الطارئة (SOS)</span>
-    </NavLink>
-</div>
-<!-- تقارير ومؤشرات أوقات المهام الطارئة -->
-<div class="nav-item px-3 my-1">
-    <NavLink class="nav-link rounded-2 text-warning fw-bold bg-dark bg-opacity-25 border border-warning border-opacity-25 shadow-sm" href="emergency-tasks-reports">
-        <span class="bi bi-graph-up-arrow me-2" aria-hidden="true"></span>
-        <span>📊 تقارير مؤشرات الطوارئ (SLA)</span>
-    </NavLink>
-</div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/companies">
-                <span class="bi bi-building me-2" aria-hidden="true"></span> إدارة الشركات
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/departments">
-                <span class="bi bi-grid-3x3-gap me-2" aria-hidden="true"></span> إدارة الأقسام والصالات
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/employees-management">
-                <span class="bi bi-people me-2" aria-hidden="true"></span> إدارة العمال والورديات
-            </NavLink>
-        </div>
+<div class="nav-scrollable" dir="rtl">
+    <nav class="flex-column p-2">
 
-        <!-- 2. هيكل الأصناف والمواد الموحد -->
-        <div class="px-3 pt-3 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
-            ── دليل الأصناف والمواد ──
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link text-warning fw-bold" href="/items">
-                <span class="bi bi-box-seam me-2" aria-hidden="true"></span> 📦 مركز إدارة الأصناف الشامل
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/item-categories">
-                <span class="bi bi-tags me-2" aria-hidden="true"></span> تصنيفات الأصناف
-            </NavLink>
-        </div>
+        <!-- 1. الشاشة الرئيسية: تظهر فقط لمن يملك صلاحية لوحة المؤشرات (المديرين والإدارة العليا) -->
+        <AuthorizePermission Permission="Dashboard.View">
+            <div class="nav-item px-2 mb-1">
+                <NavLink class="nav-link rounded-2" href="" Match="NavLinkMatch.All">
+                    <span class="bi bi-speedometer2 me-2" aria-hidden="true"></span>
+                    <span>الرئيسية (لوحة المؤشرات)</span>
+                </NavLink>
+            </div>
+        </AuthorizePermission>
 
-        <!-- 3. المشتريات والموردين -->
-        <div class="px-3 pt-3 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
-            ── المشتريات والموردين ──
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/suppliers">
-                <span class="bi bi-person-lines-fill me-2" aria-hidden="true"></span> إدارة الموردين
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/supplier-prices">
-                <span class="bi bi-currency-exchange me-2" aria-hidden="true"></span> قوائم أسعار التوريد
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/purchase-orders">
-                <span class="bi bi-cart-check me-2" aria-hidden="true"></span> أوامر الشراء (PO)
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/purchase-invoices">
-                <span class="bi bi-receipt me-2" aria-hidden="true"></span> فواتير الشراء والتسعير
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/vendor-qc-rating">
-                <span class="bi bi-shield-check me-2" aria-hidden="true"></span> تقييم جودة الموردين
-            </NavLink>
-        </div>
+        <!-- 2. إدارة المستخدمين والصلاحيات: محجوبة تماماً عن الفنيين وعمال التشغيل -->
+        <AuthorizePermission Permission="Users.View">
+            <div class="nav-item px-2 mb-1">
+                <NavLink class="nav-link rounded-2 text-info fw-bold" href="users-management">
+                    <span class="bi bi-shield-lock-fill me-2" aria-hidden="true"></span>
+                    <span>المستخدمين والصلاحيات 🛡️</span>
+                </NavLink>
+            </div>
+        </AuthorizePermission>
 
-        <!-- 4. المخازن واللوجستيات والتحويلات -->
-        <div class="px-3 pt-3 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
-            ── المخازن واللوجستيات ──
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/material-receipt">
-                <span class="bi bi-inbox-fill me-2" aria-hidden="true"></span> فحص واستلام الخامات
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/warehouses">
-                <span class="bi bi-shop me-2" aria-hidden="true"></span> إدارة المخازن
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/stock-card">
-                <span class="bi bi-card-checklist me-2" aria-hidden="true"></span> كارت الصنف وتتبع اللوطات
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/stock-balances">
-                <span class="bi bi-stack me-2" aria-hidden="true"></span> أرصدة المخازن اللحظية
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link text-info fw-bold" href="/fg-transfers">
-                <span class="bi bi-shield-lock me-2" aria-hidden="true"></span> ⚖️ تحويل واستلام التام (الكنترول)
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/asset-management">
-                <span class="bi bi-basket3 me-2" aria-hidden="true"></span> تتبع الأصول والصواني والأسبات
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-    <NavLink class="nav-link" href="stock-transfers">
-        <span class="bi bi-truck me-2" aria-hidden="true"></span> التحويلات بين المخازن
-    </NavLink>
-</div>
+        <!-- 3. غرفة عمليات الطوارئ (SOS) -->
+        <AuthorizePermission Permission="Emergency.View">
+            <div class="nav-item px-2 mb-1">
+                <NavLink class="nav-link rounded-2 text-danger fw-bold" href="emergency-tasks">
+                    <span class="bi bi-bell-fill me-2" aria-hidden="true"></span>
+                    <span>(SOS) المهام الطارئة 🚨</span>
+                </NavLink>
+            </div>
+        </AuthorizePermission>
 
-        <!-- 5. الإنتاج والتصنيع وغرفة العمليات -->
-        <div class="px-3 pt-3 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
-            ── الإنتاج والتكاليف ──
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/recipes-management">
-                <span class="bi bi-journal-text me-2" aria-hidden="true"></span> وصفات التصنيع المعيارية (BOM)
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/material-requisitions">
-                <span class="bi bi-box-arrow-right me-2" aria-hidden="true"></span> طلب وصرف خامات الصالة
-            </NavLink>
-        </div>
-        <!-- الشاشة الموحدة لغرفة عمليات الإنتاج والتكاليف -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link text-success fw-bold" href="/production-operations">
-                <span class="bi bi-gear-wide-connected me-2" aria-hidden="true"></span> ⚙️ غرفة عمليات الإنتاج والتكاليف
-            </NavLink>
-        </div>
+        <AuthorizePermission Permission="Emergency.Reports">
+            <div class="nav-item px-2 mb-1">
+                <NavLink class="nav-link rounded-2 text-warning fw-bold" href="emergency-tasks-reports">
+                    <span class="bi bi-bar-chart-line-fill me-2" aria-hidden="true"></span>
+                    <span>تقارير مؤشرات الطوارئ (SLA) 📊</span>
+                </NavLink>
+            </div>
+        </AuthorizePermission>
 
-        <!-- 6. الجودة والتقارير الرقابية -->
-        <div class="px-3 pt-3 pb-1 text-uppercase text-white-50 fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
-            ── رقابة الجودة والتقارير ──
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/dynamic-forms">
-                <span class="bi bi-ui-checks me-2" aria-hidden="true"></span> تصميم نماذج التفتيش
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/form-viewer">
-                <span class="bi bi-clipboard2-check me-2" aria-hidden="true"></span> تعبئة تقارير الفحص
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/department-kpi">
-                <span class="bi bi-graph-up-arrow me-2" aria-hidden="true"></span> مؤشرات الأداء (KPIs)
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="/reports-archive">
-                <span class="bi bi-archive me-2" aria-hidden="true"></span> أرشيف التقارير الشامل
-            </NavLink>
-        </div>
+        <!-- 4. الإنتاج والتكاليف وبطاقات الـ BOM وطلبات الخامات -->
+        @if (State.HasPermission("BOM.View") || State.HasPermission("Requisition.View") || State.HasPermission("MaterialRequisition.View") || State.HasPermission("Production.OrdersView") || State.HasPermission("ProductionOrders.View"))
+        {
+            <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+                ─── الإنتاج وصالات التشغيل ───
+            </div>
+
+            <AuthorizePermission Permission="BOM.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="recipes">
+                        <span class="bi bi-journal-bookmark me-2" aria-hidden="true"></span>
+                        <span>(BOM) وصفات التصنيع المعيارية</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <!-- يدعم الكودين الجديد والقديم، ومسار الرابط المزدوج لتفادي خطأ 404 -->
+            <AuthorizePermission Permission="Requisition.View, MaterialRequisition.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="material-requisitions">
+                        <span class="bi bi-cart-check me-2" aria-hidden="true"></span>
+                        <span>طلب وصرف خامات الصالة</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Production.OrdersView, ProductionOrders.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2 text-primary fw-bold" href="production-orders">
+                        <span class="bi bi-gear-wide-connected me-2" aria-hidden="true"></span>
+                        <span>غرفة عمليات الإنتاج والتكاليف ⚙️</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
+
+        <!-- 5. المستودعات وسلاسل الإمداد والتحويلات وفض المنازعات -->
+        @if (State.HasPermission("Warehouse.View") || State.HasPermission("Receipt.Create") || State.HasPermission("MaterialReceipt.View") || State.HasPermission("Transfers.View") || State.HasPermission("StockTransfers.View") || State.HasPermission("Crates.View") || State.HasPermission("AssetTracking.View"))
+        {
+            <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+                ─── المخازن واللوجستيات ───
+            </div>
+
+            <AuthorizePermission Permission="Receipt.Create, Receipt.QCAssess, MaterialReceipt.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="material-receipt">
+                        <span class="bi bi-check2-square me-2" aria-hidden="true"></span>
+                        <span>فحص واستلام الخامات (GMP)</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Warehouse.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="warehouses">
+                        <span class="bi bi-house-door me-2" aria-hidden="true"></span>
+                        <span>إدارة المخازن</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="StockCard.View, Warehouse.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="stock-card">
+                        <span class="bi bi-card-list me-2" aria-hidden="true"></span>
+                        <span>كارت الصنف وتتبع اللوطات</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Warehouse.View, StockBalances.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="stock-balances">
+                        <span class="bi bi-boxes me-2" aria-hidden="true"></span>
+                        <span>أرصدة المخازن اللحظية</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Transfers.View, StockTransfers.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="stock-transfers">
+                        <span class="bi bi-arrow-left-right me-2" aria-hidden="true"></span>
+                        <span>التحويلات وفض المنازعات ⚖️</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Crates.View, AssetTracking.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2 text-warning fw-bold" href="asset-management">
+                        <span class="bi bi-basket3 me-2" aria-hidden="true"></span>
+                        <span>تتبع الأصول والأسبات والصواني 🧺</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
+
+        <!-- 6. دليل الأصناف والمواد -->
+        @if (State.HasPermission("Items.View") || State.HasPermission("Categories.View"))
+        {
+            <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+                ─── دليل الأصناف والمواد ───
+            </div>
+
+            <AuthorizePermission Permission="Items.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2 text-warning" href="items">
+                        <span class="bi bi-box-seam me-2" aria-hidden="true"></span>
+                        <span>مركز إدارة الأصناف الشامل 📦</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Categories.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="item-categories">
+                        <span class="bi bi-tags me-2" aria-hidden="true"></span>
+                        <span>تصنيفات الأصناف</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
+
+        <!-- 7. المشتريات والموردين -->
+        @if (State.HasPermission("Suppliers.View") || State.HasPermission("PurchaseOrders.View") || State.HasPermission("PurchaseInvoices.View"))
+        {
+            <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+                ─── المشتريات والموردين ───
+            </div>
+
+            <AuthorizePermission Permission="Suppliers.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="suppliers">
+                        <span class="bi bi-truck me-2" aria-hidden="true"></span>
+                        <span>إدارة الموردين</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="SupplierPrices.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="supplier-prices">
+                        <span class="bi bi-tag me-2" aria-hidden="true"></span>
+                        <span>قوائم أسعار التوريد</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="PurchaseOrders.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="purchase-orders">
+                        <span class="bi bi-file-earmark-text me-2" aria-hidden="true"></span>
+                        <span>(PO) أوامر الشراء</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="PurchaseInvoices.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="purchase-invoices">
+                        <span class="bi bi-receipt me-2" aria-hidden="true"></span>
+                        <span>فواتير الشراء والتسعير</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="SupplierQuality.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="supplier-quality">
+                        <span class="bi bi-patch-check me-2" aria-hidden="true"></span>
+                        <span>تقييم جودة الموردين</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
+
+        <!-- 8. الهيكل المؤسسي والعمال (HR) -->
+        @if (State.HasPermission("Companies.Manage") || State.HasPermission("Companies.View") || 
+             State.HasPermission("Departments.Manage") || State.HasPermission("Departments.View") || 
+             State.HasPermission("Employees.Manage") || State.HasPermission("Employees.View"))
+        {
+            <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+                ─── الهيكل الإداري (HR) ───
+            </div>
+
+            <AuthorizePermission Permission="Companies.Manage, Companies.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="companies">
+                        <span class="bi bi-buildings me-2" aria-hidden="true"></span>
+                        <span>إدارة الشركات</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Departments.Manage, Departments.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="departments">
+                        <span class="bi bi-diagram-3 me-2" aria-hidden="true"></span>
+                        <span>إدارة الأقسام والصالات</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Employees.Manage, Employees.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="employees">
+                        <span class="bi bi-people me-2" aria-hidden="true"></span>
+                        <span>إدارة العمال والورديات</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
+
     </nav>
 </div>
 
 @code {
-    private bool collapseNavMenu = true;
-    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
-
-    private void ToggleNavMenu()
+    protected override void OnInitialized()
     {
-        collapseNavMenu = !collapseNavMenu;
+        State.OnChange += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        State.OnChange -= StateHasChanged;
     }
 }

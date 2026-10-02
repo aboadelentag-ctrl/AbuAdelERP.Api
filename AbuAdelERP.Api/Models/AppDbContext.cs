@@ -15,6 +15,12 @@ public partial class AppDbContext : DbContext
     {
     }
 
+    // ====== جداول الأصول والماكينات ودورة الأسبات المحدثة ======
+    public virtual DbSet<FixedAsset> FixedAssets { get; set; }
+    public virtual DbSet<AssetHistoryLog> AssetHistoryLogs { get; set; }
+    public virtual DbSet<CirculatingContainer> CirculatingContainers { get; set; }
+    public virtual DbSet<CrateMovement> CrateMovements { get; set; }
+
     public virtual DbSet<CrateClient> CrateClients { get; set; }
     public virtual DbSet<CrateClientTransaction> CrateClientTransactions { get; set; }
     public DbSet<FormSubmission> FormSubmissions { get; set; }
@@ -38,7 +44,7 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<Recipe> Recipes { get; set; }
     public virtual DbSet<RecipeLine> RecipeLines { get; set; }
     public virtual DbSet<RecipeStage> RecipeStages { get; set; }
-    public virtual DbSet<Role> Roles { get; set; }
+    public virtual DbSet<AppRole> Roles { get; set; }
     public virtual DbSet<SalesOrder> SalesOrders { get; set; }
     public virtual DbSet<SalesOrderLine> SalesOrderLines { get; set; }
     public virtual DbSet<StockBalance> StockBalances { get; set; }
@@ -72,8 +78,6 @@ public partial class AppDbContext : DbContext
     public DbSet<MaterialRequisitionLine> MaterialRequisitionLines { get; set; }
     public DbSet<FinishedGoodsTransfer> FinishedGoodsTransfers { get; set; }
     public DbSet<EmergencyTask> EmergencyTasks { get; set; }
-
-    // ====== الجداول لإدارة الأصول الشاملة ======
     public virtual DbSet<AssetBalance> AssetBalances { get; set; }
     public virtual DbSet<AssetMovement> AssetMovements { get; set; }
 
@@ -194,12 +198,10 @@ public partial class AppDbContext : DbContext
             entity.HasIndex(e => new { e.CompanyId, e.TitleName }, "ux_job_titles_company_title").IsUnique();
         });
 
-        // ====== إعدادات جدول الأصناف Items ======
         modelBuilder.Entity<Item>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("items_pkey");
             entity.ToTable("items", "erp");
-
             entity.HasIndex(e => new { e.CompanyId, e.ItemCode }, "items_company_id_item_code_key").IsUnique();
             entity.HasIndex(e => e.CategoryId, "idx_items_category_id");
             entity.HasIndex(e => e.DepartmentId, "idx_items_department_id");
@@ -602,6 +604,7 @@ public partial class AppDbContext : DbContext
 
             entity.HasOne(d => d.Warehouse).WithMany(p => p.QualityInspections)
                 .HasForeignKey(d => d.WarehouseId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("quality_inspections_warehouse_id_fkey");
         });
 
@@ -704,25 +707,22 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("recipe_stages_stage_recipe_id_fkey");
         });
 
-        modelBuilder.Entity<Role>(entity =>
+        modelBuilder.Entity<AppRole>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("roles_pkey");
             entity.ToTable("roles", "erp");
             entity.HasIndex(e => e.CompanyId, "idx_roles_company");
-            entity.HasIndex(e => new { e.CompanyId, e.RoleCode }, "roles_company_id_role_code_key").IsUnique();
+            entity.HasIndex(e => new { e.CompanyId, e.Name }, "roles_company_id_role_code_key").IsUnique();
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Active).HasDefaultValue(true).HasColumnName("active");
             entity.Property(e => e.CompanyId).HasColumnName("company_id");
+            entity.Property(e => e.Name).HasMaxLength(50).HasColumnName("role_code");
+            entity.Property(e => e.DisplayName).HasMaxLength(100).HasColumnName("role_name");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.Permissions).HasColumnName("permissions");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
-            entity.Property(e => e.RoleCode).HasMaxLength(50).HasColumnName("role_code");
-            entity.Property(e => e.RoleName).HasMaxLength(100).HasColumnName("role_name");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("updated_at");
-
-            entity.HasOne(d => d.Company).WithMany(p => p.Roles)
-                .HasForeignKey(d => d.CompanyId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("roles_company_fk");
         });
 
         modelBuilder.Entity<SalesOrder>(entity =>
@@ -761,6 +761,7 @@ public partial class AppDbContext : DbContext
 
             entity.HasOne(d => d.Customer).WithMany(p => p.SalesOrders)
                 .HasForeignKey(d => d.CustomerId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("sales_orders_customer_fk");
 
             entity.HasOne(d => d.Warehouse).WithMany(p => p.SalesOrders)
@@ -872,7 +873,6 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("stock_movements_warehouse_id_fkey");
         });
 
-        // ====== إعدادات جدول التحويلات بين المخازن ولجان فض المنازعات ======
         modelBuilder.Entity<StockTransfer>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("stock_transfers_pkey");
@@ -1159,7 +1159,6 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("waste_records_warehouse_id_fkey");
         });
 
-        // ====== إعدادات وقيود الجداول لإدارة الأصول الشاملة ======
         modelBuilder.Entity<AssetBalance>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("asset_balances_pkey");
@@ -1219,7 +1218,100 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("asset_movements_item_fk");
         });
 
-        modelBuilder.HasSequence("production_order_number_seq", "erp");
+        // ----------------------------------------------------
+        // ح. تهيئة الجداول الجديدة للأصول الثابتة والأسبات (PostgreSQL Mapping)
+        // ----------------------------------------------------
+        modelBuilder.Entity<FixedAsset>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("fixed_assets_pkey");
+            entity.ToTable("fixed_assets", "erp");
+
+            entity.HasIndex(e => e.AssetCode, "idx_fixed_assets_asset_code").IsUnique();
+
+            entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
+            entity.Property(e => e.AssetCode).HasMaxLength(50).HasColumnName("asset_code");
+            entity.Property(e => e.Name).HasMaxLength(200).HasColumnName("name");
+            entity.Property(e => e.Department).HasMaxLength(150).HasColumnName("department");
+            entity.Property(e => e.Category).HasMaxLength(100).HasColumnName("category");
+            entity.Property(e => e.BrandModel).HasMaxLength(150).HasColumnName("brand_model");
+            entity.Property(e => e.SerialNumber).HasMaxLength(100).HasColumnName("serial_number");
+            entity.Property(e => e.CustodianCode).HasMaxLength(50).HasColumnName("custodian_code");
+            entity.Property(e => e.CustodianName).HasMaxLength(150).HasColumnName("custodian_name");
+            entity.Property(e => e.InstallationDate).HasColumnName("installation_date");
+            entity.Property(e => e.Status).HasMaxLength(50).HasColumnName("status");
+            entity.Property(e => e.ActiveSOSTaskNumber).HasMaxLength(50).HasColumnName("active_sos_task_number");
+
+            entity.HasMany(e => e.HistoryLogs)
+                  .WithOne(l => l.FixedAsset)
+                  .HasForeignKey(l => l.FixedAssetId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AssetHistoryLog>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("asset_history_logs_pkey");
+            entity.ToTable("asset_history_logs", "erp");
+
+            entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
+            entity.Property(e => e.FixedAssetId).HasColumnName("fixed_asset_id");
+            entity.Property(e => e.Date).HasColumnName("date");
+            entity.Property(e => e.EventType).HasMaxLength(100).HasColumnName("event_type");
+            entity.Property(e => e.Description).HasMaxLength(500).HasColumnName("description");
+            entity.Property(e => e.PerformedByCode).HasMaxLength(50).HasColumnName("performed_by_code");
+            entity.Property(e => e.PerformedByName).HasMaxLength(150).HasColumnName("performed_by_name");
+            entity.Property(e => e.CostImpact).HasMaxLength(100).HasColumnName("cost_impact");
+        });
+
+        modelBuilder.Entity<CirculatingContainer>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("circulating_containers_pkey");
+            entity.ToTable("circulating_containers", "erp");
+
+            entity.HasIndex(e => e.ContainerName, "idx_circulating_containers_name").IsUnique();
+
+            entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
+            entity.Property(e => e.ContainerName).HasMaxLength(150).HasColumnName("container_name");
+            entity.Property(e => e.Specification).HasMaxLength(200).HasColumnName("specification");
+            entity.Property(e => e.TotalFactoryQuantity).HasColumnName("total_factory_quantity");
+            entity.Property(e => e.InProductionFloorQuantity).HasColumnName("in_production_floor_quantity");
+            entity.Property(e => e.InPackagingWarehouseQuantity).HasColumnName("in_packaging_warehouse_quantity");
+            entity.Property(e => e.WithDriversAndBranchesQuantity).HasColumnName("with_drivers_and_branches_quantity");
+            entity.Property(e => e.DisputedQuantity).HasColumnName("disputed_quantity");
+            entity.Property(e => e.DamagedQuantity).HasColumnName("damaged_quantity");
+        });
+
+        modelBuilder.Entity<CrateMovement>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("crate_movements_pkey");
+            entity.ToTable("crate_movements", "erp");
+
+            entity.HasIndex(e => e.MovementNumber, "idx_crate_movements_number").IsUnique();
+
+            entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
+            entity.Property(e => e.MovementNumber).HasMaxLength(50).HasColumnName("movement_number");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.MovementType).HasMaxLength(50).HasColumnName("movement_type");
+            entity.Property(e => e.ContainerName).HasMaxLength(150).HasColumnName("container_name");
+            entity.Property(e => e.DispatchedQuantity).HasColumnName("dispatched_quantity");
+            entity.Property(e => e.SourceLocation).HasMaxLength(150).HasColumnName("source_location");
+            entity.Property(e => e.DispatchedByCode).HasMaxLength(50).HasColumnName("dispatched_by_code");
+            entity.Property(e => e.DispatchedByName).HasMaxLength(150).HasColumnName("dispatched_by_name");
+            entity.Property(e => e.DestinationLocation).HasMaxLength(150).HasColumnName("destination_location");
+            entity.Property(e => e.Notes).HasMaxLength(500).HasColumnName("notes");
+            entity.Property(e => e.ReceivedQuantity).HasColumnName("received_quantity");
+            entity.Property(e => e.ShortageQuantity).HasColumnName("shortage_quantity");
+            entity.Property(e => e.DamagedCount).HasColumnName("damaged_count");
+            entity.Property(e => e.ReceivedAt).HasColumnName("received_at");
+            entity.Property(e => e.ReceivedByCode).HasMaxLength(50).HasColumnName("received_by_code");
+            entity.Property(e => e.ReceivedByName).HasMaxLength(150).HasColumnName("received_by_name");
+            entity.Property(e => e.ReceiveNotes).HasMaxLength(500).HasColumnName("receive_notes");
+            entity.Property(e => e.Status).HasMaxLength(50).HasColumnName("status");
+            entity.Property(e => e.ArbitrationDecision).HasMaxLength(100).HasColumnName("arbitration_decision");
+            entity.Property(e => e.ArbitrationText).HasMaxLength(500).HasColumnName("arbitration_text");
+            entity.Property(e => e.ArbitratedByCode).HasMaxLength(50).HasColumnName("arbitrated_by_code");
+            entity.Property(e => e.ArbitratedByName).HasMaxLength(150).HasColumnName("arbitrated_by_name");
+            entity.Property(e => e.FinancialPenalty).HasMaxLength(100).HasColumnName("financial_penalty");
+        }); modelBuilder.HasSequence("production_order_number_seq", "erp");
         OnModelCreatingPartial(modelBuilder);
     }
 

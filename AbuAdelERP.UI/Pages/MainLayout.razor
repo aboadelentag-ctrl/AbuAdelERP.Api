@@ -1,0 +1,74 @@
+﻿@inherits LayoutComponentBase
+@using AbuAdelERP.UI.Services
+@using Blazored.LocalStorage
+@implements IDisposable
+@inject AppState State
+@inject ILocalStorageService LocalStorage
+@inject NavigationManager Nav
+
+<div class="page" dir="rtl">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <!-- الشريط العلوي المعتمد: بيانات الموظف + زر تسجيل الخروج دائماً -->
+        <div class="top-row px-4 d-flex justify-content-between align-items-center bg-white shadow-sm border-bottom py-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-danger p-2 fs-6 shadow-sm">حلواني أبو عادل</span>
+                <span class="text-muted small fw-bold d-none d-md-inline">نظام تخطيط وإدارة الموارد والإنتاج (ERP)</span>
+            </div>
+
+            <!-- بيانات الموظف وزر تسجيل الخروج الظاهر دوماً -->
+            <div class="d-flex align-items-center gap-3">
+                <div class="text-end">
+                    <div class="fw-bold text-dark small">
+                        👤 @(!string.IsNullOrEmpty(State.FullName) ? State.FullName : "أحمد عبد العزيز (مدير النظام)")
+                    </div>
+                    <div class="d-flex gap-1 justify-content-end align-items-center mt-1">
+                        <span class="badge bg-light text-primary border" style="font-size: 10px;">
+                            @(!string.IsNullOrEmpty(State.DepartmentName) ? State.DepartmentName : "الإدارة العليا والتشغيل")
+                        </span>
+                        <span class="badge bg-dark" style="font-size: 10px;">
+                            @(!string.IsNullOrEmpty(State.Role) ? State.Role : "Admin")
+                        </span>
+                    </div>
+                </div>
+
+                <button class="btn btn-danger btn-sm fw-bold px-3 py-1 shadow-sm d-flex align-items-center gap-2" @onclick="HandleLogout">
+                    <i class="bi bi-box-arrow-right fs-6"></i>
+                    <span>تسجيل الخروج</span>
+                </button>
+            </div>
+        </div>
+
+        <article class="content px-4 py-3">
+            @Body
+        </article>
+    </main>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        State.OnChange += StateHasChanged;
+    }
+
+    private async Task HandleLogout()
+    {
+        // مسح بيانات الجلسة بالكامل وإعادة التوجيه الإجباري لصفحة الدخول
+        try
+        {
+            await LocalStorage.ClearAsync();
+            State.ClearSession();
+        }
+        catch { }
+
+        Nav.NavigateTo("login", forceLoad: true);
+    }
+
+    public void Dispose()
+    {
+        State.OnChange -= StateHasChanged;
+    }
+}

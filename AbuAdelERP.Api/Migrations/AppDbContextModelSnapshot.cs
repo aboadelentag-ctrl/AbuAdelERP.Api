@@ -72,6 +72,69 @@ namespace AbuAdelERP.Api.Migrations
                     b.ToTable("accounts");
                 });
 
+            modelBuilder.Entity("AbuAdelERP.Api.Models.AppRole", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("active");
+
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("company_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("role_name");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("role_code");
+
+                    b.Property<string>("Permissions")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("permissions");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id")
+                        .HasName("roles_pkey");
+
+                    b.HasIndex(new[] { "CompanyId" }, "idx_roles_company");
+
+                    b.HasIndex(new[] { "CompanyId", "Name" }, "roles_company_id_role_code_key")
+                        .IsUnique();
+
+                    b.ToTable("roles", "erp");
+                });
+
             modelBuilder.Entity("AbuAdelERP.Api.Models.AppUser", b =>
                 {
                     b.Property<long>("Id")
@@ -83,6 +146,26 @@ namespace AbuAdelERP.Api.Migrations
 
                     b.Property<long?>("CompanyId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("CustomPermissions")
+                        .HasColumnType("text")
+                        .HasColumnName("custom_permissions");
+
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<string>("DepartmentName")
+                        .HasColumnType("text")
+                        .HasColumnName("department_name");
+
+                    b.Property<string>("FullName")
+                        .HasColumnType("text")
+                        .HasColumnName("full_name");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -158,6 +241,52 @@ namespace AbuAdelERP.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("asset_balances", "erp");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.AssetHistoryLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CostImpact")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("FixedAssetId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PerformedByCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PerformedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FixedAssetId");
+
+                    b.ToTable("asset_history_logs", "erp");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.AssetMovement", b =>
@@ -304,6 +433,50 @@ namespace AbuAdelERP.Api.Migrations
                     b.ToTable("branches", "erp");
                 });
 
+            modelBuilder.Entity("AbuAdelERP.Api.Models.CirculatingContainer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContainerName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<int>("DamagedQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DisputedQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("InPackagingWarehouseQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("InProductionFloorQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Specification")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("TotalFactoryQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WithDriversAndBranchesQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContainerName")
+                        .IsUnique();
+
+                    b.ToTable("circulating_containers", "erp");
+                });
+
             modelBuilder.Entity("AbuAdelERP.Api.Models.Company", b =>
                 {
                     b.Property<long>("Id")
@@ -442,6 +615,116 @@ namespace AbuAdelERP.Api.Migrations
                     b.HasIndex("CrateClientId");
 
                     b.ToTable("CrateClientTransactions");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.CrateMovement", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ArbitratedByCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ArbitratedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("ArbitrationDecision")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ArbitrationText")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ContainerName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DamagedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DestinationLocation")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("DispatchedByCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("DispatchedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<int>("DispatchedQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FinancialPenalty")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("MovementNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("MovementType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ReceiveNotes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReceivedByCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ReceivedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<int?>("ReceivedQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ShortageQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceLocation")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MovementNumber")
+                        .IsUnique();
+
+                    b.ToTable("crate_movements", "erp");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.CrateTransaction", b =>
@@ -694,6 +977,95 @@ namespace AbuAdelERP.Api.Migrations
                     b.ToTable("dynamic_forms", "erp");
                 });
 
+            modelBuilder.Entity("AbuAdelERP.Api.Models.EmergencyTask", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("AssignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AssignedTechnicianName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AssignmentNotes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClosedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClosureNotes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClosureProofMediaUrl")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MediaFileName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MediaType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MediaUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RespondedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SenderDepartment")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SenderEmployeeName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetDepartment")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetEmployeeName")
+                        .HasColumnType("text");
+
+                    b.Property<int>("TargetResolutionMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TaskNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EmergencyTasks");
+                });
+
             modelBuilder.Entity("AbuAdelERP.Api.Models.Employee", b =>
                 {
                     b.Property<long>("Id")
@@ -759,6 +1131,289 @@ namespace AbuAdelERP.Api.Migrations
                     b.ToTable("employees", "erp");
                 });
 
+            modelBuilder.Entity("AbuAdelERP.Api.Models.FinishedGoodsTransfer", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("batch_number");
+
+                    b.Property<string>("ControlDisputeChargeTo")
+                        .HasColumnType("text")
+                        .HasColumnName("control_dispute_charge_to");
+
+                    b.Property<string>("ControlNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("control_notes");
+
+                    b.Property<DateTime?>("ControlReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("control_received_at");
+
+                    b.Property<string>("ControlReceiverName")
+                        .HasColumnType("text")
+                        .HasColumnName("control_receiver_name");
+
+                    b.Property<int?>("CostingActualCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("costing_actual_count");
+
+                    b.Property<decimal?>("CostingActualQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("costing_actual_qty");
+
+                    b.Property<DateTime?>("CostingAuditedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("costing_audited_at");
+
+                    b.Property<string>("CostingAuditor")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_auditor");
+
+                    b.Property<int>("CostingCountDiff")
+                        .HasColumnType("integer")
+                        .HasColumnName("costing_count_diff");
+
+                    b.Property<bool>("CostingDiscrepancyFlag")
+                        .HasColumnType("boolean")
+                        .HasColumnName("costing_discrepancy_flag");
+
+                    b.Property<string>("CostingDisputeChargeTo")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_charge_to");
+
+                    b.Property<string>("CostingDisputeNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_notes");
+
+                    b.Property<string>("CostingDisputeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_reason");
+
+                    b.Property<DateTime?>("CostingDisputeResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("costing_dispute_resolved_at");
+
+                    b.Property<string>("CostingDisputeResolvedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_resolved_by");
+
+                    b.Property<string>("CostingDisputeStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_status");
+
+                    b.Property<string>("CostingNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_notes");
+
+                    b.Property<decimal>("CostingWeightDiff")
+                        .HasColumnType("numeric")
+                        .HasColumnName("costing_weight_diff");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("DestinationWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("destination_warehouse_id");
+
+                    b.Property<DateTime?>("DisputeOpenedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispute_opened_at");
+
+                    b.Property<string>("DisputeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_reason");
+
+                    b.Property<string>("DisputeResolutionNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_resolution_notes");
+
+                    b.Property<DateTime?>("DisputeResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispute_resolved_at");
+
+                    b.Property<string>("DisputeResolvedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_resolved_by");
+
+                    b.Property<string>("DisputeStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_status");
+
+                    b.Property<DateOnly?>("ExpiryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("expiry_date");
+
+                    b.Property<bool>("HasDispute")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_dispute");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("item_id");
+
+                    b.Property<int>("ProdDispatchedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("prod_dispatched_count");
+
+                    b.Property<decimal>("ProdDispatchedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("prod_dispatched_qty");
+
+                    b.Property<string>("ProdNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("prod_notes");
+
+                    b.Property<string>("ProdSubmittedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("prod_submitted_by");
+
+                    b.Property<long?>("ProductionOrderId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("production_order_id");
+
+                    b.Property<decimal>("QcApprovedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_approved_qty");
+
+                    b.Property<DateTime?>("QcInspectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("qc_inspected_at");
+
+                    b.Property<string>("QcInspector")
+                        .HasColumnType("text")
+                        .HasColumnName("qc_inspector");
+
+                    b.Property<string>("QcNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("qc_notes");
+
+                    b.Property<decimal>("QcReworkQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_rework_qty");
+
+                    b.Property<decimal>("QcSampleQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_sample_qty");
+
+                    b.Property<decimal>("QcScrapQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_scrap_qty");
+
+                    b.Property<int?>("ReceivedActualCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_actual_count");
+
+                    b.Property<decimal?>("ReceivedActualQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("received_actual_qty");
+
+                    b.Property<long>("SourceWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_warehouse_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<DateOnly>("TransferDate")
+                        .HasColumnType("date")
+                        .HasColumnName("transfer_date");
+
+                    b.Property<string>("TransferNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("transfer_number");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DestinationWarehouseId");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("SourceWarehouseId");
+
+                    b.ToTable("finished_goods_transfers", "erp");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.FixedAsset", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActiveSOSTaskNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("AssetCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("BrandModel")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CustodianCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CustodianName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("Department")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTime>("InstallationDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetCode")
+                        .IsUnique();
+
+                    b.ToTable("fixed_assets", "erp");
+                });
+
             modelBuilder.Entity("AbuAdelERP.Api.Models.FormSubmission", b =>
                 {
                     b.Property<long>("Id")
@@ -809,11 +1464,23 @@ namespace AbuAdelERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
 
                     b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
+                        .HasDefaultValue(true)
                         .HasColumnName("active");
+
+                    b.Property<string>("Barcode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("barcode");
+
+                    b.Property<decimal>("BasePrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("base_price");
 
                     b.Property<long>("CategoryId")
                         .HasColumnType("bigint")
@@ -824,35 +1491,91 @@ namespace AbuAdelERP.Api.Migrations
                         .HasColumnName("company_id");
 
                     b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<long?>("DepartmentId")
                         .HasColumnType("bigint")
                         .HasColumnName("department_id");
 
+                    b.Property<string>("DepartmentName")
+                        .HasColumnType("text")
+                        .HasColumnName("department_name");
+
                     b.Property<bool>("HasExpiryDate")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
+                        .HasDefaultValue(true)
                         .HasColumnName("has_expiry_date");
+
+                    b.Property<bool>("HideDetailPrint")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("hide_detail_print");
+
+                    b.Property<bool>("IsContainer")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_container");
+
+                    b.Property<bool>("IsMerged")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_merged");
+
+                    b.Property<bool>("IsVariant")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_variant");
 
                     b.Property<string>("ItemCode")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("item_code");
 
                     b.Property<string>("ItemName")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)")
                         .HasColumnName("item_name");
 
                     b.Property<string>("ItemType")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("item_type");
+
+                    b.Property<decimal>("MaxStock")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("max_stock");
+
+                    b.Property<bool>("MultiUom")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("multi_uom");
 
                     b.Property<long?>("ParentItemId")
                         .HasColumnType("bigint")
                         .HasColumnName("parent_item_id");
+
+                    b.Property<decimal>("ReorderLevel")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("reorder_level");
+
+                    b.Property<decimal>("SafetyStock")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("safety_stock");
 
                     b.Property<int?>("ShelfLifeDays")
                         .HasColumnType("integer")
@@ -860,18 +1583,21 @@ namespace AbuAdelERP.Api.Migrations
 
                     b.Property<string>("Unit")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("unit");
 
-                    b.HasKey("Id");
-
-                    b.HasIndex("CategoryId");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("DepartmentId");
+                    b.HasKey("Id")
+                        .HasName("items_pkey");
 
                     b.HasIndex("ParentItemId");
+
+                    b.HasIndex(new[] { "CategoryId" }, "idx_items_category_id");
+
+                    b.HasIndex(new[] { "DepartmentId" }, "idx_items_department_id");
+
+                    b.HasIndex(new[] { "CompanyId", "ItemCode" }, "items_company_id_item_code_key")
+                        .IsUnique();
 
                     b.ToTable("items", "erp");
                 });
@@ -1006,6 +1732,10 @@ namespace AbuAdelERP.Api.Migrations
                     b.Property<long>("CompanyId")
                         .HasColumnType("bigint")
                         .HasColumnName("company_id");
+
+                    b.Property<decimal>("HourlyRate")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("hourly_rate");
 
                     b.Property<int>("JobGrade")
                         .HasColumnType("integer")
@@ -1274,6 +2004,149 @@ namespace AbuAdelERP.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("maintenance_orders", "erp");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.MaterialRequisition", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<DateTime?>("DispatchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispatched_at");
+
+                    b.Property<string>("DispatchedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("dispatched_by");
+
+                    b.Property<long>("FromWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("from_warehouse_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("ReceivedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("received_by");
+
+                    b.Property<string>("RequestedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("requested_by");
+
+                    b.Property<string>("RequisitionNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("requisition_number");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<long?>("ToWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("to_warehouse_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.HasIndex("FromWarehouseId");
+
+                    b.HasIndex("ToWarehouseId");
+
+                    b.ToTable("material_requisitions", "erp");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.MaterialRequisitionLine", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("batch_number");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DiscrepancyReason")
+                        .HasColumnType("text")
+                        .HasColumnName("discrepancy_reason");
+
+                    b.Property<decimal>("DispatchedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("dispatched_qty");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expiry_date");
+
+                    b.Property<long?>("FromWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("from_warehouse_id");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("LineStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("line_status");
+
+                    b.Property<decimal>("ReceivedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("received_qty");
+
+                    b.Property<decimal>("RequestedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("requested_qty");
+
+                    b.Property<long>("RequisitionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("requisition_id");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasColumnType("numeric")
+                        .HasColumnName("unit_cost");
+
+                    b.Property<string>("WarehouseNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("warehouse_notes");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromWarehouseId");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("RequisitionId");
+
+                    b.ToTable("material_requisition_lines", "erp");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.ProductionOrder", b =>
@@ -1587,16 +2460,37 @@ namespace AbuAdelERP.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("AttendanceStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("attendance_status");
+
+                    b.Property<TimeOnly?>("CheckIn")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("check_in");
+
+                    b.Property<TimeOnly?>("CheckOut")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("check_out");
+
                     b.Property<long>("EmployeeId")
                         .HasColumnType("bigint")
                         .HasColumnName("employee_id");
+
+                    b.Property<decimal>("HourlyRate")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("hourly_rate");
 
                     b.Property<decimal>("HoursWorked")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("hours_worked");
 
+                    b.Property<decimal>("LaborCost")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("labor_cost");
+
                     b.Property<string>("Notes")
-                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("notes");
@@ -1608,6 +2502,15 @@ namespace AbuAdelERP.Api.Migrations
                     b.Property<long>("ProductionOrderId")
                         .HasColumnType("bigint")
                         .HasColumnName("production_order_id");
+
+                    b.Property<decimal>("WasteQuantity")
+                        .HasColumnType("decimal(18,3)")
+                        .HasColumnName("waste_quantity");
+
+                    b.Property<string>("WasteType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("waste_type");
 
                     b.Property<DateTime>("WorkDate")
                         .HasColumnType("timestamp with time zone")
@@ -1810,7 +2713,7 @@ namespace AbuAdelERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("item_id");
 
-                    b.Property<decimal?>("LineTotal")
+                    b.Property<decimal>("LineTotal")
                         .ValueGeneratedOnAddOrUpdate()
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)")
@@ -2208,54 +3111,35 @@ namespace AbuAdelERP.Api.Migrations
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
+                        .HasColumnType("bigint");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
                     b.Property<bool>("Active")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("active");
+                        .HasColumnType("boolean");
 
                     b.Property<long>("CompanyId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("company_id");
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("RoleCode")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("role_code");
+                        .HasColumnType("text");
 
                     b.Property<string>("RoleName")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("role_name");
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+                        .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("Id")
-                        .HasName("roles_pkey");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "CompanyId" }, "idx_roles_company");
+                    b.HasIndex("CompanyId");
 
-                    b.HasIndex(new[] { "CompanyId", "RoleCode" }, "roles_company_id_role_code_key")
-                        .IsUnique();
-
-                    b.ToTable("roles", "erp");
+                    b.ToTable("Role");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.SalesInvoice", b =>
@@ -2639,15 +3523,33 @@ namespace AbuAdelERP.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<long>("CompanyId")
+                    b.Property<long?>("CompanyId")
                         .HasColumnType("bigint")
                         .HasColumnName("company_id");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime?>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DispatchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispatched_at");
+
+                    b.Property<string>("DriverName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("driver_name");
 
                     b.Property<long>("FromWarehouseId")
                         .HasColumnType("bigint")
@@ -2657,19 +3559,24 @@ namespace AbuAdelERP.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("notes");
 
+                    b.Property<string>("ReceivedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("received_by");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)")
                         .HasColumnName("status")
-                        .HasDefaultValueSql("'DRAFT'");
+                        .HasDefaultValueSql("'IN_TRANSIT'");
 
                     b.Property<long>("ToWarehouseId")
                         .HasColumnType("bigint")
                         .HasColumnName("to_warehouse_id");
 
-                    b.Property<DateOnly>("TransferDate")
+                    b.Property<DateOnly?>("TransferDate")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("date")
                         .HasColumnName("transfer_date")
@@ -2681,11 +3588,16 @@ namespace AbuAdelERP.Api.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("transfer_number");
 
-                    b.Property<DateTime>("UpdatedAt")
+                    b.Property<DateTime?>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("VehicleNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("vehicle_number");
 
                     b.HasKey("Id")
                         .HasName("stock_transfers_pkey");
@@ -2709,9 +3621,41 @@ namespace AbuAdelERP.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("BatchNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("batch_number");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("DiscrepancyReason")
+                        .HasColumnType("text")
+                        .HasColumnName("discrepancy_reason");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expiry_date");
+
                     b.Property<long>("ItemId")
                         .HasColumnType("bigint")
                         .HasColumnName("item_id");
+
+                    b.Property<string>("LineStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("line_status")
+                        .HasDefaultValueSql("'PENDING'");
+
+                    b.Property<decimal>("LossQty")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("loss_qty");
 
                     b.Property<decimal>("Quantity")
                         .HasPrecision(18, 6)
@@ -2723,9 +3667,18 @@ namespace AbuAdelERP.Api.Migrations
                         .HasColumnType("numeric(18,6)")
                         .HasColumnName("received_quantity");
 
+                    b.Property<string>("ResolutionNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("resolution_notes");
+
                     b.Property<long>("TransferId")
                         .HasColumnType("bigint")
                         .HasColumnName("transfer_id");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("unit_cost");
 
                     b.HasKey("Id")
                         .HasName("stock_transfer_lines_pkey");
@@ -2776,6 +3729,10 @@ namespace AbuAdelERP.Api.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("email");
 
+                    b.Property<bool>("IsApproved")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_approved");
+
                     b.Property<string>("Notes")
                         .HasColumnType("text")
                         .HasColumnName("notes");
@@ -2825,6 +3782,61 @@ namespace AbuAdelERP.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("suppliers", "erp");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.SupplierItemPrice", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("currency");
+
+                    b.Property<DateOnly>("EffectiveDate")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_date");
+
+                    b.Property<bool>("IsPreferred")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_preferred");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("item_id");
+
+                    b.Property<int>("LeadTimeDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("lead_time_days");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<decimal>("Price")
+                        .HasColumnType("numeric")
+                        .HasColumnName("price");
+
+                    b.Property<long>("SupplierId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("supplier_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("SupplierId");
+
+                    b.ToTable("supplier_item_prices", "erp");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.Unit", b =>
@@ -3450,6 +4462,17 @@ namespace AbuAdelERP.Api.Migrations
                     b.Navigation("Item");
                 });
 
+            modelBuilder.Entity("AbuAdelERP.Api.Models.AssetHistoryLog", b =>
+                {
+                    b.HasOne("AbuAdelERP.Api.Models.FixedAsset", "FixedAsset")
+                        .WithMany("HistoryLogs")
+                        .HasForeignKey("FixedAssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FixedAsset");
+                });
+
             modelBuilder.Entity("AbuAdelERP.Api.Models.AssetMovement", b =>
                 {
                     b.HasOne("AbuAdelERP.Api.Models.Company", "Company")
@@ -3571,6 +4594,33 @@ namespace AbuAdelERP.Api.Migrations
                     b.Navigation("Manager");
                 });
 
+            modelBuilder.Entity("AbuAdelERP.Api.Models.FinishedGoodsTransfer", b =>
+                {
+                    b.HasOne("AbuAdelERP.Api.Models.Warehouse", "DestinationWarehouse")
+                        .WithMany()
+                        .HasForeignKey("DestinationWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AbuAdelERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AbuAdelERP.Api.Models.Warehouse", "SourceWarehouse")
+                        .WithMany()
+                        .HasForeignKey("SourceWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DestinationWarehouse");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("SourceWarehouse");
+                });
+
             modelBuilder.Entity("AbuAdelERP.Api.Models.FormSubmission", b =>
                 {
                     b.HasOne("AbuAdelERP.Api.Models.DynamicForm", "Form")
@@ -3588,8 +4638,9 @@ namespace AbuAdelERP.Api.Migrations
                     b.HasOne("AbuAdelERP.Api.Models.ItemCategory", "ItemCategory")
                         .WithMany("Items")
                         .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("items_category_id_fkey");
 
                     b.HasOne("AbuAdelERP.Api.Models.Company", null)
                         .WithMany("Items")
@@ -3599,11 +4650,15 @@ namespace AbuAdelERP.Api.Migrations
 
                     b.HasOne("AbuAdelERP.Api.Models.Department", "Department")
                         .WithMany()
-                        .HasForeignKey("DepartmentId");
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("items_department_id_fkey");
 
                     b.HasOne("AbuAdelERP.Api.Models.Item", "ParentItem")
                         .WithMany("Variants")
-                        .HasForeignKey("ParentItemId");
+                        .HasForeignKey("ParentItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("items_parent_item_id_fkey");
 
                     b.Navigation("Department");
 
@@ -3697,6 +4752,56 @@ namespace AbuAdelERP.Api.Migrations
                     b.Navigation("Asset");
 
                     b.Navigation("Company");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.MaterialRequisition", b =>
+                {
+                    b.HasOne("AbuAdelERP.Api.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AbuAdelERP.Api.Models.Warehouse", "FromWarehouse")
+                        .WithMany()
+                        .HasForeignKey("FromWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AbuAdelERP.Api.Models.Warehouse", "ToWarehouse")
+                        .WithMany()
+                        .HasForeignKey("ToWarehouseId");
+
+                    b.Navigation("Department");
+
+                    b.Navigation("FromWarehouse");
+
+                    b.Navigation("ToWarehouse");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.MaterialRequisitionLine", b =>
+                {
+                    b.HasOne("AbuAdelERP.Api.Models.Warehouse", "FromWarehouse")
+                        .WithMany()
+                        .HasForeignKey("FromWarehouseId");
+
+                    b.HasOne("AbuAdelERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AbuAdelERP.Api.Models.MaterialRequisition", "Requisition")
+                        .WithMany("Lines")
+                        .HasForeignKey("RequisitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FromWarehouse");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("Requisition");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.ProductionOrder", b =>
@@ -4014,8 +5119,8 @@ namespace AbuAdelERP.Api.Migrations
                     b.HasOne("AbuAdelERP.Api.Models.Company", "Company")
                         .WithMany("Roles")
                         .HasForeignKey("CompanyId")
-                        .IsRequired()
-                        .HasConstraintName("roles_company_fk");
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Company");
                 });
@@ -4148,7 +5253,6 @@ namespace AbuAdelERP.Api.Migrations
                     b.HasOne("AbuAdelERP.Api.Models.Company", "Company")
                         .WithMany("StockTransfers")
                         .HasForeignKey("CompanyId")
-                        .IsRequired()
                         .HasConstraintName("stock_transfers_company_fk");
 
                     b.HasOne("AbuAdelERP.Api.Models.Warehouse", "FromWarehouse")
@@ -4181,6 +5285,7 @@ namespace AbuAdelERP.Api.Migrations
                     b.HasOne("AbuAdelERP.Api.Models.StockTransfer", "Transfer")
                         .WithMany("StockTransferLines")
                         .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("stock_transfer_lines_transfer_fk");
 
@@ -4198,6 +5303,25 @@ namespace AbuAdelERP.Api.Migrations
                         .HasConstraintName("suppliers_company_id_fkey");
 
                     b.Navigation("Company");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.SupplierItemPrice", b =>
+                {
+                    b.HasOne("AbuAdelERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AbuAdelERP.Api.Models.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Item");
+
+                    b.Navigation("Supplier");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.Unit", b =>
@@ -4381,6 +5505,11 @@ namespace AbuAdelERP.Api.Migrations
                     b.Navigation("FormSubmissions");
                 });
 
+            modelBuilder.Entity("AbuAdelERP.Api.Models.FixedAsset", b =>
+                {
+                    b.Navigation("HistoryLogs");
+                });
+
             modelBuilder.Entity("AbuAdelERP.Api.Models.Item", b =>
                 {
                     b.Navigation("Variants");
@@ -4399,6 +5528,11 @@ namespace AbuAdelERP.Api.Migrations
             modelBuilder.Entity("AbuAdelERP.Api.Models.MaintenanceAsset", b =>
                 {
                     b.Navigation("MaintenanceOrders");
+                });
+
+            modelBuilder.Entity("AbuAdelERP.Api.Models.MaterialRequisition", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("AbuAdelERP.Api.Models.ProductionOrder", b =>
