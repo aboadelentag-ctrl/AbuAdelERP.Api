@@ -1,30 +1,42 @@
 ﻿@page "/stock-transfers"
+@using AbuAdelERP.UI.Services
 @using System.Net.Http.Json
 @using System.Text
 @using System.IO
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject AppState State
+
+<PageTitle>التحويلات بين المخازن وفض المنازعات - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid px-4 py-3" dir="rtl">
 
-    <!-- رأس الصفحة وأزرار التصدير والاستيراد والتحديث -->
-    <div class="card shadow-sm border-0 mb-3 bg-white border-start border-primary border-4">
+    <!-- رأس الصفحة التنفيذي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
         <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
-                <h4 class="fw-bold text-primary mb-1">🚚 التحويلات بين المخازن ولجان فض المنازعات (Inter-Warehouse Transfers)</h4>
-                <small class="text-muted">التحويل يتم باللوطات والصلاحيات الفعلية المتاحة بالمخزن الراسل لمنع التلاعب وتتبع الأرصدة بدقة</small>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-warning">🚚 التحويلات بين المخازن ولجان فض المنازعات (Inter-Warehouse Transfers)</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">حلقة تسليم مغلقة بنظام FEFO</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    التحويل باللوطات والصلاحيات الفعلية المتاحة، قفل هوية المُسلّم والمستلم تلقائياً لمنع التلاعب، ومحاضر رسمية لتسوية عجز النقل.
+                </small>
             </div>
             <div class="d-flex flex-wrap gap-2">
                 <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportTransfersToExcelAsync">
-                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير سجل التحويلات (إكسيل)
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير سجل التحويلات (CSV)
                 </button>
                 <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
                     <i class="bi bi-download me-1"></i> تحميل قالب إكسيل
                 </button>
-                <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
-                    <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد أصناف من إكسيل
-                </button>
-                <button class="btn btn-outline-primary btn-sm fw-bold shadow-sm" @onclick="LoadTransfers">
+                @if (State.HasAnyPermission("Transfers.Create", "Warehouse.View"))
+                {
+                    <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
+                        <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد أصناف من إكسيل
+                    </button>
+                }
+                <button class="btn btn-outline-light btn-sm fw-bold shadow-sm" @onclick="LoadTransfers">
                     🔄 تحديث البيانات
                 </button>
             </div>
@@ -68,40 +80,54 @@
         </div>
     </div>
 
-    <!-- أزرار التبديل بين المحطات الأربع -->
+    <!-- أزرار التبديل بين المحطات الأربع مشروطة بالصلاحيات -->
     <ul class="nav nav-pills mb-3 bg-light p-2 rounded shadow-sm border">
-        <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "CREATE" ? "active" : "")" @onclick='() => ChangeTab("CREATE")'>
-                📤 1. إنشاء وإرسال إذن تحويل
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "IN_TRANSIT" ? "active" : "")" @onclick='() => ChangeTab("IN_TRANSIT")'>
-                🚚 2. شحنات بالطريق واستلام وفحص بالصنف
-                @if (transfersList.Any(t => t.Status == "IN_TRANSIT"))
-                {
-                    <span class="badge bg-warning text-dark ms-1">@(transfersList.Count(t => t.Status == "IN_TRANSIT")) شحنة بالطريق</span>
-                }
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "DISPUTE" ? "active bg-danger text-white" : "text-danger")" @onclick='() => ChangeTab("DISPUTE")'>
-                ⚖️ 3. لجنة فض المنازعات وتسوية الفروق
-                @if (transfersList.Any(t => t.Status == "DISPUTED"))
-                {
-                    <span class="badge bg-white text-danger fw-bold ms-1">@(transfersList.Count(t => t.Status == "DISPUTED")) نزاع معلق</span>
-                }
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "HISTORY" ? "active" : "")" @onclick='() => ChangeTab("HISTORY")'>
-                📜 4. سجل وتقارير التحويلات الشاملة (مراجعة وطباعة)
-            </button>
-        </li>
+        @if (State.HasAnyPermission("Transfers.Create", "Warehouse.View", "StockTransfers.View"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "CREATE" ? "active" : "")" @onclick='() => ChangeTab("CREATE")'>
+                    📤 1. إنشاء وإرسال إذن تحويل
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Transfers.Receive", "Warehouse.View"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "IN_TRANSIT" ? "active" : "")" @onclick='() => ChangeTab("IN_TRANSIT")'>
+                    🚚 2. شحنات بالطريق واستلام وفحص بالصنف
+                    @if (transfersList.Any(t => t.Status == "IN_TRANSIT"))
+                    {
+                        <span class="badge bg-warning text-dark ms-1">@(transfersList.Count(t => t.Status == "IN_TRANSIT")) شحنة بالطريق</span>
+                    }
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Transfers.SettleDispute", "Warehouse.View", "Roles.Manage"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "DISPUTE" ? "active bg-danger text-white" : "text-danger")" @onclick='() => ChangeTab("DISPUTE")'>
+                    ⚖️️ 3. لجنة فض المنازعات وتسوية الفروق
+                    @if (transfersList.Any(t => t.Status == "DISPUTED"))
+                    {
+                        <span class="badge bg-white text-danger fw-bold ms-1">@(transfersList.Count(t => t.Status == "DISPUTED")) نزاع معلق</span>
+                    }
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Transfers.View", "Reports.View", "StockTransfers.View"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "HISTORY" ? "active" : "")" @onclick='() => ChangeTab("HISTORY")'>
+                    📜 4. سجل وتقارير التحويلات الشاملة (مراجعة وطباعة)
+                </button>
+            </li>
+        }
     </ul>
 
-    <!-- المحطة 1: إنشاء وإرسال إذن تحويل جديد -->
-    @if (activeTab == "CREATE")
+    <!-- ======================================================== -->
+    <!-- المحطة 1: إنشاء وإرسال إذن تحويل جديد                    -->
+    <!-- ======================================================== -->
+    @if (activeTab == "CREATE" && State.HasAnyPermission("Transfers.Create", "Warehouse.View", "StockTransfers.View"))
     {
         <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
             <div class="card-header bg-white py-3">
@@ -131,14 +157,24 @@
                         </select>
                     </div>
 
+                    <!-- المسؤول القائم بالتحويل والصرف: مقفول ومربوط تلقائياً بجلسة الدخول -->
                     <div class="col-md-3">
-                        <label class="form-label fw-bold small text-secondary">مندوب الاستلام / السائق (اختياري)</label>
+                        <label class="form-label fw-bold small text-dark d-flex justify-content-between align-items-center">
+                            <span>القائم بالصرف (المسؤول):</span>
+                            <span class="badge bg-secondary font-monospace">🔒 موثق تلقائياً</span>
+                        </label>
+                        <input type="text" class="form-control fw-bold bg-white text-primary" 
+                               value="@CurrentDispatcherDisplayName" readonly disabled />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold small text-secondary">مندوب الاستلام / السائق</label>
                         <input type="text" class="form-control" placeholder="اسم السائق أو مندوب الاستلام" @bind="newTransfer.DriverName" />
                     </div>
 
                     <div class="col-md-3">
-                        <label class="form-label fw-bold small text-secondary">رقم السيارة / وسيلة النقل (اختياري)</label>
-                        <input type="text" class="form-control" placeholder="مثال: ط د 1234" @bind="newTransfer.VehicleNumber" />
+                        <label class="form-label fw-bold small text-secondary">رقم السيارة / وسيلة النقل</label>
+                        <input type="text" class="form-control font-monospace" placeholder="مثال: ط د 1234" @bind="newTransfer.VehicleNumber" />
                     </div>
                 </div>
 
@@ -269,8 +305,10 @@
         </div>
     }
 
-    <!-- المحطة 2: شحنات بالطريق والاستلام وفحص بالصنف صنفاً بصنف -->
-    @if (activeTab == "IN_TRANSIT")
+    <!-- ======================================================== -->
+    <!-- المحطة 2: شحنات بالطريق والاستلام بالصنف                  -->
+    <!-- ======================================================== -->
+    @if (activeTab == "IN_TRANSIT" && State.HasAnyPermission("Transfers.Receive", "Warehouse.View"))
     {
         <div class="card shadow-sm border-0 border-top border-warning border-4 mb-4">
             <div class="card-header bg-white py-3">
@@ -283,6 +321,7 @@
                             <th>رقم التحويل</th>
                             <th>من مخزن</th>
                             <th>إلى مخزن</th>
+                            <th>القائم بالصرف</th>
                             <th>المندوب / السائق</th>
                             <th>رقم السيارة</th>
                             <th>تاريخ الإرسال</th>
@@ -294,7 +333,7 @@
                         @if (!transfersList.Any(t => t.Status == "IN_TRANSIT"))
                         {
                             <tr>
-                                <td colspan="8" class="text-muted py-4 fw-bold">لا توجد شحنات بالطريق بانتظار الاستلام حالياً.</td>
+                                <td colspan="9" class="text-muted py-4 fw-bold">لا توجد شحنات بالطريق بانتظار الاستلام حالياً.</td>
                             </tr>
                         }
                         else
@@ -305,6 +344,7 @@
                                     <td class="fw-bold text-primary font-monospace">@tr.TransferNumber</td>
                                     <td class="fw-bold">@tr.FromWarehouseName</td>
                                     <td class="fw-bold text-success">@tr.ToWarehouseName</td>
+                                    <td><span class="badge bg-light text-dark border">@(!string.IsNullOrEmpty(tr.CreatedBy) ? tr.CreatedBy : "أمين المخزن")</span></td>
                                     <td>@(!string.IsNullOrEmpty(tr.DriverName) ? tr.DriverName : "نقل مباشر")</td>
                                     <td>@(!string.IsNullOrEmpty(tr.VehicleNumber) ? tr.VehicleNumber : "-")</td>
                                     <td class="font-monospace">@tr.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
@@ -401,8 +441,10 @@
         }
     }
 
-    <!-- المحطة 3: لجنة فض المنازعات وتسوية الفروق -->
-    @if (activeTab == "DISPUTE")
+    <!-- ======================================================== -->
+    <!-- المحطة 3: لجنة فض المنازعات وتسوية الفروق                 -->
+    <!-- ======================================================== -->
+    @if (activeTab == "DISPUTE" && State.HasAnyPermission("Transfers.SettleDispute", "Warehouse.View", "Roles.Manage"))
     {
         <div class="card shadow-sm border-0 border-top border-danger border-4 mb-4">
             <div class="card-header bg-danger text-white py-3 d-flex justify-content-between align-items-center">
@@ -469,7 +511,7 @@
                 </div>
                 <div class="card-body">
                     <div class="alert alert-warning border-0 small mb-3">
-                        ℹ️ <strong>تعليمات اللجنة:</strong> حدد "الكمية المعتمدة نهائياً" للمخزن المستقبل، وسيتم قيد الفارق آلياً كـ <strong>«هالك نقل / عجز شحنة»</strong> مع ترحيل الأرصدة المخزنية والمالية فور الاعتماد.
+                        ℹ️ <strong>تعليمات اللجنة:</strong> حدد "الكمية المعتمدة نهائياً" للمخزن المستقبل، وسيتم قيد الفارق آلياً كـ <strong>«هالك نقل / عجز شحنة»</strong> مع ترحيل الأرصدة المخزنية والمالية فور الاعتماد، وتوثيق توقيع العضو: <strong>@CurrentDispatcherDisplayName</strong>.
                     </div>
                     <div class="table-responsive">
                         <table class="table table-bordered text-center align-middle small mb-0">
@@ -518,8 +560,10 @@
         }
     }
 
-    <!-- المحطة 4: سجل وتقارير التحويلات الشاملة (مع إمكانية المراجعة التفصيلية والطباعة) -->
-    @if (activeTab == "HISTORY")
+    <!-- ======================================================== -->
+    <!-- المحطة 4: سجل وتقارير التحويلات الشاملة                   -->
+    <!-- ======================================================== -->
+    @if (activeTab == "HISTORY" && State.HasAnyPermission("Transfers.View", "Reports.View", "StockTransfers.View"))
     {
         <div class="card shadow-sm border-0 border-top border-secondary border-3 mb-4">
             <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
@@ -587,7 +631,6 @@
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);" dir="rtl">
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content shadow-lg border-0">
-                
                 <div class="modal-header bg-primary text-white py-2 px-3">
                     <h5 class="modal-title fw-bold fs-6">
                         <i class="bi bi-file-earmark-text me-1"></i> استعراض إذن نقل وتحويل بضاعة — رقم (@viewingTransfer.TransferNumber)
@@ -597,7 +640,6 @@
 
                 <div class="modal-body p-4 bg-light" id="printable-transfer-area">
                     <div class="bg-white p-4 rounded shadow-sm border">
-                        <!-- ترويسة الشركة للإذن الرسمي -->
                         <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
                             <div>
                                 <h4 class="fw-bold text-primary m-0">مؤسسة حلواني أبو عادل</h4>
@@ -610,7 +652,6 @@
                             </div>
                         </div>
 
-                        <!-- معلومات الأطراف والمستودعات -->
                         <div class="row g-3 mb-4 small bg-light p-3 rounded border">
                             <div class="col-md-4">
                                 <span class="text-muted d-block">المخزن الراسل (المنصرف منه):</span>
@@ -634,7 +675,6 @@
                             </div>
                         </div>
 
-                        <!-- جدول الأصناف والتشغيلات والكميات -->
                         <div class="table-responsive mb-3">
                             <table class="table table-bordered align-middle text-center small mb-0">
                                 <thead class="table-dark">
@@ -681,10 +721,9 @@
                             </div>
                         }
 
-                        <!-- التوقيعات الرسمية للطباعة -->
                         <div class="row mt-5 pt-4 border-top text-center small">
                             <div class="col-4">
-                                <span class="d-block text-muted mb-4">أمين المخزن الراسل</span>
+                                <span class="d-block text-muted mb-4">أمين المخزن الراسل (المسؤول)</span>
                                 <strong class="border-top pt-1 d-inline-block px-4">@viewingTransfer.CreatedBy</strong>
                             </div>
                             <div class="col-4">
@@ -705,7 +744,6 @@
                         <i class="bi bi-printer me-1"></i> طباعة إذن التحويل الرسمي
                     </button>
                 </div>
-
             </div>
         </div>
     </div>
@@ -924,6 +962,12 @@
         public decimal Qty { get; set; } = 1;
     }
 
+    public class LookupsResponseDto
+    {
+        public List<WarehouseOptionDto> Warehouses { get; set; } = new();
+        public List<ItemOptionDto> Items { get; set; } = new();
+    }
+
     private string activeTab = "CREATE";
     private string feedbackMessage = "";
     private bool isSuccessFeedback = true;
@@ -943,15 +987,28 @@
     
     private bool isImportModalOpen = false;
     private bool isDetailsModalOpen = false;
-
     private string searchTerm = "";
-    private string apiBase = "api";
+
+    // هوية المستخدم المسجلة المربوطة تلقائياً بجلسة الدخول
+    private string CurrentDispatcherDisplayName => 
+        !string.IsNullOrWhiteSpace(State.FullName) 
+            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]" 
+            : "أمين المخزن المعتمد";
 
     protected override async Task OnInitializedAsync()
     {
+        InitializeDefaultActiveTab();
         await LoadDropdowns();
         await LoadTransfers();
         AddTransferLine();
+    }
+
+    private void InitializeDefaultActiveTab()
+    {
+        if (State.HasAnyPermission("Transfers.Create", "Warehouse.View", "StockTransfers.View")) activeTab = "CREATE";
+        else if (State.HasAnyPermission("Transfers.Receive", "Warehouse.View")) activeTab = "IN_TRANSIT";
+        else if (State.HasAnyPermission("Transfers.SettleDispute", "Warehouse.View")) activeTab = "DISPUTE";
+        else if (State.HasAnyPermission("Transfers.View", "Reports.View")) activeTab = "HISTORY";
     }
 
     private void ChangeTab(string tab)
@@ -966,24 +1023,26 @@
     {
         try
         {
-            var whs = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>($"{apiBase}/Warehouses");
-            if (whs != null) warehouses = whs;
+            var res = await Http.GetFromJsonAsync<LookupsResponseDto>("api/StockTransfers/lookups");
+            if (res != null)
+            {
+                warehouses = res.Warehouses ?? new();
+                allItems = res.Items ?? new();
+            }
         }
-        catch { }
-
-        try
+        catch
         {
-            var itms = await Http.GetFromJsonAsync<List<ItemOptionDto>>($"{apiBase}/Items");
-            if (itms != null) allItems = itms;
+            // fallback احتياطي في حال الاستدعاء المباشر
+            try { warehouses = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>("api/Warehouses") ?? new(); } catch { }
+            try { allItems = await Http.GetFromJsonAsync<List<ItemOptionDto>>("api/Items") ?? new(); } catch { }
         }
-        catch { }
     }
 
     private async Task LoadTransfers()
     {
         try
         {
-            var response = await Http.GetAsync($"{apiBase}/StockTransfers");
+            var response = await Http.GetAsync("api/StockTransfers");
             if (response.IsSuccessStatusCode)
             {
                 transfersList = await response.Content.ReadFromJsonAsync<List<StockTransferDetailDto>>() ?? new();
@@ -1035,15 +1094,9 @@
         isDetailsModalOpen = false;
     }
 
-    private async Task PrintTransferDocument()
-    {
-        await JS.InvokeVoidAsync("eval", "window.print();");
-    }
+    private async Task PrintTransferDocument() => await JS.InvokeVoidAsync("eval", "window.print();");
 
-    private void AddTransferLine()
-    {
-        transferLinesView.Add(new TransferLineViewModel());
-    }
+    private void AddTransferLine() => transferLinesView.Add(new TransferLineViewModel());
 
     private async Task OnFromWarehouseChanged(ChangeEventArgs e)
     {
@@ -1086,7 +1139,7 @@
 
         try
         {
-            var info = await Http.GetFromJsonAsync<AvailableStockInfoDto>($"{apiBase}/StockTransfers/available-batches?itemId={line.ItemId}&warehouseId={newTransfer.FromWarehouseId}");
+            var info = await Http.GetFromJsonAsync<AvailableStockInfoDto>($"api/StockTransfers/available-batches?itemId={line.ItemId}&warehouseId={newTransfer.FromWarehouseId}");
             if (info != null)
             {
                 line.AvailableStock = info.TotalAvailableQty;
@@ -1142,7 +1195,7 @@
         var validLines = transferLinesView.Where(l => l.ItemId > 0 && l.DispatchedQty > 0).ToList();
         if (!validLines.Any())
         {
-            feedbackMessage = "⚠️ يرجى اختيار صنف واحد على الأقل به رصيد وبكمية صالحة أكبر من الصفر.";
+            feedbackMessage = "⚠️️ يرجى اختيار صنف واحد على الأقل به رصيد وبكمية صالحة أكبر من الصفر.";
             isSuccessFeedback = false;
             return;
         }
@@ -1157,6 +1210,7 @@
         isSubmitting = true;
         try
         {
+            newTransfer.DispatchedBy = CurrentDispatcherDisplayName; // ربط هوية القائم بالصرف تلقائياً
             newTransfer.Lines = validLines.Select(l => new CreateStockTransferLineDto
             {
                 ItemId = l.ItemId,
@@ -1166,7 +1220,7 @@
                 UnitCost = l.UnitCost
             }).ToList();
 
-            var response = await Http.PostAsJsonAsync($"{apiBase}/StockTransfers", newTransfer);
+            var response = await Http.PostAsJsonAsync("api/StockTransfers", newTransfer);
 
             if (response.IsSuccessStatusCode)
             {
@@ -1213,10 +1267,10 @@
             ReceivedQty = isExact ? line.DispatchedQty : line.ReceivedQty,
             IsAccepted = isExact,
             DiscrepancyReason = isExact ? null : line.DiscrepancyReason,
-            ReceivedBy = "أمين المخزن المستقبل"
+            ReceivedBy = CurrentDispatcherDisplayName // توثيق هوية المستلم تلقائياً من جلسة الدخول
         };
 
-        var response = await Http.PostAsJsonAsync($"{apiBase}/StockTransfers/receive-line", dto);
+        var response = await Http.PostAsJsonAsync("api/StockTransfers/receive-line", dto);
 
         if (response.IsSuccessStatusCode)
         {
@@ -1239,10 +1293,7 @@
         }
     }
 
-    private void SelectForDisputeResolution(StockTransferDetailDto tr)
-    {
-        selectedDisputeTransfer = tr;
-    }
+    private void SelectForDisputeResolution(StockTransferDetailDto tr) => selectedDisputeTransfer = tr;
 
     private async Task ConfirmResolveDispute(StockTransferLineDetailDto line)
     {
@@ -1254,11 +1305,13 @@
                 LineId = line.Id,
                 FinalApprovedQty = line.ReceivedQty,
                 LossQty = diff > 0 ? diff : 0,
-                ResolutionNotes = !string.IsNullOrWhiteSpace(line.ResolutionNotes) ? line.ResolutionNotes : "تمت المراجعة واعتماد عجز النقل من اللجنة",
-                ResolvedBy = "لجنة فض المنازعات"
+                ResolutionNotes = !string.IsNullOrWhiteSpace(line.ResolutionNotes) 
+                    ? line.ResolutionNotes 
+                    : $"تمت المراجعة واعتماد عجز النقل من اللجنة بواسطة {CurrentDispatcherDisplayName}",
+                ResolvedBy = CurrentDispatcherDisplayName // توثيق توقيع عضو اللجنة تلقائياً
             };
 
-            var response = await Http.PostAsJsonAsync($"{apiBase}/StockTransfers/resolve-dispute", dto);
+            var response = await Http.PostAsJsonAsync("api/StockTransfers/resolve-dispute", dto);
 
             if (response.IsSuccessStatusCode)
             {

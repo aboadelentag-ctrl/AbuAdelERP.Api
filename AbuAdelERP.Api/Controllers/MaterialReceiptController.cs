@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using AbuAdelERP.Api.Models;
+using AbuAdelERP.Api.DTOs;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,7 +21,54 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 1. جلب الفواتير المعتمدة المفتوحة فقط (استبعاد المغلقة والمرفوضة والتي رصيدها 0)
+        // 1. القوائم المرجعية: حصر المخازن في مستودعات الخامات والتعبئة فقط
+        // ==============================================================
+        [HttpGet("lookups")]
+        public async Task<IActionResult> GetLookups()
+        {
+            try
+            {
+                var suppliers = await _context.Suppliers
+                    .AsNoTracking()
+                    .Where(s => s.Active)
+                    .OrderBy(s => s.SupplierName)
+                    .Select(s => new { s.Id, s.SupplierName })
+                    .ToListAsync();
+
+                // حصر الاستلام في المستودعات المركزية ومخازن الخامات والتعبئة فقط
+                var warehouses = await _context.Warehouses
+                    .AsNoTracking()
+                    .Where(w => (w.WarehouseName.Contains("خامات")
+                              || w.WarehouseName.Contains("رئيسي")
+                              || w.WarehouseName.Contains("تعبئة")
+                              || w.WarehouseName.Contains("مستودع")
+                              || w.WarehouseName.Contains("مركزي"))
+                             && !w.WarehouseName.Contains("صالة")
+                             && !w.WarehouseName.Contains("قسم")
+                             && !w.WarehouseName.Contains("إدارة"))
+                    .OrderBy(w => w.WarehouseName)
+                    .Select(w => new { w.Id, w.WarehouseName })
+                    .ToListAsync();
+
+                if (!warehouses.Any())
+                {
+                    warehouses = await _context.Warehouses
+                        .AsNoTracking()
+                        .Where(w => !w.WarehouseName.Contains("صالة") && !w.WarehouseName.Contains("قسم"))
+                        .Select(w => new { w.Id, w.WarehouseName })
+                        .ToListAsync();
+                }
+
+                return Ok(new { suppliers, warehouses });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب البيانات المرجعية: {ex.Message}");
+            }
+        }
+
+        // ==============================================================
+        // 2. جلب الفواتير المعتمدة المفتوحة فقط
         // ==============================================================
         [HttpGet("pending-invoices")]
         public async Task<IActionResult> GetPendingInvoices([FromQuery] long? supplierId = null)
@@ -37,7 +85,6 @@ namespace AbuAdelERP.Api.Controllers
                 if (supplierId.HasValue && supplierId.Value > 0)
                     query = query.Where(p => p.SupplierId == supplierId.Value);
 
-                // استبعاد أي أمر شراء ليس به أي رصيد متبقي للاستلام
                 query = query.Where(p => p.PurchaseOrderLines.Any(l => (l.Quantity - l.ReceivedQuantity) > 0));
 
                 var list = await query
@@ -53,14 +100,14 @@ namespace AbuAdelERP.Api.Controllers
                         p.TotalAmount,
                         p.Status,
                         Lines = p.PurchaseOrderLines
-                            .Where(l => (l.Quantity - l.ReceivedQuantity) > 0) // جلب البنود المتبقية فقط
+                            .Where(l => (l.Quantity - l.ReceivedQuantity) > 0)
                             .Select(l => new
                             {
                                 l.Id,
                                 l.ItemId,
                                 ItemCode = l.Item != null ? l.Item.ItemCode : "",
                                 ItemName = l.Item != null ? l.Item.ItemName : "",
-                                Unit = l.Item != null ? l.Item.Unit : "",
+                                Unit = l.Item != null ? l.Item.Unit : "كجم",
                                 l.Quantity,
                                 l.ReceivedQuantity,
                                 RemainingQuantity = (l.Quantity - l.ReceivedQuantity),
@@ -79,7 +126,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 2. تأكيد الاستلام أو الرفض وإغلاق الفاتورة فورياً وحجبها
+        // 3. تأكيد الاستلام الميداني وفحص الجودة وإغلاق الفاتورة
         // ==============================================================
         [HttpPost]
         public async Task<IActionResult> PostMaterialReceipt([FromBody] MaterialReceiptPostDto dto)
@@ -95,10 +142,10 @@ namespace AbuAdelERP.Api.Controllers
                     .FirstOrDefaultAsync(p => p.Id == dto.InvoiceId);
 
                 if (order == null)
-                    return NotFound("فاتورة / أمر الشراء غير موجود.");
+                    return NotFound("أمر الشراء / الفاتورة غير موجود.");
 
                 if (order.Status == "Closed" || order.Status == "Received" || order.Status == "Rejected")
-                    return BadRequest("هذه الفاتورة مغلقة أو مرفوضة بالكامل مسبقاً، ولا يمكن إعادة فحصها.");
+                    return BadRequest("هذه الفاتورة مغلقة أو مرفوضة مسبقاً.");
 
                 var targetWarehouseId = dto.WarehouseId > 0 ? dto.WarehouseId : order.WarehouseId;
                 var now = DateTime.UtcNow;
@@ -111,11 +158,10 @@ namespace AbuAdelERP.Api.Controllers
                     var poLine = order.PurchaseOrderLines.FirstOrDefault(l => l.ItemId == item.ItemId);
                     if (poLine != null)
                     {
-                        // زيادة الكمية المقبولة المستلمة
                         poLine.ReceivedQuantity += item.AcceptedQuantity;
                     }
 
-                    // 1. ترحيل الرصيد المقبول إلى جدول المخازن (StockBalances)
+                    // 1. ترحيل الرصيد المقبول إلى المستودع المحدد (StockBalances)
                     if (item.AcceptedQuantity > 0)
                     {
                         var balance = await _context.StockBalances
@@ -139,8 +185,8 @@ namespace AbuAdelERP.Api.Controllers
                             });
                         }
 
-                        // تسجيل حركة الوارد في كارت الصنف
-                        var qcNote = $"LOT: {item.BatchNumber} | صلاحية: {item.ExpiryDate:yyyy-MM-dd} | قرار: مقبول | مفتش: {dto.InspectorName} | COA: {dto.CoaNumber}";
+                        // تسجيل حركة الوارد في كارت الصنف مع بيانات الـ GMP
+                        var qcNote = $"LOT: {item.BatchNumber} | صلاحية: {item.ExpiryDate:yyyy-MM-dd} | قرار: مقبول | المفتش: [{dto.InspectorCode}] {dto.InspectorName} | شهادة التحليل COA: {dto.CoaNumber}";
                         if (!string.IsNullOrWhiteSpace(item.RejectionReason) && item.RejectionReason != "مطابق للمواصفة")
                             qcNote += $" | ملاحظات: {item.RejectionReason}";
 
@@ -160,10 +206,10 @@ namespace AbuAdelERP.Api.Controllers
                         });
                     }
 
-                    // 2. توثيق الكميات المرفوضة في سجل الجودة الرقابي (دون التأثير على رصيد المخزن)
+                    // 2. توثيق الكميات المرفوضة في سجل الجودة الرقابي
                     if (item.RejectedQuantity > 0)
                     {
-                        var rejectNote = $"LOT: {item.BatchNumber} | مرفوض فني | السبب: {item.RejectionReason} | المفتش: {dto.InspectorName}";
+                        var rejectNote = $"LOT: {item.BatchNumber} | مرفوض فني | السبب: {item.RejectionReason} | المفتش: [{dto.InspectorCode}] {dto.InspectorName}";
                         _context.StockMovements.Add(new StockMovement
                         {
                             CompanyId = order.CompanyId,
@@ -182,28 +228,25 @@ namespace AbuAdelERP.Api.Controllers
                 }
 
                 // ==============================================================
-                // 3. المحرك الحسابي لإغلاق الفاتورة (Closing Engine)
+                // محرك تحديث حالة الفاتورة
                 // ==============================================================
                 string finalMessage = "";
 
-                // الحالة أ: الفاتورة رُفضت بالكامل (لم يُقبل أي صنف منها)
                 if (totalAcceptedInReceipt == 0 && totalRejectedInReceipt > 0 && order.PurchaseOrderLines.All(l => l.ReceivedQuantity == 0))
                 {
-                    order.Status = "Rejected"; // مرفوضة ومغلقة نهائياً
+                    order.Status = "Rejected";
                     finalMessage = $"تم تسجيل رفض الشحنة بالكامل وإغلاق الفاتورة رقم [{order.OrderNumber}] وإخراجها من قائمة الاستلام.";
                 }
-                // الحالة ب: استلام كامل أو تم فحص وتصفية كامل الكميات المتبقية (مقبول + مرفوض)
                 else if (order.PurchaseOrderLines.All(l => l.ReceivedQuantity >= l.Quantity) ||
                          dto.Items.All(i => i.QcDecision == "Rejected" || i.AcceptedQuantity > 0))
                 {
-                    order.Status = "Closed"; // مغلقة ومستلمة بالكامل
-                    finalMessage = $"تم اعتماد إذن الفحص وترحيل الرصيد وإغلاق الفاتورة رقم [{order.OrderNumber}] نهائياً بنجاح!";
+                    order.Status = "Closed";
+                    finalMessage = $"تم اعتماد إذن الفحص وترحيل الرصيد لمخزن الخامات وإغلاق الفاتورة رقم [{order.OrderNumber}] بنجاح!";
                 }
-                // الحالة ج: استلام جزئي وما زال هناك خامات متبقية للتوريد
                 else
                 {
                     order.Status = "Partially_Received";
-                    finalMessage = $"تم إثبات الاستلام الجزئي للفاتورة رقم [{order.OrderNumber}]، وتحديث الكميات المتبقية للتوريدات القادمة.";
+                    finalMessage = $"تم إثبات الاستلام الجزئي للفاتورة رقم [{order.OrderNumber}]، وتحديث الأرصدة المتبقية للتوريدات القادمة.";
                 }
 
                 order.UpdatedAt = now;
@@ -224,30 +267,5 @@ namespace AbuAdelERP.Api.Controllers
                 return StatusCode(500, $"خطأ أثناء حفظ الاستلام المخزني: {ex.GetBaseException().Message}");
             }
         }
-    }
-
-    public class MaterialReceiptPostDto
-    {
-        public long SupplierId { get; set; }
-        public long InvoiceId { get; set; }
-        public long WarehouseId { get; set; }
-        public string InspectorName { get; set; } = string.Empty;
-        public string CoaNumber { get; set; } = string.Empty;
-        public List<ReceiptItemInputDto> Items { get; set; } = new();
-    }
-
-    public class ReceiptItemInputDto
-    {
-        public long ItemId { get; set; }
-        public string ItemCode { get; set; } = string.Empty;
-        public string ItemName { get; set; } = string.Empty;
-        public string BatchNumber { get; set; } = string.Empty;
-        public DateTime ExpiryDate { get; set; }
-        public decimal ReceivedQuantity { get; set; }
-        public decimal AcceptedQuantity { get; set; }
-        public decimal RejectedQuantity { get; set; }
-        public string QcDecision { get; set; } = "Approved";
-        public string RejectionReason { get; set; } = string.Empty;
-        public decimal UnitPrice { get; set; }
     }
 }

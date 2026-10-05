@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace AbuAdelERP.UI.Services
 {
@@ -22,11 +23,22 @@ namespace AbuAdelERP.UI.Services
             if (string.IsNullOrWhiteSpace(permissionCode)) return true;
             if (!IsLoggedIn) return false;
 
-            // استخدام string.Equals لضمان الأمان التام ضد أي قيمة فارغة
             if (string.Equals(Role, "Admin", StringComparison.OrdinalIgnoreCase)) return true;
             if (Permissions != null && Permissions.Contains("ALL")) return true;
 
-            return Permissions != null && Permissions.Contains(permissionCode);
+            return Permissions != null && Permissions.Contains(permissionCode.Trim());
+        }
+
+        // فحص ما إذا كان المستخدم يملك على الأقل صلاحية واحدة من قائمة صلاحيات
+        public bool HasAnyPermission(params string[] permissionCodes)
+        {
+            if (permissionCodes == null || permissionCodes.Length == 0) return true;
+            if (!IsLoggedIn) return false;
+
+            if (string.Equals(Role, "Admin", StringComparison.OrdinalIgnoreCase)) return true;
+            if (Permissions != null && Permissions.Contains("ALL")) return true;
+
+            return permissionCodes.Any(p => !string.IsNullOrWhiteSpace(p) && Permissions != null && Permissions.Contains(p.Trim()));
         }
 
         public void SetUserSession(long id, string empCode, string user, string name, string role, long? deptId, string dept, List<string> perms)

@@ -458,7 +458,6 @@ else
 
     private void BuildComprehensivePermissionsMatrix()
     {
-        // مصفوفة الصلاحيات الموحدة المكتملة بدون أي تكرار
         systemModules = new List<SystemModule>
         {
             new SystemModule
@@ -469,6 +468,23 @@ else
                     new PermissionItem { Code = "Dashboard.View", Title = "استعراض لوحة المؤشرات التنفيذية المباشرة" },
                     new PermissionItem { Code = "Dashboard.Financial", Title = "استعراض تثمين المخزون والبيانات المالية الحساسة" },
                     new PermissionItem { Code = "Audit.ViewLogs", Title = "سجل التدقيق الرقمي ومراقبة حركات المستخدمين" }
+                }
+            },
+            // ========================================================
+            // الموديول الجديد: صلاحيات غرفة عمليات التصنيع الموحدة (MES)
+            // ========================================================
+            new SystemModule
+            {
+                ModuleName = "🏭 غرفة عمليات الإنتاج والتكاليف والورديات (MES Hub)",
+                Permissions = new()
+                {
+                    new PermissionItem { Code = "Production.OperationsHub", Title = "استعراض ودخول غرفة العمليات الصناعية الموحدة (MES Hub)" },
+                    new PermissionItem { Code = "Production.OrdersView", Title = "استعراض سجل أوامر التشغيل وخطط الصالات" },
+                    new PermissionItem { Code = "Production.CreateOrder", Title = "زر إصدار أمر تشغيل جديد واستيراد أوامر إكسيل (CSV)" },
+                    new PermissionItem { Code = "Production.Execution", Title = "التنفيذ الميداني وتوليد اللوطات وحصر الهالك" },
+                    new PermissionItem { Code = "Productivity.Entry", Title = "إدارة الوردية وترصيد حضور وساعات وإنتاجية العمال" },
+                    new PermissionItem { Code = "BatchCosting.View", Title = "استعراض واحتساب تكلفة الدفعة والتشغيل (Costing)" },
+                    new PermissionItem { Code = "Productivity.Reports", Title = "استخراج وتصدير تقارير اليوميات ومؤشرات كفاءة الصالات" }
                 }
             },
             new SystemModule
@@ -534,16 +550,11 @@ else
             },
             new SystemModule
             {
-                ModuleName = "⚙️ أوامر التشغيل ووصفات التصنيع (BOM)",
+                ModuleName = "⚙️ وصفات التصنيع المعيارية (BOM)",
                 Permissions = new()
                 {
                     new PermissionItem { Code = "BOM.View", Title = "استعراض بطاقات ومقادير وصفات التصنيع المعيارية" },
-                    new PermissionItem { Code = "BOM.Manage", Title = "زر تعديل وإنشاء بطاقات الـ BOM ونسب الهالك المعياري" },
-                    new PermissionItem { Code = "Production.OrdersView", Title = "استعراض جداول وأوامر التشغيل المفتوحة" },
-                    new PermissionItem { Code = "Production.CreateOrder", Title = "زر إصدار وتخطيط أمر تشغيل جديد لصالات الإنتاج" },
-                    new PermissionItem { Code = "Production.LogExecution", Title = "زر تسجيل كميات الإنتاج الفعلي للوردية على الخطوط" },
-                    new PermissionItem { Code = "Production.LogWaste", Title = "زر إثبات نسب الهالك في الصالات (عجين، تسوية، تغليف)" },
-                    new PermissionItem { Code = "Production.CloseOrder", Title = "زر إغلاق أمر التشغيل النهائي وترحيل التام للمستودع" }
+                    new PermissionItem { Code = "BOM.Manage", Title = "زر تعديل وإنشاء بطاقات الـ BOM ونسب الهالك المعياري" }
                 }
             },
             new SystemModule
@@ -616,9 +627,10 @@ else
                 Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     "Dashboard.View", "Dashboard.Financial", "Audit.ViewLogs", "Users.View", "Roles.Manage",
+                    "Production.OperationsHub", "Production.OrdersView", "Production.CreateOrder", "Production.Execution", "Productivity.Entry", "BatchCosting.View", "Productivity.Reports",
                     "FixedAssets.View", "FixedAssets.Manage", "FixedAssets.History",
                     "Emergency.View", "Emergency.Create", "Emergency.Delegate", "Emergency.Respond", "Emergency.Close", "Emergency.Reports",
-                    "BOM.View", "BOM.Manage", "Production.OrdersView", "Production.CreateOrder", "Production.LogExecution", "Production.LogWaste", "Production.CloseOrder",
+                    "BOM.View", "BOM.Manage",
                     "Requisition.View", "Requisition.Create", "Requisition.Approve", "Requisition.Issue", "Requisition.Receive", "Requisition.Cancel",
                     "Warehouse.View", "Receipt.Create", "Receipt.QCAssess", "Receipt.PostToStock", "Stock.Adjust",
                     "Transfers.View", "Transfers.Create", "Transfers.Dispatch", "Transfers.Receive", "Transfers.RaiseDispute", "Transfers.SettleDispute",
@@ -642,9 +654,10 @@ else
                 Name = "شيف صالة إنتاج (Production Chef)",
                 Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
+                    "Production.OperationsHub", "Production.OrdersView", "Production.Execution", "Productivity.Entry",
+                    "BOM.View",
                     "Emergency.View", "Emergency.Create",
                     "FixedAssets.View", "FixedAssets.History",
-                    "BOM.View", "Production.OrdersView", "Production.LogExecution", "Production.LogWaste",
                     "Requisition.View", "Requisition.Create", "Requisition.Receive",
                     "Crates.View", "Crates.Receive"
                 }
@@ -668,7 +681,7 @@ else
                 Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     "Emergency.View", "Emergency.Create", "Emergency.Reports",
-                    "Receipt.QCAssess", "BOM.View", "Production.LogWaste", "FixedAssets.View"
+                    "Receipt.QCAssess", "BOM.View", "FixedAssets.View"
                 }
             },
             new RoleDto
@@ -679,7 +692,7 @@ else
                 {
                     "Transfers.View", "Transfers.SettleDispute",
                     "Crates.View", "Crates.SettleDispute", "Crates.Export",
-                    "Stock.Adjust", "Dashboard.Financial"
+                    "Stock.Adjust", "Dashboard.Financial", "BatchCosting.View"
                 }
             }
         };

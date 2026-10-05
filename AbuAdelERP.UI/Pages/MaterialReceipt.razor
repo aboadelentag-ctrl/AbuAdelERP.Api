@@ -1,4 +1,5 @@
 ﻿@page "/material-receipt"
+@using AbuAdelERP.UI.Services
 @using System.Net.Http.Json
 @using System.Text
 @using System.Text.Json
@@ -6,6 +7,9 @@
 @using System.IO
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject AppState State
+
+<PageTitle>إذن استلام وفحص الجودة المشترك (GMP Inbound) - حلواني أبو عادل</PageTitle>
 
 <style>
     @@media print {
@@ -42,15 +46,21 @@
 
 <div class="container-fluid px-4 py-3" dir="rtl">
 
-    <div class="card shadow-sm border-0 mb-3 bg-white border-start border-primary border-4 d-print-none">
+    <!-- رأس الشاشة التنفيذي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3 d-print-none">
         <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
-                <h4 class="mb-1 text-primary fw-bold">🏭 إذن استلام وفحص الجودة المشترك للخامات والمهمات</h4>
-                <small class="text-muted">الاستلام المباشر وإثبات أرقام اللوطات وترحيل الرصيد المقبول مع الإغلاق الآلي للفاتورة المكتملة</small>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="mb-0 text-warning fw-bold">🏭 إذن استلام وفحص الجودة المشترك للخامات (GMP Inbound)</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">تتبع اللوطات وشهادات COA</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    الاستلام المباشر من الموردين، توليد أرقام اللوطات والصلاحية، وترحيل الأرصدة المقبولة حصراً لمستودع الخامات الرئيسي.
+                </small>
             </div>
             <div class="d-flex flex-wrap gap-2">
                 <button class="btn btn-primary btn-sm fw-bold shadow-sm" @onclick="PrintReceiptVoucherAsync">
-                    <i class="bi bi-printer me-1"></i> 🖨️ طباعة إذن الاستلام والفحص
+                    <i class="bi bi-printer me-1"></i> 🖨️ طباعة إذن الاستلام والفحص (GRN)
                 </button>
                 <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportToExcelAsync">
                     <i class="bi bi-file-earmark-excel me-1"></i> تصدير إكسيل
@@ -58,10 +68,13 @@
                 <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
                     <i class="bi bi-download me-1"></i> تحميل قالب الفحص
                 </button>
-                <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
-                    <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد من إكسيل
-                </button>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="LoadDataAsync">
+                @if (State.HasAnyPermission("Quality.Inspect", "Warehouse.Receive"))
+                {
+                    <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
+                        <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد من إكسيل
+                    </button>
+                }
+                <button class="btn btn-outline-light btn-sm" @onclick="LoadDataAsync">
                     <i class="bi bi-arrow-clockwise"></i> تحديث
                 </button>
             </div>
@@ -77,11 +90,12 @@
         </div>
     }
 
-    <div class="card shadow-sm border-0 mb-3 bg-white d-print-none">
+    <!-- بطاقة اختيار المورد والفاتورة وقفل الهوية الرقمية -->
+    <div class="card shadow-sm border-0 mb-3 bg-white d-print-none border-top border-4 border-primary">
         <div class="card-body p-3">
             <div class="row g-3">
                 <div class="col-md-4">
-                    <label class="form-label small fw-bold text-dark">1. اختر المورد الواصل للمصنع <span class="text-danger">*</span></label>
+                    <label class="form-label small fw-bold text-dark">1. المورد الواصل للمصنع *</label>
                     <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedSupplierId" @bind:after="OnSupplierChanged">
                         <option value="0">-- اختر المورد --</option>
                         @foreach (var s in suppliers)
@@ -93,22 +107,23 @@
 
                 <div class="col-md-5">
                     <label class="form-label small fw-bold text-dark">
-                        2. اختر فاتورة الشراء المعتمدة لهذا المورد <span class="text-danger">*</span>
-                        <span class="badge bg-light text-primary border ms-1">(@availableInvoices.Count فاتورة مفتوحة للاستلام)</span>
+                        2. فاتورة / أمر الشراء المعتمد لهذا المورد *
+                        <span class="badge bg-light text-primary border ms-1">(@availableInvoices.Count فاتورة مفتوحة)</span>
                     </label>
                     <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedInvoiceId" @bind:after="OnInvoiceChanged">
                         <option value="0">-- اختر الفاتورة المعتمدة --</option>
                         @foreach (var inv in availableInvoices)
                         {
                             <option value="@inv.Id">
-                                فاتورة: @inv.OrderNumber (@inv.OrderDate) - @inv.TotalAmount.ToString("N2") ج.م @(inv.Status == "Partially_Received" ? "⚠️ [مستلمة جزئياً]" : "✅ [معتمدة]")
+                                فاتورة: @inv.OrderNumber (@inv.OrderDate) - @inv.TotalAmount.ToString("N2") ج.م @(inv.Status == "Partially_Received" ? "⚠️️ [مستلمة جزئياً]" : "✅ [معتمدة]")
                             </option>
                         }
                     </select>
                 </div>
 
+                <!-- مخزن الاستلام: محصور في مستودعات الخامات والتعبئة فقط -->
                 <div class="col-md-3">
-                    <label class="form-label small fw-bold text-dark">3. مخزن الاستلام الفعلي <span class="text-danger">*</span></label>
+                    <label class="form-label small fw-bold text-dark">3. مستودع الاستلام المعتمد *</label>
                     <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedWarehouseId">
                         @foreach (var w in warehouses)
                         {
@@ -117,14 +132,19 @@
                     </select>
                 </div>
 
+                <!-- هوية مفتش الجودة: مقفولة برمجياً ومربوطة بحساب الدخول -->
                 <div class="col-md-6">
-                    <label class="form-label small fw-bold text-secondary">اسم مهندس / مفتش الجودة القائم بالفحص <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control form-control-sm fw-bold" @bind="qcInspectorName" placeholder="مثال: م. أحمد عبد العزيز" />
+                    <label class="form-label small fw-bold text-dark d-flex justify-content-between align-items-center">
+                        <span>مهندس / فاحص الجودة المسؤول:</span>
+                        <span class="badge bg-secondary font-monospace">🔒 موثق تلقائياً من جلسة الدخول</span>
+                    </label>
+                    <input type="text" class="form-control form-control-sm fw-bold bg-white text-primary" 
+                           value="@CurrentInspectorDisplayName" readonly disabled />
                 </div>
 
                 <div class="col-md-6">
-                    <label class="form-label small fw-bold text-secondary">رقم شهادة التحليل الواردة من المورد (COA إن وجدت)</label>
-                    <input type="text" class="form-control form-control-sm font-monospace" @bind="coaNumber" placeholder="رقم شهادة مطابقة الجودة..." />
+                    <label class="form-label small fw-bold text-secondary">رقم شهادة التحليل الفني الواردة من المورد (COA)</label>
+                    <input type="text" class="form-control form-control-sm font-monospace" @bind="coaNumber" placeholder="رقم شهادة مطابقة الجودة والمواصفات..." />
                 </div>
             </div>
         </div>
@@ -143,7 +163,7 @@
                         </div>
                     </div>
                     <div class="col-md-3">
-                        <select class="form-select form-select-sm" @bind="selectedQcFilter">
+                        <select class="form-select form-select-sm fw-bold" @bind="selectedQcFilter">
                             <option value="all">-- كل القرارات الفنية --</option>
                             <option value="Approved">✅ مقبول (صالح)</option>
                             <option value="Partial">⚠️ قبول جزئي</option>
@@ -161,9 +181,10 @@
         </div>
     }
 
+    <!-- جدول أصناف الشحنة مع اللوطات والقرارات الفنية -->
     <div class="card shadow-sm border-0 mb-4 bg-white d-print-none">
         <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
-            <span class="small fw-bold">📦 أصناف شحنة المورد، التحقق الصحي، وتتبع التشغيلات والصلاحية</span>
+            <span class="small fw-bold">📦 أصناف شحنة المورد، التحقق الصحي، وتتبع التشغيلات والصلاحية (FEFO/GMP)</span>
             <span class="badge bg-warning text-dark fw-bold">تُرحل للمخزن الكميات المقبولة فقط وتغلق الفاتورة آلياً</span>
         </div>
         <div class="card-body p-0">
@@ -184,7 +205,7 @@
                         @if (!receiptItems.Any())
                         {
                             <tr>
-                                <td colspan="7" class="py-4 text-muted">
+                                <td colspan="7" class="py-4 text-muted fw-bold">
                                     لا توجد فواتير مفتوحة بحاجة إلى استلام، أو يرجى اختيار المورد وفاتورته المعتمدة لتحميل الأصناف المتبقية.
                                 </td>
                             </tr>
@@ -210,8 +231,8 @@
                                                @bind="row.ReceivedQuantity" @bind:after="() => CalculateQuantities(row)" />
                                     </td>
                                     <td>
-                                        <input type="text" class="form-control form-control-sm font-monospace text-center fw-bold text-dark" 
-                                               @bind="row.BatchNumber" placeholder="LOT-YYYYMMDD-X" />
+                                        <input type="text" class="form-control form-control-sm font-monospace text-center fw-bold text-dark border-primary" 
+                                               @bind="row.BatchNumber" placeholder="LOT-..." />
                                     </td>
                                     <td>
                                         <input type="date" class="form-control form-control-sm font-monospace text-center" 
@@ -277,7 +298,7 @@
                         }
                         else
                         {
-                            <span>💾 حفظ إذن الإضافة واعتماد فحص الجودة بالمخزن وإغلاق الفاتورة</span>
+                            <span>💾 حفظ إذن الإضافة واعتماد فحص الجودة وترحيل المستودع</span>
                         }
                     </button>
                 </div>
@@ -285,7 +306,7 @@
         </div>
     </div>
 
-    <!-- ورقة الطباعة الرسمية -->
+    <!-- ورقة الطباعة الرسمية (GRN) -->
     <div class="d-none d-print-block">
         <div class="print-grn-sheet">
             <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
@@ -294,7 +315,7 @@
                     <small class="text-muted">إدارة سلاسل الإمداد - قطاع المخازن وتأكيد الجودة (ISO 22000 / HACCP)</small>
                 </div>
                 <div class="text-start">
-                    <h4 class="fw-bold text-primary mb-0">إذن استلام وفحص جودة خامات</h4>
+                    <h4 class="fw-bold text-primary mb-0">إذن استلام وفحص جودة خامات (GRN)</h4>
                     <span class="badge bg-dark text-white font-monospace fs-6">GRN-@DateTime.Now.ToString("yyyyMMdd-HHmm")</span>
                 </div>
             </div>
@@ -304,8 +325,8 @@
                 <div class="col-4 text-center"><strong>رقم الفاتورة / الأمر:</strong> @GetInvoiceNumber()</div>
                 <div class="col-4 text-start"><strong>تاريخ الاستلام:</strong> @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
 
-                <div class="col-4"><strong>مخزن الاستلام الفعلي:</strong> @GetWarehouseName()</div>
-                <div class="col-4 text-center"><strong>مهندس الجودة الفاحص:</strong> @qcInspectorName</div>
+                <div class="col-4"><strong>مستودع الاستلام المعتمد:</strong> @GetWarehouseName()</div>
+                <div class="col-4 text-center"><strong>فاحص الجودة المسؤول:</strong> @CurrentInspectorDisplayName</div>
                 <div class="col-4 text-start"><strong>شهادة التحليل COA:</strong> @(!string.IsNullOrEmpty(coaNumber) ? coaNumber : "غير مرفقة")</div>
             </div>
 
@@ -352,15 +373,15 @@
                 <div class="col-4">
                     <strong>مهندس فحص وتأكيد الجودة</strong>
                     <div style="height: 45px;"></div>
-                    <div>@(string.IsNullOrEmpty(qcInspectorName) ? "...................................." : qcInspectorName)</div>
+                    <div>@CurrentInspectorDisplayName</div>
                 </div>
                 <div class="col-4">
-                    <strong>أمين مخزن الخامات المستلم</strong>
+                    <strong>أمين مستودع الخامات المستلم</strong>
                     <div style="height: 45px;"></div>
                     <div>....................................</div>
                 </div>
                 <div class="col-4">
-                    <strong>منسق ومسؤول إدارة الإنتاج</strong>
+                    <strong>إدارة المشتريات والإنتاج</strong>
                     <div style="height: 45px;"></div>
                     <div>....................................</div>
                 </div>
@@ -373,9 +394,9 @@
 <!-- نافذة استيراد بيانات الفحص من إكسيل -->
 @if (isImportModalOpen)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);" dir="rtl">
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content shadow-lg border-0" dir="rtl">
+            <div class="modal-content shadow-lg border-0">
                 <div class="modal-header bg-success text-white py-2 px-3">
                     <h5 class="modal-title fw-bold fs-6">
                         <i class="bi bi-file-earmark-excel me-1"></i> استيراد أرقام التشغيلات وبيانات الفحص من ملف إكسيل
@@ -462,13 +483,18 @@
     {
         public long Id { get; set; }
         public string SupplierName { get; set; } = string.Empty;
-        public bool Active { get; set; } = true;
     }
 
     public class WarehouseLookupDto
     {
         public long Id { get; set; }
         public string WarehouseName { get; set; } = string.Empty;
+    }
+
+    public class LookupsResponseDto
+    {
+        public List<SupplierLookupDto> Suppliers { get; set; } = new();
+        public List<WarehouseLookupDto> Warehouses { get; set; } = new();
     }
 
     public class OpenInvoiceLookupDto
@@ -513,7 +539,6 @@
     private long selectedSupplierId = 0;
     private long selectedInvoiceId = 0;
     private long selectedWarehouseId = 1;
-    private string qcInspectorName = "م. أحمد عبد العزيز";
     private string coaNumber = string.Empty;
 
     private string searchTerm = "";
@@ -524,6 +549,12 @@
     private string? statusMessage;
     private bool isSuccess = true;
 
+    // هوية فاحص الجودة المعتمد ومربوطة بحساب الدخول لمنع التلاعب
+    private string CurrentInspectorDisplayName => 
+        !string.IsNullOrWhiteSpace(State.FullName) 
+            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]" 
+            : "مفتش الجودة المعتمد";
+
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
@@ -533,27 +564,15 @@
     {
         try
         {
-            suppliers = await Http.GetFromJsonAsync<List<SupplierLookupDto>>("api/suppliers") ?? new();
-            warehouses = await Http.GetFromJsonAsync<List<WarehouseLookupDto>>("api/warehouses") ?? new();
-            if (!warehouses.Any())
+            var lookups = await Http.GetFromJsonAsync<LookupsResponseDto>("api/MaterialReceipt/lookups");
+            if (lookups != null)
             {
-                warehouses = new List<WarehouseLookupDto>
-                {
-                    new WarehouseLookupDto { Id = 1, WarehouseName = "مخزن الخامات الرئيسي" },
-                    new WarehouseLookupDto { Id = 2, WarehouseName = "مخزن التعبئة والتغليف" },
-                    new WarehouseLookupDto { Id = 3, WarehouseName = "مخزن صالة الإنتاج" }
-                };
+                suppliers = lookups.Suppliers ?? new();
+                warehouses = lookups.Warehouses ?? new();
+                if (warehouses.Any()) selectedWarehouseId = warehouses.First().Id;
             }
 
-            try
-            {
-                allPendingInvoices = await Http.GetFromJsonAsync<List<OpenInvoiceLookupDto>>("api/materialreceipt/pending-invoices") ?? new();
-            }
-            catch
-            {
-                var orders = await Http.GetFromJsonAsync<List<OpenInvoiceLookupDto>>("api/purchaseorders") ?? new();
-                allPendingInvoices = orders.Where(o => o.Status == "Approved" || o.Status == "Partially_Received").ToList();
-            }
+            allPendingInvoices = await Http.GetFromJsonAsync<List<OpenInvoiceLookupDto>>("api/MaterialReceipt/pending-invoices") ?? new();
 
             if (suppliers.Any() && selectedSupplierId == 0)
             {
@@ -589,20 +608,20 @@
         var inv = availableInvoices.FirstOrDefault(i => i.Id == selectedInvoiceId);
         if (inv != null && inv.Lines != null)
         {
-            int batchSuffix = 3;
             foreach (var line in inv.Lines)
             {
                 decimal qtyToReceive = line.RemainingQuantity > 0 ? line.RemainingQuantity : line.Quantity;
                 if (qtyToReceive <= 0) continue;
 
+                var itmCode = !string.IsNullOrEmpty(line.ItemCode) ? line.ItemCode : line.ItemId.ToString();
                 var item = new ReceiptItemViewModel
                 {
                     ItemId = line.ItemId,
-                    ItemCode = !string.IsNullOrEmpty(line.ItemCode) ? line.ItemCode : line.ItemId.ToString(),
+                    ItemCode = itmCode,
                     ItemName = !string.IsNullOrEmpty(line.ItemName) ? line.ItemName : "خامة مسجلة",
                     Unit = !string.IsNullOrEmpty(line.Unit) ? line.Unit : "كجم",
                     ReceivedQuantity = qtyToReceive,
-                    BatchNumber = $"LOT-{DateTime.Now:yyyyMMdd}-{batchSuffix++}",
+                    BatchNumber = $"LOT-{DateTime.Now:yyyyMMdd}-{itmCode}", // لوط ذكي وموحد
                     ExpiryDate = DateTime.Today.AddYears(1),
                     QcDecision = "Approved",
                     AcceptedQuantity = qtyToReceive,
@@ -712,7 +731,8 @@
                 SupplierId = selectedSupplierId,
                 InvoiceId = selectedInvoiceId,
                 WarehouseId = selectedWarehouseId,
-                InspectorName = qcInspectorName,
+                InspectorName = State.FullName,
+                InspectorCode = State.EmployeeCode,
                 CoaNumber = coaNumber,
                 Items = receiptItems.Select(r => new
                 {
@@ -730,7 +750,7 @@
                 }).ToList()
             };
 
-            var res = await Http.PostAsJsonAsync("api/materialreceipt", payload);
+            var res = await Http.PostAsJsonAsync("api/MaterialReceipt", payload);
             if (res.IsSuccessStatusCode)
             {
                 var result = await res.Content.ReadFromJsonAsync<SaveResponseDto>();

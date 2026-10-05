@@ -1,33 +1,45 @@
 ﻿@page "/material-requisitions"
 @page "/material-requisition"
 @using AbuAdelERP.UI.Models
+@using AbuAdelERP.UI.Services
 @using System.Net.Http.Json
 @using System.Text
 @using System.IO
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject AppState State
+
+<PageTitle>طلب وصرف خامات الصالات (Floor Stock Handshake) - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid px-4 py-3" dir="rtl">
 
-    <!-- رأس الصفحة وأزرار التصدير والاستيراد والتحديث -->
-    <div class="card shadow-sm border-0 mb-3 bg-white border-start border-primary border-4">
+    <!-- رأس الصفحة التنفيذي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
         <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
-                <h4 class="fw-bold text-primary mb-1">📋 طلب وصرف واستلام خامات الصالة الإنتاجية (Floor Stock Handshake)</h4>
-                <small class="text-muted">صرف متعدد المخازن: أمين المخزن يحدد مستودع الصرف لكل خامة على حدة واقتراح تشغيلات FEFO الخاصة بكل مخزن</small>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-warning">🥐 طلب وصرف واستلام خامات الصالة الإنتاجية</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">Floor Stock Handshake & Traceability</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    دورة تسليم مغلقة ومحكومة بالهوية: صرف خامات من المستودع الرئيسي بنظام FEFO، استلام ومطابقة الصالات، وتقارير تتبع الأثر المخزني لحظياً.
+                </small>
             </div>
             <div class="d-flex flex-wrap gap-2">
                 <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportRequisitionsToExcelAsync">
-                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير سجل الطلبات (إكسيل)
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير سجل الطلبات (CSV)
                 </button>
                 <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
-                    <i class="bi bi-download me-1"></i> تحميل قالب طلب الخامات
+                    <i class="bi bi-download me-1"></i> تحميل قالب الطلب
                 </button>
-                <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
-                    <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد خامات الطلب من إكسيل
-                </button>
-                <button class="btn btn-outline-primary btn-sm fw-bold shadow-sm" @onclick="LoadRequisitions">
-                    🔄 تحديث البيانات
+                @if (State.HasAnyPermission("Requisition.Create", "Production.OperationsHub"))
+                {
+                    <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
+                        <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد من إكسيل
+                    </button>
+                }
+                <button class="btn btn-outline-light btn-sm fw-bold shadow-sm" @onclick="LoadRequisitions">
+                    🔄 تحديث
                 </button>
             </div>
         </div>
@@ -46,13 +58,13 @@
     <div class="row g-3 mb-3">
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-primary border-4 p-3 bg-white">
-                <small class="text-muted fw-bold">إجمالي طلبات الصرف المسجلة</small>
+                <small class="text-muted fw-bold">إجمالي طلبات الصرف</small>
                 <h4 class="mb-0 fw-bold text-primary mt-1 font-monospace">@requisitions.Count طلب</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
-                <small class="text-muted fw-bold">طلبات بانتظار الصرف وتخصيص اللوطات</small>
+                <small class="text-muted fw-bold">بانتظار الصرف وتخصيص اللوطات</small>
                 <h4 class="mb-0 fw-bold text-warning mt-1 font-monospace">@requisitions.Count(r => r.Status == "SUBMITTED") طلب</h4>
             </div>
         </div>
@@ -64,113 +76,96 @@
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-danger border-4 p-3 bg-white">
-                <small class="text-muted fw-bold">نزاعات كميات معلقة للمراجعة</small>
+                <small class="text-muted fw-bold">نزاعات كميات معلقة</small>
                 <h4 class="mb-0 fw-bold text-danger mt-1 font-monospace">@requisitions.Count(r => r.Status == "DISPUTED") نزاع</h4>
             </div>
         </div>
     </div>
 
-    <!-- أزرار التبديل بين محطات العمل الـ 4 -->
+    <!-- أزرار التبديل بين محطات العمل الـ 5 -->
     <ul class="nav nav-pills mb-3 bg-light p-2 rounded shadow-sm border">
+        @if (State.HasAnyPermission("Requisition.Create", "Production.OperationsHub", "Production.Execution"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "REQUEST" ? "active" : "")" @onclick='() => ChangeTab("REQUEST")'>
+                    ✍️️ 1. طلب خامات (مشرف الصالة)
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Requisition.Issue", "Warehouse.View"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "DISPATCH" ? "active" : "")" @onclick='() => ChangeTab("DISPATCH")'>
+                    📦 2. صرف المخازن وتخصيص اللوطات (FEFO)
+                    @if (requisitions.Any(r => r.Status == "SUBMITTED"))
+                    {
+                        <span class="badge bg-warning text-dark ms-1">@(requisitions.Count(r => r.Status == "SUBMITTED")) طلب جديد</span>
+                    }
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Requisition.Receive", "Production.Execution", "Production.OperationsHub"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "RECEIVE" ? "active" : "")" @onclick='() => ChangeTab("RECEIVE")'>
+                    🔍 3. استلام الصالة والمطابقة المزدوجة
+                    @if (requisitions.Any(r => r.Status == "DISPATCHED"))
+                    {
+                        <span class="badge bg-info text-dark ms-1">@(requisitions.Count(r => r.Status == "DISPATCHED")) بانتظار الفحص</span>
+                    }
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Transfers.SettleDispute", "Warehouse.View", "Roles.Manage"))
+        {
+            <li class="nav-item">
+                <button class="nav-link fw-bold @(activeTab == "DISPUTE" ? "active bg-danger text-white" : "text-danger")" @onclick='() => ChangeTab("DISPUTE")'>
+                    ⚖️️ 4. فض النزاعات وتسوية الفروق
+                    @if (requisitions.Any(r => r.Status == "DISPUTED"))
+                    {
+                        <span class="badge bg-white text-danger fw-bold ms-1">@(requisitions.Count(r => r.Status == "DISPUTED")) نزاع</span>
+                    }
+                </button>
+            </li>
+        }
         <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "REQUEST" ? "active" : "")" @onclick='() => ChangeTab("REQUEST")'>
-                ✍️ 1. طلب خامات (مشرف القسم)
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "DISPATCH" ? "active" : "")" @onclick='() => ChangeTab("DISPATCH")'>
-                📦 2. صرف المخازن وتخصيص اللوطات (FEFO)
-                @if (requisitions.Any(r => r.Status == "SUBMITTED"))
-                {
-                    <span class="badge bg-warning text-dark ms-1">@(requisitions.Count(r => r.Status == "SUBMITTED")) بانتظار الصرف</span>
-                }
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "RECEIVE" ? "active" : "")" @onclick='() => ChangeTab("RECEIVE")'>
-                🔍 3. استلام الصالة والمطابقة المزدوجة
-                @if (requisitions.Any(r => r.Status == "DISPATCHED"))
-                {
-                    <span class="badge bg-info text-dark ms-1">@(requisitions.Count(r => r.Status == "DISPATCHED")) شحنة واردة</span>
-                }
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link fw-bold @(activeTab == "DISPUTE" ? "active bg-danger text-white" : "text-danger")" @onclick='() => ChangeTab("DISPUTE")'>
-                ⚖️ 4. فض النزاعات وتسوية الفروق (أمين المخزن)
-                @if (requisitions.Any(r => r.Status == "DISPUTED"))
-                {
-                    <span class="badge bg-white text-danger fw-bold ms-1">@(requisitions.Count(r => r.Status == "DISPUTED")) نزاع معلق</span>
-                }
+            <button class="nav-link fw-bold @(activeTab == "AUDIT" ? "active bg-success text-white" : "text-success")" @onclick='() => ChangeTab("AUDIT")'>
+                📊 5. تقرير دورة حياة الخامات وأرصدة الصالات
             </button>
         </li>
     </ul>
 
-    <!-- شريط فلاتر البحث المتقدمة للطلبات -->
-    <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
-        <div class="card-body p-3">
-            <div class="row g-2 align-items-center">
-                <div class="col-md-5">
-                    <label class="form-label small fw-bold text-secondary mb-1">🔍 البحث برقم الطلب، القسم، الخامة، أو اللوط</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="ابحث برقم الإذن أو اسم الخامة أو القسم..." 
-                           @bind="searchTerm" @bind:event="oninput" />
-                </div>
-
-                <div class="col-md-4">
-                    <label class="form-label small fw-bold text-secondary mb-1">🏢 تصفية بحسب القسم الإنتاجي</label>
-                    <select class="form-select form-select-sm" @bind="selectedDeptFilter">
-                        <option value="0">-- كل الأقسام الإنتاجية --</option>
-                        @foreach (var d in departments)
-                        {
-                            <option value="@d.Id">@d.DepartmentName</option>
-                        }
-                    </select>
-                </div>
-
-                <div class="col-md-3 d-flex align-items-end">
-                    <button class="btn btn-outline-danger btn-sm w-100 fw-bold" @onclick="ResetFilters">
-                        ✕ إلغاء الفلاتر
-                    </button>
-                </div>
-            </div>
-
-            @if (HasActiveFilters)
-            {
-                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
-                    <span class="small text-primary fw-bold">
-                        <i class="bi bi-funnel-fill me-1"></i> نتائج التصفية المطابقة: (@FilteredRequisitions.Count() طلب من أصل @requisitions.Count)
-                    </span>
-                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-bold" style="font-size: 0.78rem;" @onclick="ResetFilters">
-                        عرض الكل
-                    </button>
-                </div>
-            }
-        </div>
-    </div>
-
-    <!-- محطة 1: إنشاء وتسجيل طلب جديد (بدون تحديد مخزن) -->
-    @if (activeTab == "REQUEST")
+    <!-- ======================================================== -->
+    <!-- محطة 1: تسجيل طلب جديد                                  -->
+    <!-- ======================================================== -->
+    @if (activeTab == "REQUEST" && State.HasAnyPermission("Requisition.Create", "Production.OperationsHub", "Production.Execution"))
     {
         <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                 <h5 class="fw-bold text-primary m-0">➕ تسجيل طلب احتياج خامات للوردية الحالية</h5>
-                <span class="text-muted small">المشرف يحدد الخامات فقط، وكل خامة ستُصرف من مستودعها الخاص في المحطة التالية</span>
+                <span class="text-muted small">المشرف يحدد الخامات فقط، وكل خامة ستُصرف من مستودعها الخاص بنظام FEFO</span>
             </div>
             <div class="card-body bg-light">
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold small text-dark">القسم الإنتاجي الطالب *</label>
+                        <label class="form-label fw-bold small text-dark">الصالة الإنتاجية الطالبة *</label>
                         <select class="form-select border-primary fw-bold" @bind="newReq.DepartmentId">
-                            <option value="0">-- اختر القسم الإنتاجي الطالب --</option>
+                            <option value="0">-- اختر الصالة الإنتاجية الطالبة --</option>
                             @foreach (var d in departments)
                             {
                                 <option value="@d.Id">@d.DepartmentName</option>
                             }
                         </select>
                     </div>
+
                     <div class="col-md-6">
-                        <label class="form-label fw-bold small text-dark">اسم المشرف المسؤول</label>
-                        <input type="text" class="form-control border-primary fw-bold" @bind="newReq.RequestedBy" placeholder="مثال: مشرف صالة الشرقي / الوردية الأولى" />
+                        <label class="form-label fw-bold small text-dark d-flex justify-content-between align-items-center">
+                            <span>اسم المشرف المسؤول:</span>
+                            <span class="badge bg-secondary font-monospace">🔒 موثق تلقائياً</span>
+                        </label>
+                        <input type="text" class="form-control border-primary fw-bold bg-white text-primary"
+                               value="@CurrentSupervisorDisplayName"
+                               readonly disabled />
                     </div>
                 </div>
 
@@ -182,7 +177,7 @@
                                 <i class="bi bi-download me-1"></i> تحميل قالب الإكسيل
                             </button>
                             <button class="btn btn-sm btn-outline-success fw-bold" @onclick="OpenImportModal">
-                                <i class="bi bi-file-earmark-excel me-1"></i> استيراد من إكسيل للطلب
+                                <i class="bi bi-file-earmark-excel me-1"></i> استيراد من إكسيل
                             </button>
                             <button class="btn btn-sm btn-success fw-bold" @onclick="AddReqLine">
                                 ➕ إضافة سطر خامة
@@ -231,8 +226,10 @@
         </div>
     }
 
-    <!-- محطة 2: صرف المخزن وتخصيص اللوطات (FEFO) - تحديد المخزن لكل سطر خامة -->
-    @if (activeTab == "DISPATCH")
+    <!-- ======================================================== -->
+    <!-- محطة 2: صرف المخزن وتخصيص اللوطات                         -->
+    <!-- ======================================================== -->
+    @if (activeTab == "DISPATCH" && State.HasAnyPermission("Requisition.Issue", "Warehouse.View"))
     {
         <div class="card shadow-sm border-0 border-top border-warning border-4 mb-4">
             <div class="card-header bg-white py-3">
@@ -243,8 +240,8 @@
                     <thead class="table-dark">
                         <tr>
                             <th>رقم الطلب</th>
-                            <th>القسم الطالب</th>
-                            <th>المشرف الطالب</th>
+                            <th>الصالة الطالبة</th>
+                            <th>المشرف الطالب الموثق</th>
                             <th>تاريخ الطلب</th>
                             <th>الحالة</th>
                             <th>الإجراء المخزني</th>
@@ -264,12 +261,12 @@
                                 <tr>
                                     <td class="fw-bold text-primary font-monospace">@req.RequisitionNumber</td>
                                     <td class="fw-bold">@req.DepartmentName</td>
-                                    <td>@(!string.IsNullOrEmpty(req.RequestedBy) ? req.RequestedBy : "مشرف القسم")</td>
+                                    <td><span class="badge bg-light text-dark border">@(!string.IsNullOrEmpty(req.RequestedBy) ? req.RequestedBy : "مشرف الصالة")</span></td>
                                     <td class="font-monospace">@req.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td><span class="badge bg-warning text-dark">بانتظار الصرف</span></td>
                                     <td>
                                         <button class="btn btn-sm btn-warning text-dark fw-bold px-3 shadow-sm py-0" @onclick="() => SelectForDispatch(req)">
-                                            🏷️ تحديد المخازن وصرف اللوطات
+                                            🏷️ صرف خامات اللوطات
                                         </button>
                                     </td>
                                 </tr>
@@ -284,35 +281,38 @@
         {
             <div class="card shadow-sm border-warning border-2 mb-4 bg-light">
                 <div class="card-header bg-warning text-dark py-2 fw-bold d-flex justify-content-between align-items-center">
-                    <span>📦 تجهيز وصرف أسطر الطلب رقم: @selectedDispatchReq.RequisitionNumber (قسم: @selectedDispatchReq.DepartmentName)</span>
+                    <span>📦 صرف أسطر الإذن: @selectedDispatchReq.RequisitionNumber (صالة: @selectedDispatchReq.DepartmentName)</span>
                     <button class="btn btn-sm btn-dark py-0" @onclick="() => selectedDispatchReq = null">إغلاق</button>
                 </div>
                 <div class="card-body">
-                    
                     <div class="row g-2 mb-3 align-items-center">
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold small text-dark mb-0">اسم القائم بالصرف (أمين المخزن):</label>
-                            <input type="text" class="form-control form-control-sm fw-bold border-primary" @bind="dispatchModel.DispatchedBy" />
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold small text-dark mb-1 d-flex justify-content-between align-items-center">
+                                <span>اسم القائم بالصرف (أمين المخزن):</span>
+                                <span class="badge bg-dark font-monospace">🔒 موثق تلقائياً</span>
+                            </label>
+                            <input type="text" class="form-control form-control-sm fw-bold border-primary bg-white text-primary"
+                                   value="@CurrentStorekeeperDisplayName"
+                                   readonly disabled />
                         </div>
-                        <div class="col-md-8">
-                            <div class="alert alert-info py-1 px-3 mb-0 small border-0">
-                                💡 <strong>ملاحظة:</strong> يمكنك تحديد مخزن مختلف لكل خامة؛ وسيقوم النظام فوراً باقتراح التشغيلة الأقرب انتهاءً (FEFO) من ذلك المخزن تحديداً.
+                        <div class="col-md-7">
+                            <div class="alert alert-info py-2 px-3 mb-0 small border-0">
+                                💡 <strong>ملاحظة:</strong> تم حصر المخازن في <strong>المخزن الرئيسي وإدارة المخازن</strong> فقط، مع اقتراح تشغيلة FEFO الأقرب انتهاءً تلقائياً.
                             </div>
                         </div>
                     </div>
 
-                    <!-- جدول الصرف مع تحديد المخزن لكل سطر خامة -->
                     <div class="table-responsive">
                         <table class="table table-bordered bg-white text-center align-middle small mb-3">
                             <thead class="table-light">
                                 <tr>
-                                    <th style="width: 20%;">الخامة المطلوبة</th>
+                                    <th style="width: 22%;">الخامة المطلوبة</th>
                                     <th style="width: 10%;">المطلوب</th>
-                                    <th style="width: 20%;">المخزن المنصرف منه *</th>
+                                    <th style="width: 22%;">مخزن الصرف المعتمد *</th>
                                     <th style="width: 12%;">الكمية المصروفة</th>
                                     <th style="width: 15%;">رقم التشغيلة (Batch)</th>
-                                    <th style="width: 13%;">تاريخ الصلاحية</th>
-                                    <th style="width: 10%;">تكلفة الوحدة</th>
+                                    <th style="width: 11%;">تاريخ الصلاحية</th>
+                                    <th style="width: 8%;">التكلفة</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -322,11 +322,9 @@
                                     <tr>
                                         <td class="fw-bold text-start ps-2">@originLine.ItemName</td>
                                         <td class="fw-bold text-primary font-monospace">@originLine.RequestedQty.ToString("N2") @originLine.Unit</td>
-                                        
-                                        <!-- قائمة اختيار المخزن للسطر الحالي -->
                                         <td>
-                                            <select class="form-select form-select-sm fw-bold border-danger" 
-                                                    value="@l.WarehouseId" 
+                                            <select class="form-select form-select-sm fw-bold border-primary"
+                                                    value="@l.WarehouseId"
                                                     @onchange="(e) => OnLineWarehouseChanged(l, e)">
                                                 @foreach (var w in warehouses)
                                                 {
@@ -334,9 +332,8 @@
                                                 }
                                             </select>
                                         </td>
-
                                         <td>
-                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold font-monospace" @bind="l.DispatchedQty" />
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold font-monospace text-success" @bind="l.DispatchedQty" />
                                         </td>
                                         <td>
                                             <input type="text" class="form-control form-control-sm text-center font-monospace" @bind="l.BatchNumber" placeholder="LOT-..." />
@@ -360,8 +357,10 @@
         }
     }
 
-    <!-- محطة 3: استلام ومطابقة الصالة صنفاً بصنف مع توضيح مخزن كل خامة -->
-    @if (activeTab == "RECEIVE")
+    <!-- ======================================================== -->
+    <!-- محطة 3: استلام ومطابقة الصالة                            -->
+    <!-- ======================================================== -->
+    @if (activeTab == "RECEIVE" && State.HasAnyPermission("Requisition.Receive", "Production.Execution", "Production.OperationsHub"))
     {
         <div class="card shadow-sm border-0 border-top border-success border-4 mb-4">
             <div class="card-header bg-white py-3">
@@ -372,7 +371,7 @@
                     <thead class="table-dark">
                         <tr>
                             <th>رقم الطلب</th>
-                            <th>القسم</th>
+                            <th>الصالة</th>
                             <th>تاريخ الخروج</th>
                             <th>حالة الشحنة</th>
                             <th>الإجراء</th>
@@ -396,7 +395,7 @@
                                     <td>
                                         @if (req.Status == "DISPUTED")
                                         {
-                                            <span class="badge bg-danger">⚠️ نزاع كميات تم تحويله لأمين المخزن</span>
+                                            <span class="badge bg-danger">⚠️ نزاع كميات معلق عند المخزن</span>
                                         }
                                         else
                                         {
@@ -420,7 +419,7 @@
         {
             <div class="card shadow-sm border-success border-2 mb-4 bg-light">
                 <div class="card-header bg-success text-white py-2 fw-bold d-flex justify-content-between align-items-center">
-                    <span>مطابقة أسطر الإذن: @selectedReceiveReq.RequisitionNumber (قسم: @selectedReceiveReq.DepartmentName)</span>
+                    <span>مطابقة أسطر الإذن: @selectedReceiveReq.RequisitionNumber (صالة: @selectedReceiveReq.DepartmentName)</span>
                     <button class="btn btn-sm btn-light py-0" @onclick="() => selectedReceiveReq = null">إغلاق</button>
                 </div>
                 <div class="card-body">
@@ -445,7 +444,7 @@
                                         <td class="fw-bold text-start ps-3">@line.ItemName (@line.ItemCode)</td>
                                         <td>
                                             <span class="badge bg-light text-dark border">
-                                                @(!string.IsNullOrEmpty(selectedReceiveReq.FromWarehouseName) ? selectedReceiveReq.FromWarehouseName : "مستودع الخامات")
+                                                @(!string.IsNullOrEmpty(selectedReceiveReq.FromWarehouseName) ? selectedReceiveReq.FromWarehouseName : "مخزن الخامات الرئيسي")
                                             </span>
                                         </td>
                                         <td class="fw-bold text-primary font-monospace">@line.DispatchedQty.ToString("N2") @line.Unit</td>
@@ -509,20 +508,22 @@
         }
     }
 
-    <!-- محطة 4: فض النزاعات وتسوية الفروق (أمين المخزن) -->
-    @if (activeTab == "DISPUTE")
+    <!-- ======================================================== -->
+    <!-- محطة 4: فض النزاعات وتسوية الفروق                         -->
+    <!-- ======================================================== -->
+    @if (activeTab == "DISPUTE" && State.HasAnyPermission("Transfers.SettleDispute", "Warehouse.View", "Roles.Manage"))
     {
         <div class="card shadow-sm border-0 border-top border-danger border-4 mb-4">
             <div class="card-header bg-danger text-white py-3 d-flex justify-content-between align-items-center">
                 <h5 class="fw-bold m-0">⚖️ صندوق مراجعة وفض النزاعات المخزنية وإثبات التسوية (Dispute Resolution)</h5>
-                <span class="badge bg-white text-danger fw-bold">صلاحية أمين المخزن</span>
+                <span class="badge bg-white text-danger fw-bold">صلاحية أمين المخزن / الإدارة</span>
             </div>
             <div class="card-body p-0 table-responsive">
                 <table class="table table-hover table-bordered mb-0 text-center align-middle small">
                     <thead class="table-light">
                         <tr>
                             <th>رقم الإذن</th>
-                            <th>القسم الإنتاجي</th>
+                            <th>الصالة الإنتاجية</th>
                             <th>الأصناف المتنازع عليها</th>
                             <th>تاريخ الخروج</th>
                             <th>الإجراء المطلوب</th>
@@ -533,7 +534,7 @@
                         {
                             <tr>
                                 <td colspan="5" class="text-success py-5 fw-bold fs-6">
-                                    🎉 ممتاز! لا توجد أي نزاعات أو خلافات كميات معلقة حالياً بين المخزن والصالة.
+                                    🎉 ممتاز! لا توجد أي نزاعات أو خلافات كميات معلقة حالياً بين المخزن والصالات.
                                 </td>
                             </tr>
                         }
@@ -583,10 +584,10 @@
                                 <tr>
                                     <th>الخامة</th>
                                     <th>المنصرف بالمخزن</th>
-                                    <th>المستلم فعلياً بالصالة</th>
+                                    <th>المستلم بالصالة</th>
                                     <th>سبب العجز / الاختلاف</th>
                                     <th style="width: 18%;">الكمية المعتمدة نهائياً</th>
-                                    <th style="width: 25%;">ملاحظات أمين المخزن للتسوية</th>
+                                    <th style="width: 25%;">ملاحظات أمين المخزن</th>
                                     <th>الإجراء</th>
                                 </tr>
                             </thead>
@@ -618,17 +619,241 @@
             </div>
         }
     }
+
+    <!-- ================================================================= -->
+    <!-- محطة 5: التقرير الرقابي الشامل لدورة حياة الخامات وأرصدة الصالات -->
+    <!-- ================================================================= -->
+    @if (activeTab == "AUDIT")
+    {
+        <div class="card shadow-sm border-0 border-top border-success border-4 mb-4">
+            <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <h5 class="fw-bold text-success m-0">📊 المسار الرقابي لدورة حياة الخامات وأثر رصيد الصالة التراكمي</h5>
+                    <small class="text-muted">كشف حساب تاريخي تراكمي لحركات الصالات: الطلب، الصرف، استلام المطابقة، محاضر فض النزاعات، وأرصدة الصالة قبل وبعد كل حركة</small>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportAuditReportToCsv">
+                        <i class="bi bi-file-earmark-excel me-1"></i> تصدير التقرير الرقابي (CSV)
+                    </button>
+                    <button class="btn btn-success btn-sm fw-bold shadow-sm" @onclick="LoadAuditReport">
+                        🔍 تحديث واستخراج البيانات
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-body bg-light">
+                <!-- فلاتر التقرير المتقدمة -->
+                <div class="row g-2 mb-3 align-items-end">
+                    <div class="col-md-2">
+                        <label class="small fw-bold text-secondary">من تاريخ:</label>
+                        <input type="date" class="form-control form-control-sm font-monospace" @bind="auditStartDate" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="small fw-bold text-secondary">إلى تاريخ:</label>
+                        <input type="date" class="form-control form-control-sm font-monospace" @bind="auditEndDate" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="small fw-bold text-secondary">صالة الإنتاج:</label>
+                        <select class="form-select form-select-sm fw-bold" @bind="auditDeptFilter">
+                            <option value="0">-- كل الصالات الإنتاجية --</option>
+                            @foreach (var d in departments)
+                            {
+                                <option value="@d.Id">@d.DepartmentName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="small fw-bold text-secondary">خامة محددة:</label>
+                        <select class="form-select form-select-sm fw-bold" @bind="auditItemFilter">
+                            <option value="0">-- كل الخامات والمكونات --</option>
+                            @foreach (var itm in rawMaterials)
+                            {
+                                <option value="@itm.Id">@itm.ItemName (@itm.ItemCode)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary btn-sm w-100 fw-bold" @onclick="LoadAuditReport">
+                            تطبيق الفلترة
+                        </button>
+                    </div>
+                </div>
+
+                <!-- إحصائيات التقرير اللحظية -->
+                <div class="row g-2 mb-3 text-center">
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-white shadow-sm">
+                            <small class="text-muted d-block">إجمالي المطلوب بالصالات</small>
+                            <strong class="text-primary fs-6 font-monospace">@auditRows.Sum(x => x.RequestedQty).ToString("N2")</strong>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-white shadow-sm">
+                            <small class="text-muted d-block">إجمالي المنصرف من المستودع</small>
+                            <strong class="text-warning fs-6 font-monospace">@auditRows.Sum(x => x.DispatchedQty).ToString("N2")</strong>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-white shadow-sm">
+                            <small class="text-muted d-block">إجمالي المعتمد والمستلم بالصالات</small>
+                            <strong class="text-success fs-6 font-monospace">@auditRows.Sum(x => x.FinalApprovedQty).ToString("N2")</strong>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-white shadow-sm">
+                            <small class="text-muted d-block">إجمالي هالك النقل والنزاع</small>
+                            <strong class="text-danger fs-6 font-monospace">@auditRows.Sum(x => x.ScrapOrLossQty).ToString("N2")</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- جدول التقرير الرقابي الشامل المنقح والمضبوط -->
+                <div class="table-responsive bg-white rounded border shadow-sm" style="max-height: 520px;">
+                    <table class="table table-bordered table-hover align-middle text-center small mb-0">
+                        <thead class="table-dark sticky-top">
+                            <tr>
+                                <th>رقم الإذن</th>
+                                <th>تاريخ الطلب</th>
+                                <th>الصالة الطالبة والمشرف</th>
+                                <th>الخامة المطلوبة</th>
+                                <th>المطلوب</th>
+                                <th>المنصرف واللوط (FEFO)</th>
+                                <th>المستلم بالصالة</th>
+                                <th>الهالك / العجز</th>
+                                <th class="table-secondary text-dark">حالة ومسار النزاع</th>
+                                <th class="table-light text-dark">قرار ومحضر تسوية النزاع</th>
+                                <th class="table-primary text-dark">رصيد الصالة قبل الطلب</th>
+                                <th class="table-success text-dark">رصيد الصالة بعد الاعتماد</th>
+                                <th class="table-info text-dark">الرصيد الفعلي الحالي بالصالة</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!auditRows.Any())
+                            {
+                                <tr>
+                                    <td colspan="13" class="text-muted py-4 fw-bold">لا توجد حركات مطابقة لشروط البحث المحددة.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var row in auditRows)
+                                {
+                                    <tr>
+                                        <td><code class="fw-bold font-monospace">@row.RequisitionNumber</code></td>
+                                        <td class="font-monospace">@row.RequestDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td class="text-start ps-2">
+                                            <span class="badge bg-light text-dark border d-block mb-1">@row.DepartmentName</span>
+                                            <small class="text-muted">المشرف: @row.RequestedBy</small>
+                                        </td>
+                                        <td class="text-start ps-2 fw-bold text-dark">
+                                            @row.ItemName
+                                            <span class="d-block text-muted font-monospace small">@row.ItemCode</span>
+                                        </td>
+                                        <td class="fw-bold font-monospace">@row.RequestedQty.ToString("N2") @row.Unit</td>
+                                        <td>
+                                            @if (row.DispatchedQty > 0)
+                                            {
+                                                <span class="text-warning fw-bold font-monospace">@row.DispatchedQty.ToString("N2")</span>
+                                                <div class="small font-monospace text-muted">لوط: @row.BatchNumber</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">لم يُصرف بعد</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (row.FinalApprovedQty > 0)
+                                            {
+                                                <span class="text-success fw-bold font-monospace">@row.FinalApprovedQty.ToString("N2")</span>
+                                                <span class="badge bg-success d-block small mt-1">معتمد ✓</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted font-monospace">@row.ReceivedQty.ToString("N2")</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (row.ScrapOrLossQty > 0)
+                                            {
+                                                <span class="badge bg-danger font-monospace">عجز: @row.ScrapOrLossQty.ToString("N2")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+
+                                        <!-- حالة ومسار النزاع -->
+                                        <td>
+                                            @if (row.DisputeStatusTitle.Contains("معلق"))
+                                            {
+                                                <span class="badge bg-danger">@row.DisputeStatusTitle</span>
+                                            }
+                                            else if (row.DisputeStatusTitle.Contains("فض النزاع"))
+                                            {
+                                                <span class="badge bg-info text-dark">@row.DisputeStatusTitle</span>
+                                            }
+                                            else if (row.DisputeStatusTitle.Contains("مطابق"))
+                                            {
+                                                <span class="badge bg-success">@row.DisputeStatusTitle</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-light text-dark border">@row.DisputeStatusTitle</span>
+                                            }
+                                        </td>
+
+                                        <!-- قرار ومحضر تسوية النزاع -->
+                                        <td class="text-start ps-2">
+                                            @if (!string.IsNullOrWhiteSpace(row.DiscrepancyReason) || !string.IsNullOrWhiteSpace(row.ResolutionNotes))
+                                            {
+                                                @if (!string.IsNullOrWhiteSpace(row.DiscrepancyReason))
+                                                {
+                                                    <div class="text-danger small fw-bold">⚠️ سبب المشرف: @row.DiscrepancyReason</div>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(row.ResolutionNotes))
+                                                {
+                                                    <div class="text-success small fw-bold mt-1">⚖️ قرار اللجنة: @row.ResolutionNotes</div>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted small">مطابق 100%</span>
+                                            }
+                                        </td>
+
+                                        <!-- رصيد الصالة قبل الطلب (تراكمي تاريخي حقيقي) -->
+                                        <td class="table-primary fw-bold font-monospace text-dark">
+                                            @row.FloorStockBefore.ToString("N2") @row.Unit
+                                        </td>
+
+                                        <!-- رصيد الصالة بعد الاعتماد (تراكمي) -->
+                                        <td class="table-success fw-bold font-monospace text-success">
+                                            @row.FloorStockAfter.ToString("N2") @row.Unit
+                                        </td>
+
+                                        <!-- الرصيد الفعلي الحالي التراكمي في مخزن الصالة -->
+                                        <td class="table-info fw-bold font-monospace text-primary">
+                                            @row.CurrentFloorStock.ToString("N2") @row.Unit
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
 </div>
 
-<!-- ============================================================== -->
-<!-- نافذة استيراد خامات الطلب من إكسيل (IMPORT REQUISITION MODAL)  -->
-<!-- ============================================================== -->
+<!-- مودال استيراد خامات الطلب من إكسيل -->
 @if (isImportModalOpen)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);" dir="rtl">
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content shadow-lg border-0" dir="rtl">
-                
+            <div class="modal-content shadow-lg border-0">
                 <div class="modal-header bg-success text-white py-2 px-3">
                     <h5 class="modal-title fw-bold fs-6">
                         <i class="bi bi-file-earmark-excel me-1"></i> استيراد كشف الخامات المطلوبة للوردية من ملف إكسيل
@@ -638,7 +863,7 @@
 
                 <div class="modal-body p-3">
                     <div class="alert alert-info py-2 small mb-3">
-                        <i class="bi bi-info-circle me-1"></i> 
+                        <i class="bi bi-info-circle me-1"></i>
                         يتعرف النظام تلقائياً على كود الخامة أو اسمها، ويطابقها مع دليل الخامات المعتمدة، ثم يدرج الكميات مباشرة في جدول الطلب الحالي.
                     </div>
 
@@ -662,7 +887,6 @@
                                         <th>الخامة المطابقة بالنظام</th>
                                         <th>الكمية المطلوبة</th>
                                         <th>الوحدة</th>
-                                        <th>الملاحظات</th>
                                         <th>حالة المطابقة</th>
                                     </tr>
                                 </thead>
@@ -684,7 +908,6 @@
                                             </td>
                                             <td class="font-monospace fw-bold text-primary">@row.RequestedQty.ToString("N2")</td>
                                             <td><span class="badge bg-light text-dark border">@row.Unit</span></td>
-                                            <td class="text-muted text-start ps-2">@row.Notes</td>
                                             <td>
                                                 @if (row.MatchedItemId > 0)
                                                 {
@@ -705,13 +928,12 @@
 
                 <div class="modal-footer bg-light py-2 d-flex justify-content-between">
                     <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
-                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
-                            disabled="@(!importedPreviewList.Any(r => r.MatchedItemId > 0))" 
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm"
+                            disabled="@(!importedPreviewList.Any(r => r.MatchedItemId > 0))"
                             @onclick="ApplyImportedLines">
-                        <i class="bi bi-check-circle me-1"></i> تطبيق وإدراج الخامات في جدول الطلب الحالي (@importedPreviewList.Count(r => r.MatchedItemId > 0))
+                        <i class="bi bi-check-circle me-1"></i> تطبيق وإدراج الخامات (@importedPreviewList.Count(r => r.MatchedItemId > 0))
                     </button>
                 </div>
-
             </div>
         </div>
     </div>
@@ -734,20 +956,31 @@
 
     private RequisitionDetailDto? selectedDispatchReq;
     private DispatchRequisitionDto dispatchModel = new();
-    
-    // قائمة تجهيز الصرف مع المخزن الخاص بكل سطر خامة
     private List<DispatchLineViewModel> dispatchLinesView = new();
 
     private RequisitionDetailDto? selectedReceiveReq;
     private RequisitionDetailDto? selectedDisputeReq;
-
     private bool isImportModalOpen = false;
 
-    // فلاتر البحث
     private string searchTerm = "";
     private long selectedDeptFilter = 0;
 
-    private string apiBase = "https://localhost:7273/api";
+    // بيانات التقرير الرقابي الشامل المنقحة
+    private List<RequisitionLifecycleAuditDto> auditRows = new();
+    private DateTime auditStartDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateTime auditEndDate = DateTime.Now;
+    private long auditDeptFilter = 0;
+    private long auditItemFilter = 0;
+
+    private string CurrentSupervisorDisplayName =>
+        !string.IsNullOrWhiteSpace(State.FullName)
+            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]"
+            : "مشرف الصالة المعتمد";
+
+    private string CurrentStorekeeperDisplayName =>
+        !string.IsNullOrWhiteSpace(State.FullName)
+            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]"
+            : "أمين المخزن المعتمد";
 
     public class DispatchLineViewModel
     {
@@ -772,78 +1005,146 @@
         public string Notes { get; set; } = string.Empty;
     }
 
-    protected override async Task OnInitializedAsync()
+    public class LookupsResponseDto
     {
-        await LoadDropdowns();
-        await LoadRequisitions();
+        public List<DepartmentOptionDto> Departments { get; set; } = new();
+        public List<WarehouseOptionDto> Warehouses { get; set; } = new();
+        public List<ItemOptionDto> RawMaterials { get; set; } = new();
     }
 
-    private void ChangeTab(string tab)
+    public class DepartmentOptionDto
+    {
+        public long Id { get; set; }
+        public string DepartmentName { get; set; } = string.Empty;
+    }
+
+    public class WarehouseOptionDto
+    {
+        public long Id { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
+    }
+
+    public class ItemOptionDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+    }
+
+    public class RequisitionLifecycleAuditDto
+    {
+        public long RequisitionId { get; set; }
+        public string RequisitionNumber { get; set; } = string.Empty;
+        public DateTime RequestDate { get; set; }
+        public long DepartmentId { get; set; }
+        public string DepartmentName { get; set; } = string.Empty;
+        public string RequestedBy { get; set; } = string.Empty;
+        public string OverallStatus { get; set; } = string.Empty;
+        public long ItemId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public decimal RequestedQty { get; set; }
+        public string? DispatchedBy { get; set; }
+        public DateTime? DispatchedAt { get; set; }
+        public string FromWarehouseName { get; set; } = string.Empty;
+        public decimal DispatchedQty { get; set; }
+        public string BatchNumber { get; set; } = string.Empty;
+        public DateTime? ExpiryDate { get; set; }
+        public decimal ReceivedQty { get; set; }
+        public string LineStatus { get; set; } = string.Empty;
+        public string DisputeStatusTitle { get; set; } = "مطابق بدون نزاع ✓";
+        public string? DiscrepancyReason { get; set; }
+        public decimal FinalApprovedQty { get; set; }
+        public decimal ScrapOrLossQty { get; set; }
+        public string? ResolutionNotes { get; set; }
+        public string FloorStoreName { get; set; } = string.Empty;
+        public decimal FloorStockBefore { get; set; }
+        public decimal FloorStockAfter { get; set; }
+        public decimal CurrentFloorStock { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeDefaultActiveTab();
+        await LoadDropdowns();
+        await LoadRequisitions();
+
+        newReq.RequestedBy = CurrentSupervisorDisplayName;
+        if (State.DepartmentId.HasValue && departments.Any(d => d.Id == State.DepartmentId.Value))
+        {
+            newReq.DepartmentId = State.DepartmentId.Value;
+        }
+
+        await LoadAuditReport();
+    }
+
+    private void InitializeDefaultActiveTab()
+    {
+        if (State.HasAnyPermission("Requisition.Create", "Production.OperationsHub")) activeTab = "REQUEST";
+        else if (State.HasAnyPermission("Requisition.Issue", "Warehouse.View")) activeTab = "DISPATCH";
+        else if (State.HasAnyPermission("Requisition.Receive", "Production.Execution")) activeTab = "RECEIVE";
+        else if (State.HasAnyPermission("Transfers.SettleDispute", "Warehouse.View")) activeTab = "DISPUTE";
+        else activeTab = "AUDIT";
+    }
+
+    private async Task ChangeTab(string tab)
     {
         activeTab = tab;
         selectedDispatchReq = null;
         selectedReceiveReq = null;
         selectedDisputeReq = null;
+
+        if (tab == "AUDIT")
+        {
+            await LoadAuditReport();
+        }
     }
 
     private async Task LoadDropdowns()
     {
         try
         {
-            var depts = await Http.GetFromJsonAsync<List<DepartmentOptionDto>>($"{apiBase}/Departments");
-            if (depts != null) departments = depts;
-        }
-        catch
-        {
-            try { departments = await Http.GetFromJsonAsync<List<DepartmentOptionDto>>("api/Departments") ?? new(); } catch { }
-        }
-
-        try
-        {
-            var whs = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>($"{apiBase}/Warehouses");
-            if (whs != null) warehouses = whs;
-        }
-        catch
-        {
-            try { warehouses = await Http.GetFromJsonAsync<List<WarehouseOptionDto>>("api/Warehouses") ?? new(); } catch { }
-        }
-
-        try
-        {
-            var itms = await Http.GetFromJsonAsync<List<ItemOptionDto>>($"{apiBase}/Items");
-            if (itms != null) 
-                rawMaterials = itms.Where(i => i.ItemType == "خامات" || i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع").ToList();
-            if (!rawMaterials.Any() && itms != null) rawMaterials = itms;
-        }
-        catch
-        {
-            try
+            var res = await Http.GetFromJsonAsync<LookupsResponseDto>("api/MaterialRequisitions/lookups");
+            if (res != null)
             {
-                var itms = await Http.GetFromJsonAsync<List<ItemOptionDto>>("api/Items");
-                if (itms != null) rawMaterials = itms;
+                departments = res.Departments ?? new();
+                warehouses = res.Warehouses ?? new();
+                rawMaterials = res.RawMaterials ?? new();
             }
-            catch { }
         }
+        catch { }
     }
 
     private async Task LoadRequisitions()
     {
         try
         {
-            var data = await Http.GetFromJsonAsync<List<RequisitionDetailDto>>($"{apiBase}/MaterialRequisitions");
+            var data = await Http.GetFromJsonAsync<List<RequisitionDetailDto>>("api/MaterialRequisitions");
             if (data != null) requisitions = data;
         }
-        catch
+        catch (Exception ex)
         {
-            try
+            feedbackMessage = "خطأ في الاتصال: " + ex.Message;
+        }
+    }
+
+    private async Task LoadAuditReport()
+    {
+        try
+        {
+            var url = $"api/MaterialRequisitions/audit-lifecycle-report?startDate={auditStartDate:yyyy-MM-dd}&endDate={auditEndDate:yyyy-MM-dd}&departmentId={auditDeptFilter}&itemId={auditItemFilter}";
+            var data = await Http.GetFromJsonAsync<List<RequisitionLifecycleAuditDto>>(url);
+            if (data != null)
             {
-                var data = await Http.GetFromJsonAsync<List<RequisitionDetailDto>>("api/MaterialRequisitions");
-                if (data != null) requisitions = data;
+                auditRows = data;
             }
-            catch (Exception ex)
-            {
-                feedbackMessage = "خطأ في الاتصال: " + ex.Message;
-            }
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"خطأ في استخراج التقرير الرقابي: {ex.Message}";
         }
     }
 
@@ -860,7 +1161,7 @@
                     r.RequisitionNumber.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     r.DepartmentName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     (!string.IsNullOrEmpty(r.FromWarehouseName) && r.FromWarehouseName.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
-                    r.Lines.Any(l => l.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase) || 
+                    r.Lines.Any(l => l.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                                     (!string.IsNullOrEmpty(l.BatchNumber) && l.BatchNumber.Contains(term, StringComparison.OrdinalIgnoreCase))));
             }
 
@@ -873,9 +1174,7 @@
         }
     }
 
-    private bool HasActiveFilters =>
-        !string.IsNullOrWhiteSpace(searchTerm) ||
-        selectedDeptFilter > 0;
+    private bool HasActiveFilters => !string.IsNullOrWhiteSpace(searchTerm) || selectedDeptFilter > 0;
 
     private void ResetFilters()
     {
@@ -883,17 +1182,13 @@
         selectedDeptFilter = 0;
     }
 
-    private void AddReqLine()
-    {
-        newReq.Lines.Add(new CreateRequisitionLineDto());
-    }
+    private void AddReqLine() => newReq.Lines.Add(new CreateRequisitionLineDto());
 
-    // مشرف الصالة يرسل الطلب معتمداً على القسم والخامات فقط دون تحديد مخزن
     private async Task SubmitRequisition()
     {
         if (newReq.DepartmentId == 0)
         {
-            feedbackMessage = "⚠️ يرجى تحديد القسم الإنتاجي الطالب أولاً.";
+            feedbackMessage = "⚠️ يرجى تحديد الصالة الإنتاجية الطالبة أولاً.";
             return;
         }
 
@@ -904,31 +1199,38 @@
             return;
         }
 
+        newReq.RequestedBy = CurrentSupervisorDisplayName;
         if (newReq.FromWarehouseId == 0)
         {
             newReq.FromWarehouseId = warehouses.FirstOrDefault()?.Id ?? 1;
         }
 
-        HttpResponseMessage response;
         try
         {
-            response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions", newReq);
+            var response = await Http.PostAsJsonAsync("api/MaterialRequisitions", newReq);
+            if (response.IsSuccessStatusCode)
+            {
+                feedbackMessage = "✅ تم إرسال طلب الخامات للمخازن بنجاح! بانتظار فحص وتحديد المستودعات من أمين المخزن.";
+                newReq = new CreateRequisitionDto
+                {
+                    DepartmentId = State.DepartmentId ?? 0,
+                    RequestedBy = CurrentSupervisorDisplayName,
+                    Lines = new List<CreateRequisitionLineDto> { new CreateRequisitionLineDto() }
+                };
+                await LoadRequisitions();
+                if (State.HasAnyPermission("Requisition.Issue", "Warehouse.View"))
+                {
+                    await ChangeTab("DISPATCH");
+                }
+            }
+            else
+            {
+                feedbackMessage = "❌ فشل إرسال الطلب: " + await response.Content.ReadAsStringAsync();
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            response = await Http.PostAsJsonAsync("api/MaterialRequisitions", newReq);
-        }
-
-        if (response.IsSuccessStatusCode)
-        {
-            feedbackMessage = "✅ تم إرسال طلب الخامات للمخازن بنجاح! بانتظار فحص وتحديد المستودعات من أمين المخزن.";
-            newReq = new CreateRequisitionDto { Lines = new List<CreateRequisitionLineDto> { new CreateRequisitionLineDto() } };
-            await LoadRequisitions();
-            ChangeTab("DISPATCH");
-        }
-        else
-        {
-            feedbackMessage = "❌ فشل إرسال الطلب: " + await response.Content.ReadAsStringAsync();
+            feedbackMessage = "❌ خطأ أثناء الإرسال: " + ex.Message;
         }
     }
 
@@ -937,7 +1239,8 @@
         selectedDispatchReq = req;
         dispatchLinesView.Clear();
 
-        long defaultWhId = req.FromWarehouseId > 0 ? req.FromWarehouseId : (warehouses.FirstOrDefault()?.Id ?? 1);
+        long defaultWhId = warehouses.FirstOrDefault(w => w.WarehouseName.Contains("خامات") || w.WarehouseName.Contains("رئيسي"))?.Id
+                           ?? (warehouses.FirstOrDefault()?.Id ?? (req.FromWarehouseId > 0 ? req.FromWarehouseId : 1));
 
         foreach (var l in req.Lines)
         {
@@ -959,12 +1262,11 @@
         dispatchModel = new DispatchRequisitionDto
         {
             RequisitionId = req.Id,
-            DispatchedBy = "أمين المخزن",
+            DispatchedBy = CurrentStorekeeperDisplayName,
             Lines = new List<DispatchLineDto>()
         };
     }
 
-    // عند تغيير المخزن لسطر خامة محدد، يُعاد استدعاء الـ FEFO لذلك السطر فوراً
     private async Task OnLineWarehouseChanged(DispatchLineViewModel line, ChangeEventArgs e)
     {
         if (long.TryParse(e.Value?.ToString(), out var newWhId) && newWhId > 0)
@@ -978,20 +1280,7 @@
     {
         try
         {
-            List<FefoBatchSuggestionDto>? fefo = null;
-            try
-            {
-                fefo = await Http.GetFromJsonAsync<List<FefoBatchSuggestionDto>>($"{apiBase}/MaterialRequisitions/fefo-suggestions?itemId={line.ItemId}&warehouseId={line.WarehouseId}");
-            }
-            catch
-            {
-                try
-                {
-                    fefo = await Http.GetFromJsonAsync<List<FefoBatchSuggestionDto>>($"api/MaterialRequisitions/fefo-suggestions?itemId={line.ItemId}&warehouseId={line.WarehouseId}");
-                }
-                catch { }
-            }
-
+            var fefo = await Http.GetFromJsonAsync<List<FefoBatchSuggestionDto>>($"api/MaterialRequisitions/fefo-suggestions?itemId={line.ItemId}&warehouseId={line.WarehouseId}");
             var topFefo = fefo?.FirstOrDefault();
             if (topFefo != null)
             {
@@ -1013,6 +1302,7 @@
     {
         if (selectedDispatchReq == null) return;
 
+        dispatchModel.DispatchedBy = CurrentStorekeeperDisplayName;
         dispatchModel.Lines = dispatchLinesView.Select(l => new DispatchLineDto
         {
             LineId = l.LineId,
@@ -1022,26 +1312,24 @@
             UnitCost = l.UnitCost
         }).ToList();
 
-        HttpResponseMessage response;
         try
         {
-            response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/dispatch", dispatchModel);
+            var response = await Http.PostAsJsonAsync("api/MaterialRequisitions/dispatch", dispatchModel);
+            if (response.IsSuccessStatusCode)
+            {
+                feedbackMessage = "✅ تم اعتماد خروج الشحنة من المخازن المحددة بنجاح!";
+                selectedDispatchReq = null;
+                await LoadRequisitions();
+                await ChangeTab("RECEIVE");
+            }
+            else
+            {
+                feedbackMessage = "❌ فشل صرف الشحنة: " + await response.Content.ReadAsStringAsync();
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            response = await Http.PostAsJsonAsync("api/MaterialRequisitions/dispatch", dispatchModel);
-        }
-
-        if (response.IsSuccessStatusCode)
-        {
-            feedbackMessage = "✅ تم اعتماد خروج الشحنة من المخازن المحددة بنجاح!";
-            selectedDispatchReq = null;
-            await LoadRequisitions();
-            ChangeTab("RECEIVE");
-        }
-        else
-        {
-            feedbackMessage = "❌ فشل صرف الشحنة: " + await response.Content.ReadAsStringAsync();
+            feedbackMessage = "❌ خطأ أثناء الصرف: " + ex.Message;
         }
     }
 
@@ -1062,42 +1350,37 @@
             ReceivedQty = isExact ? line.DispatchedQty : line.ReceivedQty,
             IsAccepted = isExact,
             DiscrepancyReason = isExact ? null : line.DiscrepancyReason,
-            ReceivedBy = "مشرف الصالة"
+            ReceivedBy = CurrentSupervisorDisplayName
         };
 
-        HttpResponseMessage response;
         try
         {
-            response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/receive-line", dto);
-        }
-        catch
-        {
-            response = await Http.PostAsJsonAsync("api/MaterialRequisitions/receive-line", dto);
-        }
-
-        if (response.IsSuccessStatusCode)
-        {
-            line.LineStatus = isExact ? "ACCEPTED" : "DISPUTED";
-            if (isExact) line.ReceivedQty = line.DispatchedQty;
-            feedbackMessage = isExact ? "✅ تم قبول السطر والمطابقة بنجاح." : "⚠️ تم قيد الفرق وإشعار أمين المخزن في (تبويب فض النزاعات) لحله.";
-            
-            await LoadRequisitions();
-
-            if (selectedReceiveReq != null && selectedReceiveReq.Lines.All(l => l.LineStatus == "ACCEPTED"))
+            var response = await Http.PostAsJsonAsync("api/MaterialRequisitions/receive-line", dto);
+            if (response.IsSuccessStatusCode)
             {
-                selectedReceiveReq = null;
+                line.LineStatus = isExact ? "ACCEPTED" : "DISPUTED";
+                if (isExact) line.ReceivedQty = line.DispatchedQty;
+                feedbackMessage = isExact ? "✅ تم قبول السطر والمطابقة بنجاح." : "⚠️ تم قيد الفرق وإشعار أمين المخزن في (تبويب فض النزاعات) لحله.";
+
+                await LoadRequisitions();
+
+                if (selectedReceiveReq != null && selectedReceiveReq.Lines.All(l => l.LineStatus == "ACCEPTED"))
+                {
+                    selectedReceiveReq = null;
+                }
+            }
+            else
+            {
+                feedbackMessage = "❌ فشل تسجيل استلام السطر: " + await response.Content.ReadAsStringAsync();
             }
         }
-        else
+        catch (Exception ex)
         {
-            feedbackMessage = "❌ فشل تسجيل استلام السطر: " + await response.Content.ReadAsStringAsync();
+            feedbackMessage = "❌ خطأ: " + ex.Message;
         }
     }
 
-    private void SelectForDisputeResolution(RequisitionDetailDto req)
-    {
-        selectedDisputeReq = req;
-    }
+    private void SelectForDisputeResolution(RequisitionDetailDto req) => selectedDisputeReq = req;
 
     private async Task ConfirmResolveDiscrepancy(RequisitionLineDetailDto line)
     {
@@ -1107,19 +1390,10 @@
             {
                 LineId = line.Id,
                 FinalApprovedQty = line.ReceivedQty,
-                WarehouseResolutionNotes = !string.IsNullOrWhiteSpace(line.WarehouseNotes) ? line.WarehouseNotes : "تمت المراجعة والاتفاق على الكمية"
+                WarehouseResolutionNotes = !string.IsNullOrWhiteSpace(line.WarehouseNotes) ? line.WarehouseNotes : $"تمت التسوية والاعتماد بواسطة {CurrentStorekeeperDisplayName}"
             };
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await Http.PostAsJsonAsync($"{apiBase}/MaterialRequisitions/resolve-discrepancy", dto);
-            }
-            catch
-            {
-                response = await Http.PostAsJsonAsync("api/MaterialRequisitions/resolve-discrepancy", dto);
-            }
-
+            var response = await Http.PostAsJsonAsync("api/MaterialRequisitions/resolve-discrepancy", dto);
             if (response.IsSuccessStatusCode)
             {
                 feedbackMessage = $"✅ تم فض النزاع واعتماد الكمية النهائية ({line.ReceivedQty:N2} {line.Unit}) وتم ترحيل وخصم الرصيد بنجاح!";
@@ -1138,9 +1412,38 @@
         }
     }
 
-    // ==========================================
-    // تصدير واستيراد الإكسيل
-    // ==========================================
+    private async Task ExportAuditReportToCsv()
+    {
+        if (!auditRows.Any())
+        {
+            feedbackMessage = "لا توجد بيانات مطابقة لتصديرها.";
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("رقم_الطلب,تاريخ_الطلب,الصالة,المشرف,كود_الخامة,اسم_الخامة,الوحدة,الكمية_المطلوبة,المنصرف,رقم_اللوط,تاريخ_الصلاحية,المستلم_بالصالة,الهالك_العجز,حالة_النزاع,سبب_الخلاف,قرار_التسوية,رصيد_الصالة_قبل_الطلب,رصيد_الصالة_بعد_الاعتماد,الرصيد_الفعلي_الحالي_بالصالة");
+
+            foreach (var r in auditRows)
+            {
+                var expDate = r.ExpiryDate?.ToString("yyyy-MM-dd") ?? "-";
+                var discReason = (r.DiscrepancyReason ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+                var resNotes = (r.ResolutionNotes ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+
+                sb.AppendLine($"{EscapeCsv(r.RequisitionNumber)},{r.RequestDate:yyyy-MM-dd HH:mm},{EscapeCsv(r.DepartmentName)},{EscapeCsv(r.RequestedBy)},{EscapeCsv(r.ItemCode)},{EscapeCsv(r.ItemName)},{EscapeCsv(r.Unit)},{r.RequestedQty:F2},{r.DispatchedQty:F2},{EscapeCsv(r.BatchNumber)},{expDate},{r.FinalApprovedQty:F2},{r.ScrapOrLossQty:F2},{EscapeCsv(r.DisputeStatusTitle)},{EscapeCsv(discReason)},{EscapeCsv(resNotes)},{r.FloorStockBefore:F2},{r.FloorStockAfter:F2},{r.CurrentFloorStock:F2}");
+            }
+
+            var fileName = $"تقرير_الأثر_الرقابي_لدورة_الخامات_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await TriggerBrowserDownload(fileName, sb.ToString());
+            feedbackMessage = $"✅ تم تصدير بيانات ({auditRows.Count}) حركة بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"❌ فشل التصدير: {ex.Message}";
+        }
+    }
+
     private async Task ExportRequisitionsToExcelAsync()
     {
         var list = FilteredRequisitions.ToList();
@@ -1169,15 +1472,11 @@
                         sb.AppendLine($"{EscapeCsv(req.RequisitionNumber)},{EscapeCsv(req.DepartmentName)},{EscapeCsv(whName)},{req.CreatedAt:yyyy-MM-dd HH:mm},{EscapeCsv(TranslateStatus(req.Status))},{EscapeCsv(l.ItemCode)},{EscapeCsv(l.ItemName)},{EscapeCsv(l.Unit)},{l.RequestedQty:F2},{l.DispatchedQty:F2},{l.ReceivedQty:F2},{EscapeCsv(l.BatchNumber ?? "-")},{expDate},{EscapeCsv(TranslateLineStatus(l.LineStatus))},{EscapeCsv(discReason)},{EscapeCsv(whNotes)}");
                     }
                 }
-                else
-                {
-                    sb.AppendLine($"{EscapeCsv(req.RequisitionNumber)},{EscapeCsv(req.DepartmentName)},{EscapeCsv(whName)},{req.CreatedAt:yyyy-MM-dd HH:mm},{EscapeCsv(TranslateStatus(req.Status))},-,-,-,0,0,0,-,-,-,-,-");
-                }
             }
 
             var fileName = $"سجل_طلبات_وصرف_خامات_الصالة_أبو_عادل_{DateTime.Now:yyyyMMdd_HHmm}.csv";
             await TriggerBrowserDownload(fileName, sb.ToString());
-            feedbackMessage = $"✅ تم تصدير بيانات ({list.Count}) طلب بتفاصيلها إلى إكسيل بنجاح.";
+            feedbackMessage = $"✅ تم تصدير بيانات ({list.Count}) طلب بتفاصيلها إلى CSV بنجاح.";
         }
         catch (Exception ex)
         {
@@ -1194,7 +1493,6 @@
             sb.AppendLine("101001,سكر أبيض ناعم,50,طلب تشغيل وردية الصباح قسم الشرقي");
             sb.AppendLine("101002,سميد,100,تجهيز عجين بسبوسة");
             sb.AppendLine("101003,دقيق فاخر,75,خبز اسبونج قسم الجاتوه");
-            sb.AppendLine("101004,عسل جلوكوز,25,تسقية وشربات");
 
             await TriggerBrowserDownload("قالب_طلب_خامات_الصالة_أبو_عادل.csv", sb.ToString());
         }
@@ -1303,7 +1601,7 @@
             }
         }
 
-        feedbackMessage = $"✅ تم إدراج ({valid.Count}) خامة من ملف الإكسيل في جدول الطلب الحالي بنجاح!";
+        feedbackMessage = $"✅ تم إدراج ({valid.Count}) خامة من ملف الإكسيل بنجاح!";
         CloseImportModal();
     }
 
@@ -1345,26 +1643,5 @@
         if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
             return $"\"{val.Replace("\"", "\"\"")}\"";
         return val;
-    }
-
-    public class DepartmentOptionDto
-    {
-        public long Id { get; set; }
-        public string DepartmentName { get; set; } = string.Empty;
-    }
-
-    public class WarehouseOptionDto
-    {
-        public long Id { get; set; }
-        public string WarehouseName { get; set; } = string.Empty;
-    }
-
-    public class ItemOptionDto
-    {
-        public long Id { get; set; }
-        public string ItemCode { get; set; } = string.Empty;
-        public string ItemName { get; set; } = string.Empty;
-        public string ItemType { get; set; } = string.Empty;
-        public string Unit { get; set; } = string.Empty;
     }
 }

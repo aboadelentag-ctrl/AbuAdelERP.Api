@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
@@ -11,11 +12,15 @@ using AbuAdelERP.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. إعدادات قاعدة البيانات الأساسية
+// ==============================================================
+// 1. قاعدة البيانات (PostgreSQL)
+// ==============================================================
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2. تسجيل جميع الخدمات وربطها بحاوية الاعتمادية (Dependency Injection)
+// ==============================================================
+// 2. تسجيل كافة خدمات النظام بحاوية الاعتمادية (Dependency Injection)
+// ==============================================================
 builder.Services.AddScoped<IItemService, ItemService>();
 builder.Services.AddScoped<IWarehouseService, WarehouseService>();
 builder.Services.AddScoped<IStockService, StockService>();
@@ -38,11 +43,11 @@ builder.Services.AddScoped<IVendorQcService, VendorQcService>();
 builder.Services.AddScoped<IStockCardService, StockCardService>();
 builder.Services.AddScoped<IMaterialRequisitionService, MaterialRequisitionService>();
 builder.Services.AddScoped<IFinishedGoodsTransferService, FinishedGoodsTransferService>();
-
-// ====== إضافة خدمة التحويلات بين المخازن ولجان فض المنازعات ======
 builder.Services.AddScoped<IStockTransferService, StockTransferService>();
 
-// 3. محرك الحماية الفعلي (JWT)
+// ==============================================================
+// 3. منظومة حماية الـ JWT
+// ==============================================================
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "AbuAdelSuperSecretKeyForJwtAuthentication2026";
 var keyBytes = Encoding.ASCII.GetBytes(jwtKey);
 
@@ -64,27 +69,40 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+// ==============================================================
+// 4. ضبط الـ Controllers وحل مشاكل الحلقات التكرارية JSON
+// ==============================================================
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-    }); builder.Services.AddEndpointsApiExplorer();
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+    });
 
-// 4. واجهة العرض الافتراضية النقية (Swagger & CORS)
-builder.Services.AddSwaggerGen();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.CustomSchemaIds(type => type.FullName);
+});
+
+// ==============================================================
+// 5. ضبط سياسة الـ CORS الشاملة لمنع حجب المتصفح
+// ==============================================================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+        policy.SetIsOriginAllowed(_ => true) // يقبل جميع بورتات اللوكال هوست والشبكة الداخلية
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
 var app = builder.Build();
 
-app.UseCors("AllowAll");
-
-// 5. إعدادات التشغيل
+// ==============================================================
+// 6. خط أنابيب الطلبات بالترتيب السليم الصارم (Pipeline Ordering)
+// ==============================================================
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -92,8 +110,13 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// UseCors يجب أن يكون هنا تماماً بعد HttpsRedirection وقبل Authentication
+app.UseCors("AllowAll");
+
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

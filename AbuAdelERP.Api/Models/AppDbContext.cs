@@ -1311,7 +1311,52 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ArbitratedByCode).HasMaxLength(50).HasColumnName("arbitrated_by_code");
             entity.Property(e => e.ArbitratedByName).HasMaxLength(150).HasColumnName("arbitrated_by_name");
             entity.Property(e => e.FinancialPenalty).HasMaxLength(100).HasColumnName("financial_penalty");
-        }); modelBuilder.HasSequence("production_order_number_seq", "erp");
+        });
+
+        // ----------------------------------------------------
+        // ط. تهيئة جدول بلاغات الطوارئ والأعطال (EmergencyTasks)
+        // ----------------------------------------------------
+        modelBuilder.Entity<EmergencyTask>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("emergency_tasks_pkey");
+            entity.ToTable("emergency_tasks", "erp");
+
+            entity.HasIndex(e => e.TaskNumber, "idx_emergency_tasks_number").IsUnique();
+            entity.HasIndex(e => e.Status, "idx_emergency_tasks_status");
+
+            entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
+            entity.Property(e => e.TaskNumber).HasMaxLength(50).HasColumnName("task_number");
+            entity.Property(e => e.Title).HasMaxLength(250).HasColumnName("title");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.SenderDepartment).HasMaxLength(150).HasColumnName("sender_department");
+            entity.Property(e => e.SenderEmployeeCode).HasMaxLength(50).HasColumnName("sender_employee_code");
+            entity.Property(e => e.SenderEmployeeName).HasMaxLength(150).HasColumnName("sender_employee_name");
+            entity.Property(e => e.TargetDepartment).HasMaxLength(150).HasColumnName("target_department");
+            entity.Property(e => e.TargetEmployeeName).HasMaxLength(150).HasColumnName("target_employee_name");
+            entity.Property(e => e.AssignedTechnicianCode).HasMaxLength(50).HasColumnName("assigned_technician_code");
+            entity.Property(e => e.AssignedTechnicianName).HasMaxLength(150).HasColumnName("assigned_technician_name");
+            entity.Property(e => e.AssignmentNotes).HasColumnName("assignment_notes");
+            entity.Property(e => e.Priority).HasMaxLength(30).HasDefaultValue("NORMAL").HasColumnName("priority");
+            entity.Property(e => e.MediaType).HasMaxLength(30).HasDefaultValue("TEXT").HasColumnName("media_type");
+            entity.Property(e => e.MediaUrl).HasColumnName("media_url");
+            entity.Property(e => e.MediaFileName).HasMaxLength(200).HasColumnName("media_file_name");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
+            entity.Property(e => e.TargetResolutionMinutes).HasDefaultValue(30).HasColumnName("target_resolution_minutes");
+            entity.Property(e => e.RespondedAt).HasColumnName("responded_at");
+            entity.Property(e => e.CompletedAt).HasColumnName("completed_at");
+            entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("PENDING").HasColumnName("status");
+            entity.Property(e => e.ClosureNotes).HasColumnName("closure_notes");
+            entity.Property(e => e.ClosureProofMediaUrl).HasColumnName("closure_proof_media_url");
+            entity.Property(e => e.ClosedBy).HasMaxLength(150).HasColumnName("closed_by");
+            entity.Property(e => e.ClosedByCode).HasMaxLength(50).HasColumnName("closed_by_code");
+            entity.Property(e => e.AssetCode).HasMaxLength(50).HasColumnName("asset_code");
+            entity.Property(e => e.CostImpact).HasMaxLength(150).HasColumnName("cost_impact");
+            entity.Property(e => e.SparePartsUsed).HasColumnName("spare_parts_used");
+            entity.Property(e => e.RootCause).HasColumnName("root_cause");
+            entity.Property(e => e.DowntimeMinutes).HasDefaultValue(0).HasColumnName("downtime_minutes");
+        });
+
+        modelBuilder.HasSequence("production_order_number_seq", "erp");
         OnModelCreatingPartial(modelBuilder);
     }
 

@@ -1,8 +1,11 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using AbuAdelERP.Api.DTOs;
 using AbuAdelERP.Api.Services;
+using AbuAdelERP.Api.Models;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace AbuAdelERP.Api.Controllers
@@ -12,13 +15,53 @@ namespace AbuAdelERP.Api.Controllers
     public class StockTransfersController : ControllerBase
     {
         private readonly IStockTransferService _service;
+        private readonly AppDbContext _context;
 
-        public StockTransfersController(IStockTransferService service)
+        public StockTransfersController(IStockTransferService service, AppDbContext context)
         {
             _service = service;
+            _context = context;
         }
 
-        // 1. جلب قائمة التحويلات (مع إمكانية الفلترة بحسب الحالة)
+        // ========================================================
+        // 1. القوائم المرجعية الموحدة (تنقية المخازن وحصر الأصناف النشطة)
+        // ========================================================
+        [HttpGet("lookups")]
+        public async Task<IActionResult> GetLookups()
+        {
+            try
+            {
+                // استبعاد الإدارات والمكاتب المكتبية وحصر القائمة في المخازن ومستودعات الصالات الفعلية
+                var warehouses = await _context.Warehouses
+                    .AsNoTracking()
+                    .Where(w => !w.WarehouseName.Contains("إدارة")
+                             && !w.WarehouseName.Contains("العليا")
+                             && !w.WarehouseName.Contains("المالية")
+                             && !w.WarehouseName.Contains("الموارد")
+                             && !w.WarehouseName.Contains("المشتريات")
+                             && !w.WarehouseName.Contains("المبيعات"))
+                    .OrderBy(w => w.WarehouseName)
+                    .Select(w => new { w.Id, w.WarehouseName })
+                    .ToListAsync();
+
+                var items = await _context.Items
+                    .AsNoTracking()
+                    .Where(i => i.Active == true)
+                    .OrderBy(i => i.ItemName)
+                    .Select(i => new { i.Id, i.ItemCode, i.ItemName, i.Unit, i.ItemType })
+                    .ToListAsync();
+
+                return Ok(new { warehouses, items });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب البيانات المرجعية للتحويلات: {ex.Message}");
+            }
+        }
+
+        // ========================================================
+        // 2. إدارة وتتبع التحويلات وفض المنازعات
+        // ========================================================
         [HttpGet]
         public async Task<ActionResult<List<StockTransferDetailDto>>> GetAll([FromQuery] string? status)
         {
@@ -33,8 +76,7 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
-        // 2. جلب تفاصيل إذن تحويل محدد برقم الـ Id
-        [HttpGet("{id}")]
+        [HttpGet("{id:long}")]
         public async Task<ActionResult<StockTransferDetailDto>> GetById(long id)
         {
             try
@@ -45,11 +87,10 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب بيانات إذن التحويل: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ في جلب تفاصيل إذن التحويل: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
-        // 3. جلب الرصيد اللحظي واللوطات المتاحة (FEFO) لصنف معين في مخزن محدد
         [HttpGet("available-batches")]
         public async Task<ActionResult<AvailableStockInfoDto>> GetAvailableBatches([FromQuery] long itemId, [FromQuery] long warehouseId)
         {
@@ -67,13 +108,14 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
-        // 4. إنشاء إذن تحويل جديد وصرفه فورياً من المخزن الراسل (In-Transit)
         [HttpPost]
         public async Task<ActionResult<StockTransferDetailDto>> CreateAndDispatch([FromBody] CreateStockTransferDto dto)
         {
             try
             {
-                if (dto == null) return BadRequest("بيانات إذن التحويل غير صالحة.");
+                if (dto == null || dto.Lines == null || !dto.Lines.Any())
+                    return BadRequest("يجب إدراج صنف واحد على الأقل في إذن التحويل.");
+
                 var result = await _service.CreateAndDispatchTransferAsync(dto);
                 return Ok(result);
             }
@@ -87,7 +129,6 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
-        // 5. تأكيد استلام سطر تحويل في المخزن المستقبل صنفاً بصنف
         [HttpPost("receive-line")]
         public async Task<IActionResult> ReceiveLine([FromBody] ConfirmTransferLineReceiveDto dto)
         {
@@ -104,7 +145,6 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
-        // 6. اعتماد قرار لجنة فض المنازعات وتسوية الفروق وعجز النقل
         [HttpPost("resolve-dispute")]
         public async Task<IActionResult> ResolveDispute([FromBody] ResolveTransferDisputeDto dto)
         {

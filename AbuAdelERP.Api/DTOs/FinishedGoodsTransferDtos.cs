@@ -12,7 +12,8 @@ namespace AbuAdelERP.Api.DTOs
         public decimal DispatchedQty { get; set; }
         public int DispatchedCount { get; set; }
         public string? Notes { get; set; }
-        public string SubmittedBy { get; set; } = "مشرف الصالة";
+        public string SubmittedBy { get; set; } = string.Empty;
+        public string? SubmittedByCode { get; set; }
     }
 
     public class CostingAuditDto
@@ -20,7 +21,8 @@ namespace AbuAdelERP.Api.DTOs
         public long TransferId { get; set; }
         public decimal ActualWeight { get; set; }
         public int ActualCount { get; set; }
-        public string AuditorName { get; set; } = "مراجع التكاليف";
+        public string AuditorName { get; set; } = string.Empty;
+        public string? AuditorCode { get; set; }
         public string? Notes { get; set; }
         public bool EscalateDispute { get; set; } = false;
     }
@@ -30,7 +32,8 @@ namespace AbuAdelERP.Api.DTOs
         public long TransferId { get; set; }
         public decimal FinalAcceptedWeight { get; set; }
         public int FinalAcceptedCount { get; set; }
-        public string ResolvedBy { get; set; } = "لجنة الإنتاج والتكاليف";
+        public string ResolvedBy { get; set; } = string.Empty;
+        public string? ResolvedByCode { get; set; }
         public string ChargeTo { get; set; } = string.Empty;
         public string ResolutionNotes { get; set; } = string.Empty;
     }
@@ -42,7 +45,8 @@ namespace AbuAdelERP.Api.DTOs
         public decimal SampleQty { get; set; }
         public decimal ReworkQty { get; set; }
         public decimal ScrapQty { get; set; }
-        public string InspectorName { get; set; } = "مراقب الجودة";
+        public string InspectorName { get; set; } = string.Empty;
+        public string? InspectorCode { get; set; }
         public string? Notes { get; set; }
     }
 
@@ -51,7 +55,8 @@ namespace AbuAdelERP.Api.DTOs
         public long TransferId { get; set; }
         public decimal ReceivedQty { get; set; }
         public int ReceivedCount { get; set; }
-        public string ReceiverName { get; set; } = "أمين مخزن الكنترول";
+        public string ReceiverName { get; set; } = string.Empty;
+        public string? ReceiverCode { get; set; }
         public string? Notes { get; set; }
     }
 
@@ -59,7 +64,8 @@ namespace AbuAdelERP.Api.DTOs
     {
         public long TransferId { get; set; }
         public decimal FinalAcceptedQty { get; set; }
-        public string ResolvedBy { get; set; } = "لجنة فض المنازعات";
+        public string ResolvedBy { get; set; } = string.Empty;
+        public string? ResolvedByCode { get; set; }
         public string ChargeTo { get; set; } = string.Empty;
         public string ResolutionNotes { get; set; } = string.Empty;
     }
@@ -70,6 +76,7 @@ namespace AbuAdelERP.Api.DTOs
         public decimal AdjustedQty { get; set; }
         public int AdjustedCount { get; set; }
         public string Notes { get; set; } = string.Empty;
+        public string? ReworkBy { get; set; }
     }
 
     public class FinishedGoodsTransferViewDto

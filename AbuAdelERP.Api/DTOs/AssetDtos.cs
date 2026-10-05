@@ -1,6 +1,8 @@
-﻿namespace AbuAdelERP.Api.DTOs
+﻿using System;
+
+namespace AbuAdelERP.Api.DTOs
 {
-    // DTOs الأصول الثابتة
+    // DTOs الأصول الثابتة والماكينات الرأسمالية فقط
     public record CreateFixedAssetDto(
         string AssetCode,
         string Name,
@@ -22,27 +24,5 @@
         string CustodianCode,
         string CustodianName,
         string Status
-    );
-
-    // DTOs دورة الأسبات والعهد
-    public record DispatchCrateDto(
-        string MovementType,
-        string ContainerName,
-        int DispatchedQuantity,
-        string SourceLocation,
-        string DestinationLocation,
-        string? Notes
-    );
-
-    public record ReceiveCrateDto(
-        int ActualReceivedQuantity,
-        int DamagedCount,
-        string? ReceiveNotes
-    );
-
-    public record SettleDisputeDto(
-        string ArbitrationDecision,
-        string ArbitrationText,
-        string? FinancialPenalty
     );
 }

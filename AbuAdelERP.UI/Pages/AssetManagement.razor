@@ -1,4 +1,6 @@
 ﻿@page "/asset-management"
+@page "/crate-tracking"
+@page "/crates-tracking"
 @using System.Net.Http.Json
 @using System.Text
 @using System.Text.Json.Serialization
@@ -47,19 +49,12 @@
                             <i class="bi bi-file-earmark-excel-fill text-success me-1"></i> تصدير إكسيل
                         </button>
                     </AuthorizePermission>
-
-                    <AuthorizePermission Permission="FixedAssets.Manage">
-                        <label class="btn btn-outline-info btn-sm fw-bold px-3 py-2 shadow-sm mb-0 cursor-pointer">
-                            <i class="bi bi-file-earmark-arrow-up-fill me-1"></i> استيراد أصول من إكسيل
-                            <InputFile OnChange="ImportAssetsFromExcel" class="d-none" accept=".csv" />
-                        </label>
-                    </AuthorizePermission>
                 }
                 else if (activeTab == "circulating")
                 {
                     <AuthorizePermission Permission="Crates.Dispatch">
                         <button class="btn btn-primary btn-sm fw-bold px-3 py-2 shadow-sm d-flex align-items-center gap-2" @onclick="OpenCrateDispatchModal">
-                            <i class="bi bi-box-arrow-up-right"></i> إصدار إذن تسليم وصرف أسبات وأوعية (كميات)
+                            <i class="bi bi-box-arrow-up-right"></i> إصدار إذن تسليم وصرف أسبات وأوعية
                         </button>
                     </AuthorizePermission>
 
@@ -73,7 +68,6 @@
         </div>
     </div>
 
-    <!-- رسائل التنبيه والنجاح العامة -->
     @if (!string.IsNullOrEmpty(feedbackMessage))
     {
         <div class="alert @(isSuccessFeedback ? "alert-success" : "alert-danger") border-0 shadow-sm alert-dismissible fade show py-2 mb-3 fw-bold" role="alert">
@@ -82,7 +76,7 @@
         </div>
     }
 
-    <!-- نظام التبويبات الرئيسي -->
+    <!-- التبويبات -->
     <ul class="nav nav-tabs fw-bold mb-3 border-bottom-2" role="tablist">
         <li class="nav-item">
             <button class="nav-link @(activeTab == "fixed" ? "active text-dark border-warning border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => SwitchTab("fixed")'>
@@ -101,9 +95,7 @@
         </li>
     </ul>
 
-    <!-- ======================================================== -->
-    <!-- التبويب 1: الأصول والماكينات الرأسمالية بالصالات -->
-    <!-- ======================================================== -->
+    <!-- التبويب 1: الأصول الثابتة -->
     @if (activeTab == "fixed")
     {
         <div class="row g-2 mb-3">
@@ -133,7 +125,6 @@
             </div>
         </div>
 
-        <!-- فلاتر البحث -->
         <div class="card shadow-sm border-0 mb-3 bg-light">
             <div class="card-body p-2">
                 <div class="row g-2 align-items-center">
@@ -177,7 +168,6 @@
             </div>
         </div>
 
-        <!-- جدول الماكينات الرأسمالية -->
         <div class="card shadow-sm border-0 rounded-3">
             <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                 <h6 class="fw-bold text-dark m-0">📋 سجل الأصول والماكينات الرأسمالية (المعروض: @FilteredFixedAssets.Count())</h6>
@@ -206,7 +196,7 @@
                         {
                             @foreach (var asset in FilteredFixedAssets)
                             {
-                                var hasActiveSOS = !string.IsNullOrEmpty(asset.ActiveSOSTaskNumber);
+                                var hasActiveSOS = !string.IsNullOrEmpty(asset.ActiveSOSTaskNumber) || asset.Status == "UNDER_MAINTENANCE";
                                 <tr>
                                     <td class="font-monospace fw-bold text-primary">@asset.AssetCode</td>
                                     <td class="fw-bold text-start ps-3 text-dark">
@@ -227,7 +217,7 @@
                                         <span class="badge @GetAssetStatusBadge(asset.Status) px-2 py-1 d-block mb-1">
                                             @TranslateAssetStatus(asset.Status)
                                         </span>
-                                        @if (hasActiveSOS)
+                                        @if (hasActiveSOS && !string.IsNullOrEmpty(asset.ActiveSOSTaskNumber))
                                         {
                                             <span class="badge bg-danger font-monospace" style="font-size: 10px;">
                                                 🚨 @asset.ActiveSOSTaskNumber
@@ -268,69 +258,59 @@
         </div>
     }
 
-    <!-- ======================================================== -->
-    <!-- التبويب 2: دورة استلام وتسليم الأسبات والأوعية المتداولة -->
-    <!-- ======================================================== -->
+    <!-- التبويب 2: دورة تداول الأسبات والمحاضر الميدانية المكتملة -->
     @if (activeTab == "circulating")
     {
-        <div class="card shadow-sm border-0 rounded-3 mb-3">
+        <!-- موقف الأرصدة اللحظية للحاويات -->
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
             <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-                <h6 class="fw-bold text-dark m-0">🧺 موقف الأرصدة اللحظية للحاويات والأسبات بالمصنع (من مركز الأصناف)</h6>
-                <span class="badge bg-secondary font-monospace">أوعية تداول كمية</span>
+                <h6 class="fw-bold text-dark m-0">🧺 موقف الأرصدة اللحظية للحاويات والأسبات بالمصنع</h6>
+                <button class="btn btn-outline-primary btn-sm py-0 fw-bold" @onclick="LoadCrateData">🔄 تحديث الأرصدة</button>
             </div>
             <div class="card-body p-0 table-responsive">
                 <table class="table table-bordered mb-0 text-center align-middle small">
                     <thead class="table-light">
                         <tr>
                             <th>نوع الوعاء / الحاوية</th>
-                            <th>كود الصنف والمواصفة</th>
+                            <th>المواصفة الفنية</th>
                             <th>الرصيد الكلي بالمصنع</th>
                             <th>بصالات الإنتاج</th>
                             <th>بمستودع التعبئة</th>
-                            <th>عهدة خارجية بالفروع/السيارات</th>
-                            <th>معلق بمحاضر نزاع ⚠️</th>
-                            <th>الهالك والكسر</th>
+                            <th>عهدة خارجية بالفروع/المندوبين</th>
+                            <th>حاويات متنازع عليها (عجز)</th>
+                            <th>توالف وكسر</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @if (!circulatingAssetsList.Any())
+                        @foreach (var c in circulatingAssetsList)
                         {
-                            <tr><td colspan="8" class="text-muted py-3">جاري مزامنة أرصدة الحاويات من مركز الأصناف...</td></tr>
-                        }
-                        else
-                        {
-                            @foreach (var c in circulatingAssetsList)
-                            {
-                                <tr>
-                                    <td class="fw-bold text-start ps-3 text-primary fs-6">@c.ContainerName</td>
-                                    <td class="text-muted font-monospace">@c.Specification</td>
-                                    <td class="font-monospace fw-bold fs-6">@c.TotalFactoryQuantity</td>
-                                    <td class="font-monospace text-success fw-bold">@c.InProductionFloorQuantity</td>
-                                    <td class="font-monospace text-info fw-bold">@c.InPackagingWarehouseQuantity</td>
-                                    <td class="font-monospace text-warning fw-bold">@c.WithDriversAndBranchesQuantity</td>
-                                    <td class="font-monospace text-danger fw-bold">@c.DisputedQuantity</td>
-                                    <td class="font-monospace text-secondary fw-bold">@c.DamagedQuantity</td>
-                                </tr>
-                            }
+                            <tr>
+                                <td class="fw-bold text-start ps-3 text-primary fs-6">@c.ContainerName</td>
+                                <td class="text-muted font-monospace">@c.Specification</td>
+                                <td class="font-monospace fw-bold fs-6">@c.TotalFactoryQuantity</td>
+                                <td class="font-monospace text-success fw-bold">@c.InProductionFloorQuantity</td>
+                                <td class="font-monospace text-info fw-bold">@c.InPackagingWarehouseQuantity</td>
+                                <td class="font-monospace text-warning fw-bold">@c.WithDriversAndBranchesQuantity</td>
+                                <td class="font-monospace text-danger fw-bold">@c.DisputedQuantity</td>
+                                <td class="font-monospace text-secondary fw-bold">@c.DamagedQuantity</td>
+                            </tr>
                         }
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <div class="card shadow-sm border-0 rounded-3">
-            <div class="card-header bg-white py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <div>
-                    <h6 class="fw-bold text-dark m-0">📋 سجل دورات الاستلام والتسليم وتأكيد الأطراف (Chain of Custody)</h6>
-                    <small class="text-muted">توثيق تسليم واستلام الأوعية والأسبات ومحاضر النزاع والعجز الميداني</small>
-                </div>
+        <!-- جدول سجل دورات الاستلام والتسليم الميداني -->
+        <div class="card shadow-sm border-0 rounded-3 mb-4 border-top border-4 border-primary">
+            <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold text-dark m-0">🚚 سجل أذون صرف واستلام الأسبات ومحاضر النزاع (@crateMovementsHistory.Count حركة)</h6>
                 <div class="d-flex gap-2">
-                    <select class="form-select form-select-sm" @bind="movementStatusFilter" style="width: 200px;">
+                    <select class="form-select form-select-sm font-monospace" style="width: 200px;" @bind="crateFilterStatus" @bind:after="LoadCrateData">
                         <option value="">-- كل الحالات --</option>
                         <option value="PENDING_RECEIPT">بانتظار تأكيد المستلم ⏳</option>
-                        <option value="COMPLETED">مكتمل ومؤكد من الطرفين ✓</option>
-                        <option value="DISPUTED">معلق بنزاع وعجز ⚠️</option>
-                        <option value="RESOLVED">تم فض النزاع والتسوية ⚖️</option>
+                        <option value="DISPUTED">نزاع عجز وكسر معلق ⚠️</option>
+                        <option value="COMPLETED">مكتمل ومستلم بالكامل ✓</option>
+                        <option value="RESOLVED">تم التحكيم وفض النزاع ⚖️</option>
                     </select>
                 </div>
             </div>
@@ -339,107 +319,88 @@
                     <thead class="table-dark">
                         <tr>
                             <th>رقم الإذن</th>
-                            <th>التاريخ</th>
-                            <th>نوع الحركة والوعاء</th>
+                            <th>تاريخ الحركة</th>
+                            <th>نوع الحركة</th>
+                            <th>نوع الوعاء</th>
                             <th>الكمية المنصرفة</th>
-                            <th>الطرف المُسلِّم (المصدر)</th>
-                            <th>الطرف المُستلِم (الوجهة)</th>
-                            <th>الكمية المستلمة فعلياً</th>
-                            <th>حالة الاستلام</th>
-                            <th style="min-width: 220px;">الإجراء الرقابي المصرح به</th>
+                            <th>الموقع المُرسل</th>
+                            <th>القائم بالصرف (HR)</th>
+                            <th>الموقع المستلم</th>
+                            <th>المستلم الفعلي (HR)</th>
+                            <th>الكمية المستلمة</th>
+                            <th>العجز والكسر</th>
+                            <th>الحالة</th>
+                            <th>الإجراء الميداني</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @if (!FilteredMovements.Any())
+                        @if (!crateMovementsHistory.Any())
                         {
-                            <tr><td colspan="9" class="text-muted py-4 fw-bold">لا توجد حركات تداول مسجلة تطابق شروط العرض.</td></tr>
+                            <tr><td colspan="13" class="text-muted py-4 fw-bold">لا توجد حركات تداول مسجلة حالياً.</td></tr>
                         }
                         else
                         {
-                            @foreach (var move in FilteredMovements)
+                            @foreach (var m in crateMovementsHistory)
                             {
-                                var isSender = !string.IsNullOrEmpty(move.DispatchedByCode) && move.DispatchedByCode.Equals(State.EmployeeCode, StringComparison.OrdinalIgnoreCase);
-
                                 <tr>
-                                    <td class="font-monospace fw-bold text-primary">@move.MovementNumber</td>
-                                    <td class="font-monospace">@move.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td><code class="fw-bold font-monospace">@m.MovementNumber</code></td>
+                                    <td class="font-monospace">@m.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td>
-                                        <span class="badge @GetMovementBadge(move.MovementType) d-block mb-1">
-                                            @TranslateMovementType(move.MovementType)
+                                        <span class="badge @(m.MovementType == "DISPATCH_BRANCH" ? "bg-primary" : "bg-success")">
+                                            @(m.MovementType == "DISPATCH_BRANCH" ? "صرف خارجي / للفروع" : "مرتجع للمصنع")
                                         </span>
-                                        <small class="fw-bold text-dark">@move.ContainerName</small>
                                     </td>
-                                    <td class="font-monospace fw-bold fs-6 text-primary">@move.DispatchedQuantity</td>
-                                    <td class="text-start ps-2">
-                                        <div class="fw-bold">@move.SourceLocation</div>
-                                        <small class="text-muted font-monospace">[@move.DispatchedByCode] @move.DispatchedByName</small>
+                                    <td class="fw-bold text-dark">@m.ContainerName</td>
+                                    <td class="font-monospace fw-bold fs-6">@m.DispatchedQuantity</td>
+                                    <td><span class="badge bg-light text-dark border">@m.SourceLocation</span></td>
+                                    <td>
+                                        <div class="small fw-bold">@m.DispatchedByName</div>
+                                        <small class="text-muted font-monospace">[@m.DispatchedByCode]</small>
                                     </td>
-                                    <td class="text-start ps-2">
-                                        <div class="fw-bold text-primary">@move.DestinationLocation</div>
-                                        @if (!string.IsNullOrEmpty(move.ReceivedByName))
+                                    <td><span class="badge bg-light text-dark border">@m.DestinationLocation</span></td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(m.ReceivedByName))
                                         {
-                                            <small class="text-success font-monospace">[@move.ReceivedByCode] @move.ReceivedByName</small>
+                                            <div class="small fw-bold">@m.ReceivedByName</div>
+                                            <small class="text-muted font-monospace">[@m.ReceivedByCode]</small>
                                         }
                                         else
                                         {
-                                            <small class="text-muted fst-italic">بانتظار توقيع المستلم</small>
+                                            <span class="text-muted">---</span>
                                         }
                                     </td>
+                                    <td class="font-monospace fw-bold text-success">@(m.ReceivedQuantity > 0 ? m.ReceivedQuantity.ToString() : "-")</td>
                                     <td>
-                                        @if (move.ReceivedQuantity.HasValue)
+                                        @if (m.ShortageQuantity > 0 || m.DamagedCount > 0)
                                         {
-                                            <span class="font-monospace fw-bold @(move.ReceivedQuantity.Value == move.DispatchedQuantity ? "text-success" : "text-danger") fs-6">
-                                                @move.ReceivedQuantity.Value
-                                            </span>
-                                            @if (move.ShortageQuantity > 0)
-                                            {
-                                                <small class="text-danger d-block fw-bold font-monospace">(عجز: @move.ShortageQuantity)</small>
-                                            }
+                                            <span class="badge bg-danger font-monospace">عجز: @m.ShortageQuantity | كسر: @m.DamagedCount</span>
                                         }
                                         else
                                         {
-                                            <span class="text-muted font-monospace">---</span>
+                                            <span class="text-muted">-</span>
                                         }
                                     </td>
                                     <td>
-                                        <span class="badge @GetHandoverStatusBadge(move.Status) px-2 py-1">
-                                            @TranslateHandoverStatus(move.Status)
+                                        <span class="badge @GetCrateStatusBadge(m.Status) px-2 py-1">
+                                            @TranslateCrateStatus(m.Status)
                                         </span>
                                     </td>
                                     <td>
-                                        <div class="d-flex justify-content-center align-items-center gap-1 flex-wrap">
-                                            @if (move.Status == "PENDING_RECEIPT")
+                                        <div class="d-flex justify-content-center gap-1">
+                                            @if (m.Status == "PENDING_RECEIPT")
                                             {
-                                                if (!isSender)
-                                                {
-                                                    <AuthorizePermission Permission="Crates.Receive">
-                                                        <button class="btn btn-sm btn-success fw-bold py-1 px-2 shadow-sm" @onclick="() => OpenReceiveHandshakeModal(move)">
-                                                            📥 فحص وتأكيد الاستلام
-                                                        </button>
-                                                    </AuthorizePermission>
-                                                }
-                                                else
-                                                {
-                                                    <span class="badge bg-light text-muted border py-1 px-2 small">
-                                                        ⏳ بانتظار توقيع المستلم
-                                                    </span>
-                                                }
+                                                <button class="btn btn-sm btn-success fw-bold py-1 px-2 shadow-sm" @onclick="() => OpenReceiveCrateModal(m)">
+                                                    📥 تأكيد الاستلام
+                                                </button>
                                             }
-
-                                            @if (move.Status == "DISPUTED")
+                                            @if (m.Status == "DISPUTED")
                                             {
-                                                <AuthorizePermission Permission="Crates.SettleDispute">
-                                                    <button class="btn btn-sm btn-danger fw-bold py-1 px-2 shadow-sm" @onclick="() => OpenSettleDisputeModal(move)">
-                                                        ⚖️ فض وتسوية النزاع
+                                                <AuthorizePermission Permission="Crates.SettleDispute, Roles.Manage">
+                                                    <button class="btn btn-sm btn-danger fw-bold py-1 px-2 shadow-sm" @onclick="() => OpenSettleDisputeModal(m)">
+                                                        ⚖️ فض النزاع
                                                     </button>
                                                 </AuthorizePermission>
                                             }
-
-                                            <AuthorizePermission Permission="Crates.View">
-                                                <button class="btn btn-sm btn-outline-dark py-1 px-2" @onclick="() => OpenMovementDetailsModal(move)">
-                                                    🔍 المحضر
-                                                </button>
-                                            </AuthorizePermission>
                                         </div>
                                     </td>
                                 </tr>
@@ -451,16 +412,14 @@
         </div>
     }
 
-    <!-- ======================================================== -->
-    <!-- التبويب 3: بطاقة جرد وعهدة الأقسام والصالات المعتمدة -->
-    <!-- ======================================================== -->
+    <!-- التبويب 3: بطاقة جرد الأقسام -->
     @if (activeTab == "custody")
     {
         <div class="card shadow-sm border-0 rounded-3 mb-3 bg-light">
             <div class="card-body p-3">
                 <div class="row align-items-center g-2">
                     <div class="col-md-5">
-                        <label class="form-label small fw-bold text-dark mb-1">اختر الصالة أو القسم الفعلي من الهيكل المعتمد:</label>
+                        <label class="form-label small fw-bold text-dark mb-1">اختر الصالة أو القسم الفعلي:</label>
                         <select class="form-select fw-bold border-success" @bind="selectedCustodyDept">
                             @foreach (var d in dbDepartments)
                             {
@@ -477,290 +436,97 @@
             </div>
         </div>
 
-        <div class="row g-3">
-            <div class="col-md-7">
-                <div class="card shadow-sm border-0 rounded-3 h-100">
-                    <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="fw-bold text-dark m-0">🏭 الماكينات والمعدات الرأسمالية في عهدة (@selectedCustodyDept)</h6>
-                        <span class="badge bg-dark font-monospace">@DepartmentFixedAssets.Count() ماكينة</span>
-                    </div>
-                    <div class="card-body p-0 table-responsive">
-                        <table class="table table-bordered mb-0 text-center align-middle small">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>كود الأصل</th>
-                                    <th>اسم الماكينة</th>
-                                    <th>الماركة والموديل</th>
-                                    <th>الرقم التسلسلي</th>
-                                    <th>الحالة الفنية</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @if (!DepartmentFixedAssets.Any())
-                                {
-                                    <tr><td colspan="5" class="text-muted py-3">لا توجد ماكينات مسجلة بعهدة هذا القسم.</td></tr>
-                                }
-                                else
-                                {
-                                    @foreach (var a in DepartmentFixedAssets)
-                                    {
-                                        <tr>
-                                            <td class="font-monospace fw-bold text-primary">@a.AssetCode</td>
-                                            <td class="fw-bold text-start ps-2">@a.Name</td>
-                                            <td>@a.BrandModel</td>
-                                            <td class="font-monospace text-muted">@a.SerialNumber</td>
-                                            <td><span class="badge @GetAssetStatusBadge(a.Status)">@TranslateAssetStatus(a.Status)</span></td>
-                                        </tr>
-                                    }
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-header bg-white py-2">
+                <h6 class="fw-bold text-dark m-0">🏭 الماكينات والمعدات بعهدة (@selectedCustodyDept)</h6>
             </div>
-
-            <div class="col-md-5">
-                <div class="card shadow-sm border-0 rounded-3 h-100">
-                    <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="fw-bold text-primary m-0">🧺 الأسبات والصواني المتداولة المسجلة بالمصنع</h6>
-                        <span class="badge bg-primary">الرصيد الكلي</span>
-                    </div>
-                    <div class="card-body p-3">
-                        <ul class="list-group list-group-flush small">
-                            @foreach (var cont in circulatingAssetsList)
-                            {
-                                <li class="list-group-item d-flex justify-content-between align-items-center py-2">
-                                    <span>@cont.ContainerName</span>
-                                    <strong class="badge bg-dark fs-6 font-monospace">@cont.TotalFactoryQuantity وعاء</strong>
-                                </li>
-                            }
-                        </ul>
-                    </div>
-                </div>
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>كود الأصل</th>
+                            <th>اسم الماكينة</th>
+                            <th>الماركة والموديل</th>
+                            <th>الرقم التسلسلي</th>
+                            <th>الحالة الفنية</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in DepartmentFixedAssets)
+                        {
+                            <tr>
+                                <td class="font-monospace fw-bold text-primary">@a.AssetCode</td>
+                                <td class="fw-bold text-start ps-2">@a.Name</td>
+                                <td>@a.BrandModel</td>
+                                <td class="font-monospace text-muted">@a.SerialNumber</td>
+                                <td><span class="badge @GetAssetStatusBadge(a.Status)">@TranslateAssetStatus(a.Status)</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
         </div>
     }
 
 </div>
 
-<!-- ======================================================== -->
-<!-- نافذة (أ): نقل عهدة وتغيير صالة ماكينة رأسمالية (مغلقة ومحكومة) -->
-<!-- ======================================================== -->
-@if (isMachineTransferModalOpen)
+<!-- مودال 1: إصدار إذن تسليم وصرف أسبات وأوعية -->
+@if (isCrateDispatchModalOpen)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
-        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-warning text-dark py-2 px-3 d-flex justify-content-between align-items-center">
-                    <h6 class="modal-title fw-bold">🔄 نقل عهدة وتغيير صالة ماكينة / أصل رأسمالي (دائرة مغلقة)</h6>
-                    <button type="button" class="btn-close" @onclick="() => isMachineTransferModalOpen = false"></button>
-                </div>
-                <div class="modal-body bg-light p-4">
-
-                    <!-- اختيار الماكينة -->
-                    <div class="card p-3 mb-3 border-0 shadow-sm bg-white">
-                        <div class="row g-2 align-items-center">
-                            <div class="col-md-9">
-                                <label class="form-label small fw-bold text-dark mb-1">اختر الماكينة الرأسمالية المطلوب نقل عهدتها *</label>
-                                <select class="form-select fw-bold border-warning" value="@selectedMachineTransferCode" @onchange="OnMachineTransferSelectionChanged">
-                                    <option value="">-- اضغط لاختيار الماكينة من واقع الصالات --</option>
-                                    @foreach (var m in fixedAssetsList)
-                                    {
-                                        <option value="@m.AssetCode">[@m.AssetCode] - @m.Name (@m.Department)</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label small fw-bold text-dark mb-1">الكمية المنقولة</label>
-                                <input type="text" class="form-control font-monospace fw-bold text-center bg-light text-danger" value="1 فقط (مسريل)" readonly disabled />
-                            </div>
-                        </div>
-                    </div>
-
-                    @if (selectedMachineToTransfer != null)
-                    {
-                        <!-- 🔒 المصدر الحالي (مغلق ومحكوم آلياً من واقع الماكينة) -->
-                        <div class="card p-3 mb-3 border-0 shadow-sm bg-white border-start border-4 border-danger">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <h6 class="fw-bold text-dark small m-0">
-                                    <i class="bi bi-lock-fill text-danger me-1"></i> 1. المصدر والعهدة الحالية (مغلقة ومسحوبة آلياً من ملف الأصل):
-                                </h6>
-                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 small fw-bold">
-                                    🔒 غير قابلة للتلاعب
-                                </span>
-                            </div>
-                            <div class="row g-2">
-                                <div class="col-md-6">
-                                    <label class="small text-muted fw-bold">الصالة الحالية المقيدة بها الماكينة:</label>
-                                    <input type="text" class="form-control fw-bold bg-light" value="@selectedMachineToTransfer.Department" readonly disabled />
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="small text-muted fw-bold">المشرف المسؤول حالياً عن العهدة:</label>
-                                    <input type="text" class="form-control fw-bold bg-light font-monospace" value="@($"[{selectedMachineToTransfer.CustodianCode}] {selectedMachineToTransfer.CustodianName}")" readonly disabled />
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 🔓 الوجهة الجديدة والمشرف المستلم (اختيار حر) -->
-                        <div class="card p-3 mb-3 border-0 shadow-sm bg-white border-start border-4 border-success">
-                            <h6 class="fw-bold text-success small mb-2">
-                                <i class="bi bi-geo-alt-fill text-success me-1"></i> 2. الوجهة الجديدة والمشرف المستلم للعهدة:
-                            </h6>
-                            <div class="row g-2">
-                                <div class="col-md-6">
-                                    <label class="small fw-bold text-dark mb-1">الصالة / القسم المستلم الجديد *</label>
-                                    <select class="form-select fw-bold border-success" @bind="targetTransferDept">
-                                        @foreach (var d in dbDepartments)
-                                        {
-                                            <option value="@d.DisplayName">@d.DisplayName</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="small fw-bold text-dark mb-1">المشرف / الفني المستلم للعهدة (من HR) *</label>
-                                    <select class="form-select fw-bold border-success font-monospace" @bind="targetTransferEmpCode">
-                                        <option value="">-- اضغط لاختيار المستلم الجديد للماكينة --</option>
-                                        @foreach (var emp in employeesCatalog)
-                                        {
-                                            <option value="@emp.DisplayCode">[@emp.DisplayCode] - @emp.DisplayName (@emp.DisplayDepartment)</option>
-                                        }
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="mb-2">
-                            <label class="small fw-bold text-dark mb-1">أسباب وملاحظات نقل الماكينة (لتوثيق سجل الأصل)</label>
-                            <textarea class="form-control" rows="2" @bind="machineTransferReason" placeholder="مثال: نقل الماكينة لصالة الجاتوه لتوسيع خط الإنتاج، صيانة دورية..."></textarea>
-                        </div>
-                    }
-
-                </div>
-                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isMachineTransferModalOpen = false">إلغاء</button>
-                    <button class="btn btn-warning text-dark btn-sm px-4 fw-bold shadow-sm" disabled="@(selectedMachineToTransfer == null)" @onclick="SubmitMachineTransfer">
-                        🔄 ترحيل وتثبيت نقل عهدة الماكينة
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- ======================================================== -->
-<!-- نافذة (ب): إصدار إذن تسليم وصرف أسبات وأوعية تداول (كميات) -->
-<!-- ======================================================== -->
-@if (isDispatchModalOpen)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
-        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-primary text-white py-2 px-3 d-flex justify-content-between align-items-center">
-                    <h6 class="modal-title fw-bold">🧺 إصدار إذن تسليم وصرف أسبات وأوعية تداول (طرف أول مُسلِّم)</h6>
-                    <button type="button" class="btn-close btn-close-white" @onclick="() => isDispatchModalOpen = false"></button>
+                    <h6 class="modal-title fw-bold">📦 إصدار إذن تسليم وصرف أسبات / صواني (طرف أول مُسلِّم)</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isCrateDispatchModalOpen = false"></button>
                 </div>
                 <div class="modal-body bg-light p-4">
-
-                    <!-- نوع الحركة والحاوية والكمية المجمعة -->
-                    <div class="card p-3 mb-3 border-0 shadow-sm bg-white">
-                        <div class="row g-2 align-items-center">
-                            <div class="col-md-5">
-                                <label class="form-label small fw-bold text-dark mb-1">نوع حركة الصرف *</label>
-                                <select class="form-select fw-bold border-primary" @bind="newDispatch.MovementType">
-                                    <option value="DISPATCH_BRANCH">صرف أسبات محملة بالبضاعة لفرع / سيارة توزيع 🚚</option>
-                                    <option value="FLOOR_TRANSFER">تحويل صواني / أسبات بين صالات المصنع الداخلية 🔄</option>
-                                    <option value="RETURN_FACTORY">إذن إرجاع أسبات فارغة من الفرع أو السيارة للمصنع 📥</option>
-                                </select>
-                            </div>
-                            
-                            <div class="col-md-5">
-                                <label class="form-label small fw-bold text-primary mb-1">نوع وعاء التداول (من مركز الأصناف) *</label>
-                                <select class="form-select fw-bold border-primary" @bind="newDispatch.ContainerName">
-                                    <option value="">-- اضغط لاختيار نوع السبت أو الصينية --</option>
-                                    @foreach (var c in AvailableContainerItems)
-                                    {
-                                        <option value="@c.DisplayName">[@c.DisplayCode] - @c.DisplayName</option>
-                                    }
-                                </select>
-                            </div>
-
-                            <div class="col-md-2">
-                                <label class="form-label small fw-bold text-dark mb-1">الكمية المنصرفة *</label>
-                                <input type="number" class="form-control font-monospace fw-bold fs-6 text-primary text-center" @bind="newDispatch.DispatchedQuantity" min="1" />
-                            </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">نوع الوعاء / الحاوية *</label>
+                            <select class="form-select fw-bold border-primary" @bind="newCrateDispatch.ContainerName">
+                                @foreach (var c in circulatingAssetsList)
+                                {
+                                    <option value="@c.ContainerName">@c.ContainerName (@c.Specification)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">نوع الحركة *</label>
+                            <select class="form-select fw-bold border-primary" @bind="newCrateDispatch.MovementType">
+                                <option value="DISPATCH_BRANCH">صرف للفروع وسيارات التوزيع 📤</option>
+                                <option value="RETURN_FACTORY">استلام ومرتجع للمصنع 📥</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الكمية المنصرفة (بالعدد) *</label>
+                            <input type="number" min="1" class="form-control text-center fw-bold font-monospace fs-5 border-primary" @bind="newCrateDispatch.DispatchedQuantity" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1 d-flex justify-content-between">
+                                <span>القائم بالصرف والتسليم (المُسلِّم):</span>
+                                <span class="badge bg-secondary font-monospace">🔒 موثق تلقائياً</span>
+                            </label>
+                            <input type="text" class="form-control fw-bold bg-white text-primary" value="@CurrentCustodianDisplayName" readonly disabled />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الموقع المُرسل (المصدر) *</label>
+                            <input type="text" class="form-control" placeholder="مثال: مستودع التعبئة المركزي" @bind="newCrateDispatch.SourceLocation" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الموقع المستلم (الجهة / الفرع) *</label>
+                            <input type="text" class="form-control" placeholder="مثال: فرع الدقي / سيارة رقم 5" @bind="newCrateDispatch.DestinationLocation" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-secondary mb-1">ملاحظات إذن التسليم</label>
+                            <input type="text" class="form-control" placeholder="أرقام سيارات، أذون تسليم، أو تعليمات خاصة..." @bind="newCrateDispatch.Notes" />
                         </div>
                     </div>
-
-                    <!-- الجهة المسلِّمة (المصدر) -->
-                    <div class="card p-3 mb-3 border-0 shadow-sm bg-white border-start border-4 border-info">
-                        <h6 class="fw-bold text-dark small mb-2">1. الجهة المسلِّمة (طرف أول مُسلِّم - المستودع/المصنع):</h6>
-                        <div class="row g-2">
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold text-muted mb-1">القسم / المستودع المُسلِّم *</label>
-                                <select class="form-select fw-bold border-info" @bind="crateSourceDept">
-                                    @foreach (var d in dbDepartments)
-                                    {
-                                        <option value="@d.DisplayName">@d.DisplayName</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold text-muted mb-1">الموظف / أمين المستودع المُسلِّم (HR) *</label>
-                                <select class="form-select fw-bold border-info font-monospace" @bind="crateSourceEmpCode">
-                                    @foreach (var emp in employeesCatalog)
-                                    {
-                                        <option value="@emp.DisplayCode">[@emp.DisplayCode] - @emp.DisplayName (@emp.DisplayDepartment)</option>
-                                    }
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- الجهة المستلِمة (الوجهة / السائق) -->
-                    <div class="card p-3 mb-3 border-0 shadow-sm bg-white border-start border-4 border-primary">
-                        <h6 class="fw-bold text-primary small mb-2">2. الجهة المستلِمة (طرف ثانٍ مُستلِم - الفرع / السائق):</h6>
-                        <div class="row g-2">
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold text-muted mb-1">الفرع / الصالة / سيارة التوزيع المستلمة *</label>
-                                <input type="text" class="form-control fw-bold border-primary" list="crateDestList" @bind="crateDestLocation" placeholder="اختر من القائمة أو اكتب الوجهة..." />
-                                <datalist id="crateDestList">
-                                    @foreach (var d in dbDepartments)
-                                    {
-                                        <option value="@d.DisplayName">@d.DisplayName</option>
-                                    }
-                                    <option value="فرع الهرم (توزيع)">فرع الهرم (توزيع)</option>
-                                    <option value="فرع التجمع الخامس">فرع التجمع الخامس</option>
-                                    <option value="فرع المعادي">فرع المعادي</option>
-                                    <option value="فرع مدينة نصر">فرع مدينة نصر</option>
-                                    <option value="سيارة توزيع رقم 1 (سائق)">سيارة توزيع رقم 1 (سائق)</option>
-                                    <option value="سيارة توزيع رقم 2 (سائق)">سيارة توزيع رقم 2 (سائق)</option>
-                                    <option value="سيارة توزيع رقم 3 (سائق)">سيارة توزيع رقم 3 (سائق)</option>
-                                    <option value="سيارة توزيع رقم 4 (سائق)">سيارة توزيع رقم 4 (سائق)</option>
-                                </datalist>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold text-muted mb-1">المستلم / السائق الميداني (من HR) *</label>
-                                <select class="form-select fw-bold border-primary font-monospace" @bind="crateDestEmpCode">
-                                    <option value="">-- اضغط لاختيار الموظف أو السائق المستلم --</option>
-                                    @foreach (var emp in employeesCatalog)
-                                    {
-                                        <option value="@emp.DisplayCode">[@emp.DisplayCode] - @emp.DisplayName (@emp.DisplayDepartment)</option>
-                                    }
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mb-1">
-                        <label class="form-label small fw-bold text-dark mb-1">ملاحظات ورقم إذن الخروج</label>
-                        <textarea class="form-control" rows="2" @bind="newDispatch.Notes" placeholder="اكتب رقم فاتورة البضاعة، رقم لوحة السيارة، أو أي تفاصيل إضافية..."></textarea>
-                    </div>
-
                 </div>
                 <div class="modal-footer py-2 bg-white d-flex justify-content-between">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isDispatchModalOpen = false">إلغاء</button>
-                    <button class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="SubmitCrateDispatch">
-                        🚀 اعتماد وخروج الإذن (بانتظار تأكيد المستلم)
+                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isCrateDispatchModalOpen = false">إلغاء</button>
+                    <button class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" disabled="@isSubmittingCrate" @onclick="SubmitCrateDispatch">
+                        @(isSubmittingCrate ? "⏳ جاري الاعتماد..." : "💾 حفظ وإصدار إذن التسليم")
                     </button>
                 </div>
             </div>
@@ -768,175 +534,143 @@
     </div>
 }
 
-<!-- نافذة قيد أصل جديد -->
-@if (isFixedAssetModalOpen)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
-        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-warning text-dark py-2 px-3 d-flex justify-content-between align-items-center">
-                    <h6 class="modal-title fw-bold">@(editingFixedAsset.Id == 0 ? "🏭 قيد أصل / ماكينة جديدة بالصالة" : $"🛠 تعديل أصل: {editingFixedAsset.Name}")</h6>
-                    <button type="button" class="btn-close" @onclick="() => isFixedAssetModalOpen = false"></button>
-                </div>
-                <div class="modal-body bg-light p-3">
-                    
-                    @if (!string.IsNullOrEmpty(modalErrorMessage))
-                    {
-                        <div class="alert alert-danger py-2 small fw-bold mb-3">@modalErrorMessage</div>
-                    }
-
-                    <div class="row g-2">
-                        <div class="col-md-4">
-                            <label class="small fw-bold text-dark mb-1">كود الأصل (Asset Tag) *</label>
-                            <input type="text" class="form-control font-monospace fw-bold text-primary" @bind="editingFixedAsset.AssetCode" placeholder="مثال: AST-OVN-01" />
-                        </div>
-
-                        <div class="col-md-8">
-                            <label class="small fw-bold text-dark mb-1">📦 اسم الماكينة (اختر من مركز الأصناف أو اكتب مباشرة) *</label>
-                            <input type="text" class="form-control fw-bold" list="itemMasterList" @bind="editingFixedAsset.Name" placeholder="ابحث أو اكتب: فرن دوار، عجانة..." />
-                            <datalist id="itemMasterList">
-                                @foreach (var item in itemMasterCatalog)
-                                {
-                                    <option value="@item.DisplayName">[@item.DisplayCode] - @item.DisplayName</option>
-                                }
-                            </datalist>
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="small fw-bold text-dark mb-1">القسم / الصالة المخصصة *</label>
-                            <select class="form-select fw-bold border-primary" @bind="editingFixedAsset.Department">
-                                @foreach (var d in dbDepartments)
-                                {
-                                    <option value="@d.DisplayName">@d.DisplayName</option>
-                                }
-                            </select>
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="small fw-bold text-dark mb-1">👤 مسؤول العهدة الميداني (من HR) *</label>
-                            <select class="form-select fw-bold border-info font-monospace" @onchange="OnCustodianSelected">
-                                <option value="">-- اضغط لاختيار الموظف المسؤول --</option>
-                                @foreach (var emp in employeesCatalog)
-                                {
-                                    var isSelected = emp.DisplayCode == editingFixedAsset.CustodianCode;
-                                    <option value="@emp.DisplayCode" selected="@isSelected">
-                                        [@emp.DisplayCode] - @emp.DisplayName (@emp.DisplayDepartment)
-                                    </option>
-                                }
-                            </select>
-                        </div>
-
-                        <div class="col-md-4">
-                            <label class="small fw-bold text-dark mb-1">تصنيف الماكينة</label>
-                            <select class="form-select" @bind="editingFixedAsset.Category">
-                                <option value="أفران وتسوية">أفران وخطوط تسوية</option>
-                                <option value="عجانات ومضارب">عجانات ومضارب خفق</option>
-                                <option value="ثلاجات وتبريد">ثلاجات وغرف تبريد</option>
-                                <option value="تغليف وتعبئة">تغليف وسيلر</option>
-                                <option value="سيارات توزيع">سيارات ولوجستيات</option>
-                            </select>
-                        </div>
-
-                        <div class="col-md-4">
-                            <label class="small fw-bold text-dark mb-1">الماركة والموديل</label>
-                            <input type="text" class="form-control" @bind="editingFixedAsset.BrandModel" placeholder="مثال: Polin Italy" />
-                        </div>
-
-                        <div class="col-md-4">
-                            <label class="small fw-bold text-dark mb-1">الرقم التسلسلي (S/N)</label>
-                            <input type="text" class="form-control font-monospace" @bind="editingFixedAsset.SerialNumber" placeholder="S/N من لوحة الماكينة" />
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="small fw-bold text-dark mb-1">الحالة التشغيلية</label>
-                            <select class="form-select fw-bold" @bind="editingFixedAsset.Status">
-                                <option value="OPERATIONAL">تعمل بكفاءة تامة ✓</option>
-                                <option value="UNDER_MAINTENANCE">تحت الصيانة والإصلاح (SOS) ⚙️</option>
-                                <option value="OUT_OF_SERVICE">معطلة تماماً ⛔</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isFixedAssetModalOpen = false">إلغاء</button>
-                    <button class="btn btn-warning text-dark btn-sm px-4 fw-bold shadow-sm" disabled="@isSavingAsset" @onclick="SaveFixedAsset">
-                        💾 حفظ وتثبيت الأصل
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- نافذة فحص وتأكيد الاستلام الميداني للأوعية والأسبات -->
-@if (isReceiveModalOpen && selectedMovementForReceive != null)
+<!-- مودال 2: فحص وتأكيد الاستلام الميداني للأسبات (مع فحص SoD والعجز) -->
+@if (isCrateReceiveModalOpen && selectedMovementForReceive != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
-        <div class="modal-dialog modal-md modal-dialog-centered">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-success text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">📥 فحص وتأكيد استلام الأوعية/الأسبات (@selectedMovementForReceive.MovementNumber)</h6>
-                    <button type="button" class="btn-close btn-close-white" @onclick="() => isReceiveModalOpen = false"></button>
+                <div class="modal-header bg-success text-white py-2 px-3 d-flex justify-content-between align-items-center">
+                    <h6 class="modal-title fw-bold">📥 فحص وتأكيد الاستلام الميداني: إذن رقم (@selectedMovementForReceive.MovementNumber)</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isCrateReceiveModalOpen = false"></button>
                 </div>
                 <div class="modal-body bg-light p-4">
-                    <div class="card p-3 mb-3 border-0 shadow-sm bg-white border-start border-4 border-success">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="small text-muted">نوع الوعاء:</span>
-                            <strong class="text-dark">@selectedMovementForReceive.ContainerName</strong>
-                        </div>
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="small text-muted">الكمية المسلمة من المصدر:</span>
-                            <strong class="text-primary font-monospace fs-6">@selectedMovementForReceive.DispatchedQuantity وعاء</strong>
-                        </div>
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="small text-muted">المُسلِّم:</span>
-                            <small class="font-monospace">[@selectedMovementForReceive.DispatchedByCode] @selectedMovementForReceive.DispatchedByName</small>
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-dark">الكمية المستلمة السليمة فعلياً *</label>
-                        <input type="number" class="form-control font-monospace fw-bold fs-5 text-success text-center" @bind="actualReceivedQtyInput" min="0" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-danger">الكمية التالفة / المكسورة (إن وجدت)</label>
-                        <input type="number" class="form-control font-monospace fw-bold fs-6 text-danger text-center" @bind="damagedQtyInput" min="0" />
-                    </div>
-
-                    @if (actualReceivedQtyInput < selectedMovementForReceive.DispatchedQuantity || damagedQtyInput > 0)
+                    @if (selectedMovementForReceive.DispatchedByCode.Equals(State.EmployeeCode, StringComparison.OrdinalIgnoreCase))
                     {
-                        var shortage = selectedMovementForReceive.DispatchedQuantity - actualReceivedQtyInput;
-                        <div class="alert alert-danger py-2 small mb-3">
-                            ⚠️ <strong>تنبيه رقابي:</strong> يوجد عجز قدره (<strong>@shortage</strong>) وتلف قدره (<strong>@damagedQtyInput</strong>). سيتم فتح محضر نزاع رسمي.
+                        <div class="alert alert-danger py-2 small fw-bold mb-3 border-danger">
+                            ⛔ <strong>حظر رقابي (Segregation of Duties):</strong> أنت مسجل كـ "المُسلِّم" لهذا الإذن، ولا يجوز لك قانوناً ورقابياً تأكيد الاستلام لنفسك. يجب أن يدخل الطرف المستلم بحسابه لتأكيد الاستلام.
                         </div>
                     }
 
-                    <div class="mb-2">
-                        <label class="form-label small fw-bold text-dark">تقرير وملاحظات المستلم</label>
-                        <textarea class="form-control" rows="2" @bind="receiveNotesInput"></textarea>
+                    <div class="card p-3 bg-white border-0 shadow-sm mb-3">
+                        <div class="row g-2 small">
+                            <div class="col-md-4">
+                                <span class="text-muted d-block">نوع الوعاء:</span>
+                                <strong class="fs-6 text-primary">@selectedMovementForReceive.ContainerName</strong>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted d-block">الكمية المنصرفة من المُسلِّم:</span>
+                                <strong class="fs-6 font-monospace text-dark">@selectedMovementForReceive.DispatchedQuantity وعاء</strong>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted d-block">المُسلِّم المعتمد:</span>
+                                <strong class="text-secondary">@selectedMovementForReceive.DispatchedByName</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-success mb-1">الكمية المستلمة السليمة فعلياً *</label>
+                            <input type="number" min="0" class="form-control text-center fw-bold font-monospace fs-5 border-success" @bind="receiveCrateDto.ActualReceivedQuantity" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-danger mb-1">عدد الأوعية المكسورة والتالفة *</label>
+                            <input type="number" min="0" class="form-control text-center fw-bold font-monospace fs-5 border-danger" @bind="receiveCrateDto.DamagedCount" />
+                        </div>
+
+                        @{
+                            var calcShortage = selectedMovementForReceive.DispatchedQuantity - receiveCrateDto.ActualReceivedQuantity;
+                        }
+                        @if (calcShortage > 0 || receiveCrateDto.DamagedCount > 0)
+                        {
+                            <div class="col-12">
+                                <div class="alert alert-warning py-2 small fw-bold mb-0">
+                                    ⚠️ <strong>تنبيه عجز وكسر:</strong> يوجد عجز بمقدار (@calcShortage) وعاء مفقود، و (@receiveCrateDto.DamagedCount) وعاء تالف. سيتم تحويل الإذن فوراً إلى <strong>(نزاع رسمي DISPUTED)</strong> للإحالة إلى لجنة فض المنازعات.
+                                </div>
+                            </div>
+                        }
+
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-dark mb-1">ملاحظات الاستلام وأسباب الكسر أو العجز</label>
+                            <input type="text" class="form-control" placeholder="اكتب ملاحظات المعاينة الميدانية بدقة..." @bind="receiveCrateDto.ReceiveNotes" />
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer py-2 bg-white d-flex justify-content-between">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isReceiveModalOpen = false">إلغاء</button>
-                    <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="ConfirmReceiveHandshake">✓ تأكيد الاستلام الميداني</button>
+                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isCrateReceiveModalOpen = false">إلغاء</button>
+                    <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
+                            disabled="@(isSubmittingCrate || selectedMovementForReceive.DispatchedByCode.Equals(State.EmployeeCode, StringComparison.OrdinalIgnoreCase))" 
+                            @onclick="SubmitCrateReceive">
+                        @(isSubmittingCrate ? "⏳ جاري المعالجة..." : "✅ تأكيد المعاينة والاستلام")
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 }
 
-<!-- باقي النوافذ: الطوارئ والسجل وفض النزاع والتفاصيل -->
+<!-- مودال 3: فض وتسوية النزاع والعجز (لجنة الرقابة والتحكيم) -->
+@if (isCrateSettleModalOpen && selectedMovementForSettle != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-danger text-white py-2 px-3 d-flex justify-content-between align-items-center">
+                    <h6 class="modal-title fw-bold">⚖️ محضر فض وتسوية نزاع الحاويات: إذن (@selectedMovementForSettle.MovementNumber)</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isCrateSettleModalOpen = false"></button>
+                </div>
+                <div class="modal-body bg-light p-4">
+                    <div class="alert alert-danger py-2 small mb-3 border-danger">
+                        📌 <strong>واقعة النزاع:</strong> من منصرف (@selectedMovementForSettle.DispatchedQuantity) تم استلام (@selectedMovementForSettle.ReceivedQuantity)، بعجز قدره <strong>(@selectedMovementForSettle.ShortageQuantity) مفقود</strong> و <strong>(@selectedMovementForSettle.DamagedCount) تالف/مكسور</strong>.
+                        <br />
+                        <span class="text-muted">ملاحظة المستلم: @selectedMovementForSettle.ReceiveNotes</span>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">قرار لجنة التحكيم المعتمد *</label>
+                            <select class="form-select fw-bold border-danger" @bind="settleDisputeDto.ArbitrationDecision">
+                                <option value="تحميل العجز على المستلم (إهمال)">تحميل العجز والكسر على المستلم (إهمال)</option>
+                                <option value="تحميل العجز على السائق والمُسلِّم">تحميل العجز على السائق والمُسلِّم (نقل)</option>
+                                <option value="إقرار هدر تشغيلي مسموح به (استهلاك)">إقرار هدر تشغيلي طبيعي معتمد</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الجزاء أو التعويض المالي المقدر (ج.م)</label>
+                            <input type="number" min="0" step="10" class="form-control font-monospace fw-bold text-center border-danger text-danger fs-5" @bind="settleDisputeDto.FinancialPenalty" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-dark mb-1">نص منطوق القرار ومحضر التسوية النهائي *</label>
+                            <textarea class="form-control" rows="3" placeholder="اكتب حيثيات قرار لجنة فض المنازعات والخصم المالي المعتمد..." @bind="settleDisputeDto.ArbitrationText"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isCrateSettleModalOpen = false">إلغاء</button>
+                    <button class="btn btn-danger btn-sm px-4 fw-bold shadow-sm" disabled="@isSubmittingCrate" @onclick="SubmitCrateSettle">
+                        @(isSubmittingCrate ? "⏳ جاري الاعتماد..." : "⚖️ اعتماد القرار وتسوية العهدة")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- بقية المودالات الخاصة بالأصول الثابتة (SOS, نقل ماكينة, قيد أصل, تاريخ الأصل) تبقى كما هي ممتازة -->
 @if (isDirectSOSModalOpen && assetForSOS != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-danger text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">🚨 إطلاق بلاغ طارئ واستدعاء صيانة: @assetForSOS.Name</h6>
+                    <h6 class="modal-title fw-bold">🚨 إطلاق بلاغ طارئ واستدعاء صيانة فوري: @assetForSOS.Name</h6>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isDirectSOSModalOpen = false"></button>
                 </div>
                 <div class="modal-body bg-light p-4">
+                    <div class="alert alert-danger py-2 small mb-3 border-danger">
+                        ⚠️ <strong>تنبيه تشغيلي:</strong> سيتم تحويل حالة الماكينة <strong>[@assetForSOS.AssetCode]</strong> فوراً إلى <strong>(تحت الصيانة والإصلاح UNDER_MAINTENANCE)</strong> وإحالتها لغرفة العمليات.
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold small text-dark">عنوان المشكلة أو العطل الطارئ *</label>
                         <input type="text" class="form-control fw-bold border-danger" @bind="directSOSTitle" />
@@ -948,7 +682,124 @@
                 </div>
                 <div class="modal-footer py-2 bg-white d-flex justify-content-between">
                     <button class="btn btn-secondary btn-sm px-4" @onclick="() => isDirectSOSModalOpen = false">إلغاء</button>
-                    <button class="btn btn-danger btn-sm px-4 fw-bold shadow-sm" @onclick="SubmitDirectSOS">🚨 إرسال البلاغ وتحديث الماكينة</button>
+                    <button class="btn btn-danger btn-sm px-4 fw-bold shadow-sm" @onclick="SubmitDirectSOS">🚨 إرسال البلاغ وتثبيت حالة العطل</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (isMachineTransferModalOpen && selectedMachineToTransfer != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-warning text-dark py-2 px-3 d-flex justify-content-between align-items-center">
+                    <h6 class="modal-title fw-bold">🔄 نقل عهدة ماكينة: @selectedMachineToTransfer.Name</h6>
+                    <button type="button" class="btn-close" @onclick="() => isMachineTransferModalOpen = false"></button>
+                </div>
+                <div class="modal-body bg-light p-4">
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="small text-muted fw-bold">الصالة الحالية (المصدر المغلق):</label>
+                            <input type="text" class="form-control fw-bold bg-light" value="@selectedMachineToTransfer.Department" readonly disabled />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small text-muted fw-bold">مسؤول العهدة الحالي:</label>
+                            <input type="text" class="form-control fw-bold bg-light font-monospace" value="@($"[{selectedMachineToTransfer.CustodianCode}] {selectedMachineToTransfer.CustodianName}")" readonly disabled />
+                        </div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="small fw-bold text-dark mb-1">الصالة المستلمة الجديدة *</label>
+                            <select class="form-select fw-bold border-success" @bind="targetTransferDept">
+                                @foreach (var d in dbDepartments)
+                                {
+                                    <option value="@d.DisplayName">@d.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold text-dark mb-1">المشرف المستلم الجديد (من HR) *</label>
+                            <select class="form-select fw-bold border-success font-monospace" @bind="targetTransferEmpCode">
+                                <option value="">-- اضغط لاختيار المستلم الجديد --</option>
+                                @foreach (var emp in employeesCatalog)
+                                {
+                                    <option value="@emp.DisplayCode">[@emp.DisplayCode] - @emp.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isMachineTransferModalOpen = false">إلغاء</button>
+                    <button class="btn btn-warning text-dark btn-sm px-4 fw-bold shadow-sm" @onclick="SubmitMachineTransfer">🔄 ترحيل وتثبيت النقل</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (isFixedAssetModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-warning text-dark py-2 px-3 d-flex justify-content-between align-items-center">
+                    <h6 class="modal-title fw-bold">@(editingFixedAsset.Id == 0 ? "🏭 قيد أصل / ماكينة جديدة" : $"🛠 تعديل أصل: {editingFixedAsset.Name}")</h6>
+                    <button type="button" class="btn-close" @onclick="() => isFixedAssetModalOpen = false"></button>
+                </div>
+                <div class="modal-body bg-light p-3">
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-dark mb-1">كود الأصل (Tag) *</label>
+                            <input type="text" class="form-control font-monospace fw-bold text-primary" @bind="editingFixedAsset.AssetCode" />
+                        </div>
+                        <div class="col-md-8">
+                            <label class="small fw-bold text-dark mb-1">اسم الماكينة *</label>
+                            <input type="text" class="form-control fw-bold" @bind="editingFixedAsset.Name" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold text-dark mb-1">القسم / الصالة المخصصة *</label>
+                            <select class="form-select fw-bold border-primary" @bind="editingFixedAsset.Department">
+                                @foreach (var d in dbDepartments)
+                                {
+                                    <option value="@d.DisplayName">@d.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold text-dark mb-1">مسؤول العهدة (من HR) *</label>
+                            <select class="form-select fw-bold border-info font-monospace" @onchange="OnCustodianSelected">
+                                <option value="">-- اختر الموظف المسؤول --</option>
+                                @foreach (var emp in employeesCatalog)
+                                {
+                                    var isSelected = emp.DisplayCode == editingFixedAsset.CustodianCode;
+                                    <option value="@emp.DisplayCode" selected="@isSelected">[@emp.DisplayCode] - @emp.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-dark mb-1">الماركة والموديل</label>
+                            <input type="text" class="form-control" @bind="editingFixedAsset.BrandModel" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-dark mb-1">الرقم التسلسلي (S/N)</label>
+                            <input type="text" class="form-control font-monospace" @bind="editingFixedAsset.SerialNumber" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-dark mb-1">الحالة التشغيلية</label>
+                            <select class="form-select fw-bold" @bind="editingFixedAsset.Status">
+                                <option value="OPERATIONAL">تعمل بكفاءة تامة ✓</option>
+                                <option value="UNDER_MAINTENANCE">تحت الصيانة والإصلاح ⚙️</option>
+                                <option value="OUT_OF_SERVICE">معطلة تماماً ⛔</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isFixedAssetModalOpen = false">إلغاء</button>
+                    <button class="btn btn-warning text-dark btn-sm px-4 fw-bold shadow-sm" @onclick="SaveFixedAsset">💾 حفظ الأصل</button>
                 </div>
             </div>
         </div>
@@ -961,7 +812,7 @@
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-dark text-white py-2 px-3 d-flex justify-content-between align-items-center">
-                    <h6 class="modal-title fw-bold">📜 سجل وتاريخ عمليات الماكينة: @selectedHistoryAsset.Name</h6>
+                    <h6 class="modal-title fw-bold">📜 سجل عمليات الماكينة: @selectedHistoryAsset.Name</h6>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isAssetHistoryModalOpen = false"></button>
                 </div>
                 <div class="modal-body bg-light p-4">
@@ -984,87 +835,6 @@
                 </div>
                 <div class="modal-footer py-2 bg-white">
                     <button class="btn btn-secondary btn-sm px-4" @onclick="() => isAssetHistoryModalOpen = false">إلغاء</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-@if (isSettleDisputeModalOpen && selectedMovementForDispute != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.8);" dir="rtl">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-danger text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">⚖️ محضر فض وتسوية النزاع والعجز: @selectedMovementForDispute.MovementNumber</h6>
-                    <button type="button" class="btn-close btn-close-white" @onclick="() => isSettleDisputeModalOpen = false"></button>
-                </div>
-                <div class="modal-body bg-light p-4">
-                    <div class="card p-3 mb-3 border-0 shadow-sm bg-white border-top border-4 border-danger">
-                        <div class="row g-2 small">
-                            <div class="col-md-3"><strong>المنصرف:</strong> <div class="font-monospace text-primary fs-6">@selectedMovementForDispute.DispatchedQuantity</div></div>
-                            <div class="col-md-3"><strong>المستلم:</strong> <div class="font-monospace text-success fs-6">@selectedMovementForDispute.ReceivedQuantity</div></div>
-                            <div class="col-md-3"><strong>العجز:</strong> <div class="font-monospace text-danger fs-6 fw-bold">@selectedMovementForDispute.ShortageQuantity</div></div>
-                            <div class="col-md-3"><strong>التالف:</strong> <div class="font-monospace text-danger fs-6 fw-bold">@selectedMovementForDispute.DamagedCount</div></div>
-                        </div>
-                    </div>
-
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold text-danger">قرار لجنة فض المنازعات *</label>
-                            <select class="form-select fw-bold border-danger" @bind="arbitrationDecision">
-                                <option value="CHARGE_CARRIER">تحميل قيمة العجز والكسر على السائق / المندوب 🚚</option>
-                                <option value="CHARGE_DISPATCHER">تحميل العجز على أمين المستودع المُسلِّم</option>
-                                <option value="CHARGE_RECEIVER">تحميل العجز على الفرع المستلم</option>
-                                <option value="APPROVE_SCRAP">اعتماد كهالك تداول طبيعي مسموح به 📉</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold text-dark">القيمة المالية المحملة</label>
-                            <input type="text" class="form-control font-monospace fw-bold" @bind="arbitrationFinancialImpact" />
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label small fw-bold text-dark">منطوق قرار فض النزاع *</label>
-                            <textarea class="form-control" rows="3" @bind="arbitrationText"></textarea>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isSettleDisputeModalOpen = false">إلغاء</button>
-                    <button class="btn btn-danger btn-sm px-4 fw-bold shadow-sm" @onclick="ConfirmArbitrationSettlement">⚖ اعتماد فض النزاع وتسوية العهدة</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-@if (isDetailsModalOpen && selectedMovementForDetails != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-dark text-white py-2 px-3 d-flex justify-content-between align-items-center">
-                    <h6 class="modal-title fw-bold">🔍 المحضر الرقمي الكامل: @selectedMovementForDetails.MovementNumber</h6>
-                    <button type="button" class="btn-close btn-close-white" @onclick="() => isDetailsModalOpen = false"></button>
-                </div>
-                <div class="modal-body bg-light p-4">
-                    <div class="card p-3 border-0 shadow-sm bg-white mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="fw-bold text-primary m-0">@selectedMovementForDetails.ContainerName</h5>
-                            <span class="badge @GetHandoverStatusBadge(selectedMovementForDetails.Status) fs-6">
-                                @TranslateHandoverStatus(selectedMovementForDetails.Status)
-                            </span>
-                        </div>
-                        <div class="row g-2 small">
-                            <div class="col-6"><strong>تاريخ الإطلاق:</strong> @selectedMovementForDetails.CreatedAt.ToString("yyyy-MM-dd HH:mm")</div>
-                            <div class="col-6"><strong>تاريخ الاستلام:</strong> @(selectedMovementForDetails.ReceivedAt?.ToString("yyyy-MM-dd HH:mm") ?? "لم يُستلم بعد")</div>
-                            <div class="col-6"><strong>الكمية المنصرفة:</strong> @selectedMovementForDetails.DispatchedQuantity</div>
-                            <div class="col-6"><strong>الكمية المستلمة:</strong> @(selectedMovementForDetails.ReceivedQuantity?.ToString() ?? "---")</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer py-2 bg-white">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isDetailsModalOpen = false">إغلاق</button>
                 </div>
             </div>
         </div>
@@ -1124,22 +894,13 @@
         public string DispatchedByCode { get; set; } = string.Empty;
         public string DispatchedByName { get; set; } = string.Empty;
         public string DestinationLocation { get; set; } = string.Empty;
-        public string? Notes { get; set; }
-
-        public int? ReceivedQuantity { get; set; }
-        public int ShortageQuantity { get; set; } = 0;
-        public int DamagedCount { get; set; } = 0;
-        public DateTime? ReceivedAt { get; set; }
+        public string Status { get; set; } = "PENDING_RECEIPT";
+        public int ReceivedQuantity { get; set; }
+        public int ShortageQuantity { get; set; }
+        public int DamagedCount { get; set; }
         public string? ReceivedByCode { get; set; }
         public string? ReceivedByName { get; set; }
         public string? ReceiveNotes { get; set; }
-        public string Status { get; set; } = "PENDING_RECEIPT";
-
-        public string? ArbitrationDecision { get; set; }
-        public string? ArbitrationText { get; set; }
-        public string? ArbitratedByCode { get; set; }
-        public string? ArbitratedByName { get; set; }
-        public string? FinancialPenalty { get; set; }
     }
 
     public class DepartmentApiDto
@@ -1150,40 +911,45 @@
         public string DisplayName => !string.IsNullOrEmpty(DepartmentName) ? DepartmentName : (!string.IsNullOrEmpty(Name) ? Name : $"قسم #{Id}");
     }
 
-    public class ItemQuickDto
-    {
-        public long Id { get; set; }
-        [JsonPropertyName("itemCode")] public string? ItemCode { get; set; }
-        [JsonPropertyName("code")] public string? Code { get; set; }
-        [JsonPropertyName("itemName")] public string? ItemName { get; set; }
-        [JsonPropertyName("name")] public string? Name { get; set; }
-        [JsonPropertyName("itemType")] public string? ItemType { get; set; }
-        [JsonPropertyName("isContainer")] public bool? IsContainer { get; set; }
-
-        public string DisplayCode => !string.IsNullOrWhiteSpace(ItemCode) ? ItemCode : (!string.IsNullOrWhiteSpace(Code) ? Code : $"ITEM-{Id}");
-        public string DisplayName => !string.IsNullOrWhiteSpace(ItemName) ? ItemName : (!string.IsNullOrWhiteSpace(Name) ? Name : $"صنف #{Id}");
-    }
-
     public class EmployeeQuickDto
     {
         public long Id { get; set; }
         [JsonPropertyName("code")] public string? Code { get; set; }
-        [JsonPropertyName("employeeCode")] public string? EmployeeCode { get; set; }
-        [JsonPropertyName("empCode")] public string? EmpCode { get; set; }
         [JsonPropertyName("fullName")] public string? FullName { get; set; }
-        [JsonPropertyName("employeeName")] public string? EmployeeName { get; set; }
         [JsonPropertyName("name")] public string? Name { get; set; }
-        [JsonPropertyName("departmentName")] public string? DepartmentName { get; set; }
+        public string DisplayCode => !string.IsNullOrWhiteSpace(Code) ? Code : $"EMP-{Id:D3}";
+        public string DisplayName => !string.IsNullOrWhiteSpace(FullName) ? FullName : (!string.IsNullOrWhiteSpace(Name) ? Name : $"عامل #{Id}");
+    }
 
-        public string DisplayCode => !string.IsNullOrWhiteSpace(Code) ? Code
-            : (!string.IsNullOrWhiteSpace(EmployeeCode) ? EmployeeCode
-            : (!string.IsNullOrWhiteSpace(EmpCode) ? EmpCode : $"EMP-{Id:D3}"));
+    // DTOs المحلية للتفاعل مع الواجهة
+    public class DispatchCrateDto
+    {
+        public string MovementType { get; set; } = "DISPATCH_BRANCH";
+        public string ContainerName { get; set; } = string.Empty;
+        public int DispatchedQuantity { get; set; } = 10;
+        public string SourceLocation { get; set; } = "مستودع التعبئة المركزي";
+        public string DestinationLocation { get; set; } = "فرع الدقي";
+        public string? Notes { get; set; }
+        public string? DispatchedByCode { get; set; }
+        public string? DispatchedByName { get; set; }
+    }
 
-        public string DisplayName => !string.IsNullOrWhiteSpace(FullName) ? FullName
-            : (!string.IsNullOrWhiteSpace(EmployeeName) ? EmployeeName
-            : (!string.IsNullOrWhiteSpace(Name) ? Name : $"عامل #{Id}"));
+    public class ReceiveCrateDto
+    {
+        public int ActualReceivedQuantity { get; set; }
+        public int DamagedCount { get; set; }
+        public string? ReceiveNotes { get; set; }
+        public string? ReceivedByCode { get; set; }
+        public string? ReceivedByName { get; set; }
+    }
 
-        public string DisplayDepartment => !string.IsNullOrWhiteSpace(DepartmentName) ? DepartmentName : "قسم الإنتاج";
+    public class SettleDisputeDto
+    {
+        public string ArbitrationDecision { get; set; } = "تحميل العجز على المستلم (إهمال)";
+        public string ArbitrationText { get; set; } = string.Empty;
+        public decimal FinancialPenalty { get; set; } = 0;
+        public string? ArbitratedByCode { get; set; }
+        public string? ArbitratedByName { get; set; }
     }
 
     private string activeTab = "fixed";
@@ -1191,15 +957,23 @@
     private string fixedDeptFilter = "";
     private string fixedCategoryFilter = "";
     private string fixedStatusFilter = "";
-    private string movementStatusFilter = "";
     private string selectedCustodyDept = "قسم الشرقي والمخبوزات";
-
     private string feedbackMessage = "";
     private bool isSuccessFeedback = true;
-    private string modalErrorMessage = "";
-    private bool isSavingAsset = false;
+    private string crateFilterStatus = "";
 
-    // متغيرات نافذة نقل الماكينات (الدائرة المغلقة)
+    // مودالات الأسبات
+    private bool isCrateDispatchModalOpen = false;
+    private bool isCrateReceiveModalOpen = false;
+    private bool isCrateSettleModalOpen = false;
+    private bool isSubmittingCrate = false;
+    private DispatchCrateDto newCrateDispatch = new();
+    private ReceiveCrateDto receiveCrateDto = new();
+    private SettleDisputeDto settleDisputeDto = new();
+    private CrateHandoverMovementModel? selectedMovementForReceive;
+    private CrateHandoverMovementModel? selectedMovementForSettle;
+
+    // مودالات الماكينات
     private bool isMachineTransferModalOpen = false;
     private string selectedMachineTransferCode = "";
     private FixedAssetModel? selectedMachineToTransfer;
@@ -1207,71 +981,26 @@
     private string targetTransferEmpCode = "";
     private string machineTransferReason = "";
 
-    // متغيرات نافذة صرف الأوعية والأسبات
-    private string crateSourceDept = "";
-    private string crateSourceEmpCode = "";
-    private string crateDestLocation = "";
-    private string crateDestEmpCode = "";
-
-    private bool isFixedAssetModalOpen = false;
     private bool isDirectSOSModalOpen = false;
-    private bool isAssetHistoryModalOpen = false;
-    private bool isDispatchModalOpen = false;
-    private bool isReceiveModalOpen = false;
-    private bool isSettleDisputeModalOpen = false;
-    private bool isDetailsModalOpen = false;
-
-    private FixedAssetModel editingFixedAsset = new();
     private FixedAssetModel? assetForSOS;
-    private FixedAssetModel? selectedHistoryAsset;
-    private CrateHandoverMovementModel newDispatch = new();
-    private CrateHandoverMovementModel? selectedMovementForReceive;
-    private CrateHandoverMovementModel? selectedMovementForDispute;
-    private CrateHandoverMovementModel? selectedMovementForDetails;
-
-    private int actualReceivedQtyInput = 0;
-    private int damagedQtyInput = 0;
-    private string receiveNotesInput = "";
-
-    private string arbitrationDecision = "CHARGE_CARRIER";
-    private string arbitrationFinancialImpact = "";
-    private string arbitrationText = "";
-
     private string directSOSTitle = "";
     private string directSOSDescription = "";
 
+    private bool isFixedAssetModalOpen = false;
+    private bool isAssetHistoryModalOpen = false;
+    private FixedAssetModel editingFixedAsset = new();
+    private FixedAssetModel? selectedHistoryAsset;
+
     private List<DepartmentApiDto> dbDepartments = new();
-    private List<ItemQuickDto> itemMasterCatalog = new();
     private List<EmployeeQuickDto> employeesCatalog = new();
     private List<FixedAssetModel> fixedAssetsList = new();
     private List<CirculatingContainerModel> circulatingAssetsList = new();
     private List<CrateHandoverMovementModel> crateMovementsHistory = new();
 
-    private IEnumerable<ItemQuickDto> AvailableContainerItems
-    {
-        get
-        {
-            var filtered = itemMasterCatalog.Where(i =>
-                (i.IsContainer == true) ||
-                (!string.IsNullOrWhiteSpace(i.ItemType) && (
-                    i.ItemType.Contains("أصول") || 
-                    i.ItemType.Contains("حاويات") || 
-                    i.ItemType.Contains("تداول") ||
-                    i.ItemType.Equals("CONTAINER", StringComparison.OrdinalIgnoreCase) ||
-                    i.ItemType.Equals("ASSET", StringComparison.OrdinalIgnoreCase)
-                )) ||
-                (!string.IsNullOrWhiteSpace(i.DisplayName) && (
-                    i.DisplayName.Contains("سبت") || 
-                    i.DisplayName.Contains("صينية") || 
-                    i.DisplayName.Contains("صاج") ||
-                    i.DisplayName.Contains("حاوية") ||
-                    i.DisplayName.Contains("ترولي")
-                ))
-            ).ToList();
-
-            return filtered.Any() ? filtered : itemMasterCatalog;
-        }
-    }
+    private string CurrentCustodianDisplayName => 
+        !string.IsNullOrWhiteSpace(State.FullName) 
+            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]" 
+            : "المسؤول المعتمد";
 
     protected override async Task OnInitializedAsync()
     {
@@ -1314,13 +1043,6 @@
     {
         try
         {
-            var items = await Http.GetFromJsonAsync<List<ItemQuickDto>>("api/Items");
-            if (items != null && items.Any()) itemMasterCatalog = items;
-        }
-        catch { }
-
-        try
-        {
             var emps = await Http.GetFromJsonAsync<List<EmployeeQuickDto>>("api/Employees");
             if (emps != null && emps.Any()) employeesCatalog = emps;
         }
@@ -1342,46 +1064,16 @@
         try
         {
             var invRes = await Http.GetFromJsonAsync<List<CirculatingContainerModel>>("api/Crates/inventory");
-            if (invRes != null && invRes.Any())
-            {
-                circulatingAssetsList = invRes;
-            }
-        }
-        catch { }
+            if (invRes != null) circulatingAssetsList = invRes;
 
-        if (!circulatingAssetsList.Any() && AvailableContainerItems.Any())
-        {
-            circulatingAssetsList = AvailableContainerItems.Select(item => new CirculatingContainerModel
-            {
-                Id = (int)item.Id,
-                ContainerName = item.DisplayName,
-                Specification = $"كود: {item.DisplayCode} (أصل معتمد بالـ Item Master)",
-                TotalFactoryQuantity = 1000,
-                InProductionFloorQuantity = 350,
-                InPackagingWarehouseQuantity = 450,
-                WithDriversAndBranchesQuantity = 200,
-                DisputedQuantity = 0,
-                DamagedQuantity = 0
-            }).ToList();
-        }
+            var url = string.IsNullOrWhiteSpace(crateFilterStatus) 
+                ? "api/Crates/movements" 
+                : $"api/Crates/movements?status={crateFilterStatus}";
 
-        try
-        {
-            var movRes = await Http.GetFromJsonAsync<List<CrateHandoverMovementModel>>("api/Crates/movements");
+            var movRes = await Http.GetFromJsonAsync<List<CrateHandoverMovementModel>>(url);
             if (movRes != null) crateMovementsHistory = movRes;
         }
         catch { }
-    }
-
-    private IEnumerable<CrateHandoverMovementModel> FilteredMovements
-    {
-        get
-        {
-            var list = crateMovementsHistory.AsEnumerable();
-            if (!string.IsNullOrWhiteSpace(movementStatusFilter))
-                list = list.Where(m => m.Status == movementStatusFilter);
-            return list.OrderByDescending(m => m.CreatedAt);
-        }
     }
 
     private IEnumerable<FixedAssetModel> FilteredFixedAssets
@@ -1401,8 +1093,6 @@
                 list = list.Where(a => 
                     a.AssetCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     a.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    (a.BrandModel != null && a.BrandModel.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
-                    (a.SerialNumber != null && a.SerialNumber.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
                     a.CustodianName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     a.Department.Contains(term, StringComparison.OrdinalIgnoreCase));
             }
@@ -1421,155 +1111,36 @@
     }
 
     // ========================================================
-    // 1. الدائرة المغلقة: نقل عهدة الماكينات الرأسمالية (المصدر مقفول آلياً)
-    // ========================================================
-    private void OpenMachineTransferModal()
-    {
-        selectedMachineTransferCode = fixedAssetsList.FirstOrDefault()?.AssetCode ?? "";
-        UpdateSelectedMachineInfo();
-        isMachineTransferModalOpen = true;
-    }
-
-    private void OpenTransferForSpecificMachine(FixedAssetModel machine)
-    {
-        selectedMachineTransferCode = machine.AssetCode;
-        UpdateSelectedMachineInfo();
-        isMachineTransferModalOpen = true;
-    }
-
-    private void OnMachineTransferSelectionChanged(ChangeEventArgs e)
-    {
-        selectedMachineTransferCode = e.Value?.ToString() ?? "";
-        UpdateSelectedMachineInfo();
-    }
-
-    private void UpdateSelectedMachineInfo()
-    {
-        selectedMachineToTransfer = fixedAssetsList.FirstOrDefault(m => m.AssetCode == selectedMachineTransferCode);
-        if (selectedMachineToTransfer != null)
-        {
-            targetTransferDept = dbDepartments.FirstOrDefault(d => d.DisplayName != selectedMachineToTransfer.Department)?.DisplayName ?? dbDepartments.FirstOrDefault()?.DisplayName ?? "";
-            targetTransferEmpCode = employeesCatalog.FirstOrDefault(e => e.DisplayCode != selectedMachineToTransfer.CustodianCode)?.DisplayCode ?? "";
-            machineTransferReason = $"نقل عهدة الماكينة من {selectedMachineToTransfer.Department} إلى {targetTransferDept}";
-        }
-    }
-
-    private async Task SubmitMachineTransfer()
-    {
-        if (selectedMachineToTransfer == null) return;
-
-        if (string.IsNullOrWhiteSpace(targetTransferDept) || string.IsNullOrWhiteSpace(targetTransferEmpCode))
-        {
-            feedbackMessage = "⚠️ يرجى تحديد الصالة الجديدة والمشرف المستلم للماكينة!";
-            isSuccessFeedback = false;
-            return;
-        }
-
-        try
-        {
-            var targetEmp = employeesCatalog.FirstOrDefault(e => e.DisplayCode == targetTransferEmpCode);
-
-            // تحديث الأصل مباشرة في قاعدة البيانات
-            selectedMachineToTransfer.Department = targetTransferDept;
-            selectedMachineToTransfer.CustodianCode = targetTransferEmpCode;
-            selectedMachineToTransfer.CustodianName = targetEmp?.DisplayName ?? "مشرف الصالة الجديدة";
-
-            var updateDto = new
-            {
-                Name = selectedMachineToTransfer.Name,
-                Department = selectedMachineToTransfer.Department,
-                Category = selectedMachineToTransfer.Category ?? "أفران وتسوية",
-                BrandModel = selectedMachineToTransfer.BrandModel ?? "",
-                SerialNumber = selectedMachineToTransfer.SerialNumber ?? "",
-                CustodianCode = selectedMachineToTransfer.CustodianCode,
-                CustodianName = selectedMachineToTransfer.CustodianName,
-                Status = selectedMachineToTransfer.Status
-            };
-
-            var res = await Http.PutAsJsonAsync($"api/FixedAssets/{selectedMachineToTransfer.Id}", updateDto);
-            if (res.IsSuccessStatusCode)
-            {
-                await LoadFixedAssets();
-                feedbackMessage = $"✅ تم نقل عهدة الماكينة ({selectedMachineToTransfer.Name}) رسمياً إلى ({targetTransferDept}) بذمة ({selectedMachineToTransfer.CustodianName})!";
-                isSuccessFeedback = true;
-                isMachineTransferModalOpen = false;
-            }
-            else
-            {
-                var err = await res.Content.ReadAsStringAsync();
-                feedbackMessage = $"❌ فشل ترحيل النقل: {err}";
-                isSuccessFeedback = false;
-            }
-        }
-        catch (Exception ex)
-        {
-            feedbackMessage = $"خطأ: {ex.Message}";
-            isSuccessFeedback = false;
-        }
-    }
-
-    // ========================================================
-    // 2. دورة صرف الأوعية والأسبات المتداولة (كميات حرة)
+    // دوال دورة الأسبات والحاويات (كاملة ومربوطة بالـ API)
     // ========================================================
     private void OpenCrateDispatchModal()
     {
-        crateSourceDept = !string.IsNullOrEmpty(State.DepartmentName) ? State.DepartmentName : "مستودع التعبئة والتغليف والتوزيع";
-        crateSourceEmpCode = employeesCatalog.FirstOrDefault(e => e.DisplayCode == State.EmployeeCode)?.DisplayCode ?? (employeesCatalog.FirstOrDefault()?.DisplayCode ?? "");
-        
-        crateDestLocation = "سيارة توزيع رقم 1 (سائق)";
-        crateDestEmpCode = employeesCatalog.FirstOrDefault(e => e.DisplayCode != crateSourceEmpCode)?.DisplayCode ?? "";
-
-        var defaultCrateName = AvailableContainerItems.FirstOrDefault()?.DisplayName ?? "سبت بلاستيك كبير";
-
-        newDispatch = new CrateHandoverMovementModel
+        newCrateDispatch = new DispatchCrateDto
         {
-            MovementNumber = $"CRT-{DateTime.Now:yyyyMMdd}-{new Random().Next(100, 999)}",
-            ContainerName = defaultCrateName,
-            DispatchedQuantity = 50,
-            MovementType = "DISPATCH_BRANCH",
-            Notes = ""
+            ContainerName = circulatingAssetsList.FirstOrDefault()?.ContainerName ?? "سبت بلاستيك قياسي",
+            DispatchedQuantity = 20,
+            SourceLocation = "مستودع التعبئة المركزي",
+            DestinationLocation = "فرع الدقي"
         };
-        isDispatchModalOpen = true;
+        isCrateDispatchModalOpen = true;
     }
 
     private async Task SubmitCrateDispatch()
     {
-        if (newDispatch.DispatchedQuantity <= 0 || string.IsNullOrWhiteSpace(crateDestLocation))
-        {
-            feedbackMessage = "⚠️ يرجى تحديد كمية صحيحة وتحديد الجهة أو السيارة المستلمة للأسبات!";
-            isSuccessFeedback = false;
-            return;
-        }
-
+        if (newCrateDispatch.DispatchedQuantity <= 0) return;
+        isSubmittingCrate = true;
         try
         {
-            var sourceEmp = employeesCatalog.FirstOrDefault(e => e.DisplayCode == crateSourceEmpCode);
-            var destEmp = employeesCatalog.FirstOrDefault(e => e.DisplayCode == crateDestEmpCode);
+            newCrateDispatch.DispatchedByCode = State.EmployeeCode;
+            newCrateDispatch.DispatchedByName = State.FullName;
 
-            newDispatch.SourceLocation = $"{crateSourceDept}";
-            newDispatch.DispatchedByCode = sourceEmp?.DisplayCode ?? State.EmployeeCode;
-            newDispatch.DispatchedByName = sourceEmp?.DisplayName ?? State.FullName;
-
-            string destWorkerInfo = destEmp != null ? $" - [{destEmp.DisplayCode}] {destEmp.DisplayName}" : "";
-            newDispatch.DestinationLocation = $"{crateDestLocation}{destWorkerInfo}";
-
-            var dto = new
-            {
-                MovementType = newDispatch.MovementType,
-                ContainerName = newDispatch.ContainerName,
-                DispatchedQuantity = newDispatch.DispatchedQuantity,
-                SourceLocation = newDispatch.SourceLocation,
-                DestinationLocation = newDispatch.DestinationLocation,
-                Notes = newDispatch.Notes
-            };
-
-            var res = await Http.PostAsJsonAsync("api/Crates/dispatch", dto);
+            var res = await Http.PostAsJsonAsync("api/Crates/dispatch", newCrateDispatch);
             if (res.IsSuccessStatusCode)
             {
-                await LoadCrateData();
-                feedbackMessage = $"🚀 تم إصدار إذن صرف الأوعية ({newDispatch.MovementNumber}) بكمية ({newDispatch.DispatchedQuantity}) بنجاح!";
+                feedbackMessage = "✅ تم إصدار إذن تسليم الأسبات بنجاح، بانتظار فحص واستلام الطرف الآخر!";
                 isSuccessFeedback = true;
-                isDispatchModalOpen = false;
+                isCrateDispatchModalOpen = false;
+                await LoadCrateData();
             }
             else
             {
@@ -1583,217 +1154,98 @@
             feedbackMessage = $"خطأ: {ex.Message}";
             isSuccessFeedback = false;
         }
+        finally { isSubmittingCrate = false; }
     }
 
-    private void OpenReceiveHandshakeModal(CrateHandoverMovementModel move)
+    private void OpenReceiveCrateModal(CrateHandoverMovementModel m)
     {
-        selectedMovementForReceive = move;
-        actualReceivedQtyInput = move.DispatchedQuantity;
-        damagedQtyInput = 0;
-        receiveNotesInput = "";
-        isReceiveModalOpen = true;
+        selectedMovementForReceive = m;
+        receiveCrateDto = new ReceiveCrateDto
+        {
+            ActualReceivedQuantity = m.DispatchedQuantity,
+            DamagedCount = 0,
+            ReceiveNotes = ""
+        };
+        isCrateReceiveModalOpen = true;
     }
 
-    private async Task ConfirmReceiveHandshake()
+    private async Task SubmitCrateReceive()
     {
         if (selectedMovementForReceive == null) return;
-        var shortage = selectedMovementForReceive.DispatchedQuantity - actualReceivedQtyInput;
-
+        isSubmittingCrate = true;
         try
         {
-            var dto = new
-            {
-                ActualReceivedQuantity = actualReceivedQtyInput,
-                DamagedCount = damagedQtyInput,
-                ReceiveNotes = receiveNotesInput
-            };
+            receiveCrateDto.ReceivedByCode = State.EmployeeCode;
+            receiveCrateDto.ReceivedByName = State.FullName;
 
-            var res = await Http.PostAsJsonAsync($"api/Crates/movements/{selectedMovementForReceive.Id}/receive", dto);
+            var res = await Http.PostAsJsonAsync($"api/Crates/movements/{selectedMovementForReceive.Id}/receive", receiveCrateDto);
             if (res.IsSuccessStatusCode)
             {
-                await LoadCrateData();
-                feedbackMessage = shortage > 0 ? "⚠️ تم فتح محضر نزاع رسمي لوجود عجز في الأسبات!" : "✅ تم تأكيد استلام الأوعية وتحديث الأرصدة بنجاح!";
-                isSuccessFeedback = shortage == 0;
-                isReceiveModalOpen = false;
-            }
-        }
-        catch (Exception ex)
-        {
-            feedbackMessage = $"خطأ: {ex.Message}";
-            isSuccessFeedback = false;
-        }
-    }
-
-    private void OpenSettleDisputeModal(CrateHandoverMovementModel move)
-    {
-        selectedMovementForDispute = move;
-        arbitrationDecision = "CHARGE_CARRIER";
-        arbitrationFinancialImpact = $"تحميل تكلفة {move.ShortageQuantity} سبت";
-        arbitrationText = $"بناءً على محضر فحص الشحنة ({move.MovementNumber})، تقرر تسوية العجز وتحميل المتسبب.";
-        isSettleDisputeModalOpen = true;
-    }
-
-    private async Task ConfirmArbitrationSettlement()
-    {
-        if (selectedMovementForDispute == null || string.IsNullOrWhiteSpace(arbitrationText)) return;
-
-        try
-        {
-            var dto = new
-            {
-                ArbitrationDecision = arbitrationDecision,
-                ArbitrationText = arbitrationText,
-                FinancialPenalty = arbitrationFinancialImpact
-            };
-
-            var res = await Http.PostAsJsonAsync($"api/Crates/movements/{selectedMovementForDispute.Id}/settle-dispute", dto);
-            if (res.IsSuccessStatusCode)
-            {
-                await LoadCrateData();
-                feedbackMessage = "⚖️ تم اعتماد محضر فض النزاع وتسوية العهدة رسمياً!";
+                feedbackMessage = "✅ تم تسجيل الاستلام وتحديث حركة الأسبات بنجاح!";
                 isSuccessFeedback = true;
-                isSettleDisputeModalOpen = false;
-            }
-        }
-        catch (Exception ex)
-        {
-            feedbackMessage = $"خطأ: {ex.Message}";
-            isSuccessFeedback = false;
-        }
-    }
-
-    private void OpenMovementDetailsModal(CrateHandoverMovementModel move)
-    {
-        selectedMovementForDetails = move;
-        isDetailsModalOpen = true;
-    }
-
-    // ========================================================
-    // 3. قيد وتعديل وطوارئ الماكينات
-    // ========================================================
-    private void OnCustodianSelected(ChangeEventArgs e)
-    {
-        var code = e.Value?.ToString() ?? "";
-        var emp = employeesCatalog.FirstOrDefault(x => x.DisplayCode == code);
-        if (emp != null)
-        {
-            editingFixedAsset.CustodianCode = emp.DisplayCode;
-            editingFixedAsset.CustodianName = emp.DisplayName;
-        }
-    }
-
-    private void OpenNewFixedAssetModal()
-    {
-        modalErrorMessage = "";
-        var initialEmp = employeesCatalog.FirstOrDefault();
-        editingFixedAsset = new FixedAssetModel 
-        { 
-            AssetCode = $"AST-{new Random().Next(100, 999)}", 
-            Department = dbDepartments.FirstOrDefault()?.DisplayName ?? "قسم الشرقي والمخبوزات", 
-            CustodianCode = initialEmp?.DisplayCode ?? State.EmployeeCode, 
-            CustodianName = initialEmp?.DisplayName ?? State.FullName,
-            InstallationDate = DateTime.UtcNow,
-            Category = "أفران وتسوية",
-            Status = "OPERATIONAL"
-        };
-        isFixedAssetModalOpen = true;
-    }
-
-    private void EditFixedAsset(FixedAssetModel asset) 
-    { 
-        modalErrorMessage = "";
-        editingFixedAsset = new FixedAssetModel
-        {
-            Id = asset.Id,
-            AssetCode = asset.AssetCode,
-            Name = asset.Name,
-            Department = asset.Department,
-            Category = asset.Category,
-            BrandModel = asset.BrandModel,
-            SerialNumber = asset.SerialNumber,
-            CustodianCode = asset.CustodianCode,
-            CustodianName = asset.CustodianName,
-            InstallationDate = asset.InstallationDate,
-            Status = asset.Status
-        };
-        isFixedAssetModalOpen = true; 
-    }
-
-    private async Task SaveFixedAsset()
-    {
-        modalErrorMessage = "";
-        if (string.IsNullOrWhiteSpace(editingFixedAsset.Name) || string.IsNullOrWhiteSpace(editingFixedAsset.AssetCode))
-        {
-            modalErrorMessage = "⚠️ يرجى إدخال كود الأصل واسم الماكينة!";
-            return;
-        }
-
-        isSavingAsset = true;
-        try
-        {
-            if (editingFixedAsset.Id == 0)
-            {
-                var dto = new
-                {
-                    AssetCode = editingFixedAsset.AssetCode.Trim(),
-                    Name = editingFixedAsset.Name.Trim(),
-                    Department = editingFixedAsset.Department,
-                    Category = editingFixedAsset.Category ?? "أفران وتسوية",
-                    BrandModel = editingFixedAsset.BrandModel ?? "",
-                    SerialNumber = editingFixedAsset.SerialNumber ?? "",
-                    CustodianCode = editingFixedAsset.CustodianCode,
-                    CustodianName = editingFixedAsset.CustodianName,
-                    InstallationDate = DateTime.UtcNow
-                };
-
-                var res = await Http.PostAsJsonAsync("api/FixedAssets", dto);
-                if (res.IsSuccessStatusCode)
-                {
-                    await LoadFixedAssets();
-                    feedbackMessage = $"✅ تم قيد الماكينة ({editingFixedAsset.Name}) وتثبيت العهدة بنجاح!";
-                    isSuccessFeedback = true;
-                    isFixedAssetModalOpen = false;
-                }
-                else
-                {
-                    var err = await res.Content.ReadAsStringAsync();
-                    modalErrorMessage = $"❌ فشل الحفظ: {err}";
-                }
+                isCrateReceiveModalOpen = false;
+                await LoadCrateData();
             }
             else
             {
-                var dto = new
-                {
-                    Name = editingFixedAsset.Name.Trim(),
-                    Department = editingFixedAsset.Department,
-                    Category = editingFixedAsset.Category ?? "أفران وتسوية",
-                    BrandModel = editingFixedAsset.BrandModel ?? "",
-                    SerialNumber = editingFixedAsset.SerialNumber ?? "",
-                    CustodianCode = editingFixedAsset.CustodianCode,
-                    CustodianName = editingFixedAsset.CustodianName,
-                    Status = editingFixedAsset.Status
-                };
-
-                var res = await Http.PutAsJsonAsync($"api/FixedAssets/{editingFixedAsset.Id}", dto);
-                if (res.IsSuccessStatusCode)
-                {
-                    await LoadFixedAssets();
-                    feedbackMessage = $"✅ تم تحديث بيانات الماكينة بنجاح!";
-                    isSuccessFeedback = true;
-                    isFixedAssetModalOpen = false;
-                }
+                var err = await res.Content.ReadAsStringAsync();
+                feedbackMessage = $"❌ فشل الاستلام: {err}";
+                isSuccessFeedback = false;
             }
         }
         catch (Exception ex)
         {
-            modalErrorMessage = $"❌ خطأ: {ex.Message}";
+            feedbackMessage = $"خطأ: {ex.Message}";
+            isSuccessFeedback = false;
         }
-        finally
-        {
-            isSavingAsset = false;
-        }
+        finally { isSubmittingCrate = false; }
     }
 
+    private void OpenSettleDisputeModal(CrateHandoverMovementModel m)
+    {
+        selectedMovementForSettle = m;
+        settleDisputeDto = new SettleDisputeDto
+        {
+            ArbitrationDecision = "تحميل العجز على المستلم (إهمال)",
+            ArbitrationText = $"إقرار عجز ({m.ShortageQuantity}) وكسر ({m.DamagedCount}) واعتماد التسوية",
+            FinancialPenalty = (m.ShortageQuantity + m.DamagedCount) * 50
+        };
+        isCrateSettleModalOpen = true;
+    }
+
+    private async Task SubmitCrateSettle()
+    {
+        if (selectedMovementForSettle == null) return;
+        isSubmittingCrate = true;
+        try
+        {
+            settleDisputeDto.ArbitratedByCode = State.EmployeeCode;
+            settleDisputeDto.ArbitratedByName = State.FullName;
+
+            var res = await Http.PostAsJsonAsync($"api/Crates/movements/{selectedMovementForSettle.Id}/settle-dispute", settleDisputeDto);
+            if (res.IsSuccessStatusCode)
+            {
+                feedbackMessage = "✅ تم اعتماد قرار لجنة التحكيم وتسوية عهدة الأسبات بنجاح!";
+                isSuccessFeedback = true;
+                isCrateSettleModalOpen = false;
+                await LoadCrateData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                feedbackMessage = $"❌ فشل تسوية النزاع: {err}";
+                isSuccessFeedback = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"خطأ: {ex.Message}";
+            isSuccessFeedback = false;
+        }
+        finally { isSubmittingCrate = false; }
+    }
+
+    // دوال الماكينات والأصول
     private void OpenDirectSOSModal(FixedAssetModel asset)
     {
         assetForSOS = asset;
@@ -1821,14 +1273,196 @@
                 Priority = "CRITICAL",
                 TargetResolutionMinutes = 30,
                 Status = "PENDING",
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                AssetCode = assetForSOS.AssetCode
             };
 
             await Http.PostAsJsonAsync("api/EmergencyTasks", taskDto);
+
+            var updateAssetDto = new
+            {
+                Name = assetForSOS.Name,
+                Department = assetForSOS.Department,
+                Category = assetForSOS.Category ?? "أفران وتسوية",
+                BrandModel = assetForSOS.BrandModel ?? "",
+                SerialNumber = assetForSOS.SerialNumber ?? "",
+                CustodianCode = assetForSOS.CustodianCode,
+                CustodianName = assetForSOS.CustodianName,
+                Status = "UNDER_MAINTENANCE"
+            };
+
+            await Http.PutAsJsonAsync($"api/FixedAssets/{assetForSOS.Id}", updateAssetDto);
             await LoadFixedAssets();
-            feedbackMessage = $"🚨 تم بث بلاغ الطوارئ ({taskNum}) وتحديث حالة الماكينة!";
+
+            feedbackMessage = $"🚨 تم بث بلاغ الطوارئ ({taskNum}) وتحويل الماكينة إلى حالة (تحت الصيانة والإصلاح) بنجاح!";
             isSuccessFeedback = true;
             isDirectSOSModalOpen = false;
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"خطأ: {ex.Message}";
+            isSuccessFeedback = false;
+        }
+    }
+
+    private void OpenMachineTransferModal()
+    {
+        selectedMachineTransferCode = fixedAssetsList.FirstOrDefault()?.AssetCode ?? "";
+        UpdateSelectedMachineInfo();
+        isMachineTransferModalOpen = true;
+    }
+
+    private void OpenTransferForSpecificMachine(FixedAssetModel machine)
+    {
+        selectedMachineTransferCode = machine.AssetCode;
+        UpdateSelectedMachineInfo();
+        isMachineTransferModalOpen = true;
+    }
+
+    private void UpdateSelectedMachineInfo()
+    {
+        selectedMachineToTransfer = fixedAssetsList.FirstOrDefault(m => m.AssetCode == selectedMachineTransferCode);
+        if (selectedMachineToTransfer != null)
+        {
+            targetTransferDept = dbDepartments.FirstOrDefault(d => d.DisplayName != selectedMachineToTransfer.Department)?.DisplayName ?? "";
+            targetTransferEmpCode = employeesCatalog.FirstOrDefault(e => e.DisplayCode != selectedMachineToTransfer.CustodianCode)?.DisplayCode ?? "";
+            machineTransferReason = $"نقل عهدة الماكينة من {selectedMachineToTransfer.Department} إلى {targetTransferDept}";
+        }
+    }
+
+    private async Task SubmitMachineTransfer()
+    {
+        if (selectedMachineToTransfer == null) return;
+        try
+        {
+            var targetEmp = employeesCatalog.FirstOrDefault(e => e.DisplayCode == targetTransferEmpCode);
+            selectedMachineToTransfer.Department = targetTransferDept;
+            selectedMachineToTransfer.CustodianCode = targetTransferEmpCode;
+            selectedMachineToTransfer.CustodianName = targetEmp?.DisplayName ?? "مشرف الصالة الجديدة";
+
+            var updateDto = new
+            {
+                Name = selectedMachineToTransfer.Name,
+                Department = selectedMachineToTransfer.Department,
+                Category = selectedMachineToTransfer.Category ?? "أفران وتسوية",
+                BrandModel = selectedMachineToTransfer.BrandModel ?? "",
+                SerialNumber = selectedMachineToTransfer.SerialNumber ?? "",
+                CustodianCode = selectedMachineToTransfer.CustodianCode,
+                CustodianName = selectedMachineToTransfer.CustodianName,
+                Status = selectedMachineToTransfer.Status
+            };
+
+            var res = await Http.PutAsJsonAsync($"api/FixedAssets/{selectedMachineToTransfer.Id}", updateDto);
+            if (res.IsSuccessStatusCode)
+            {
+                await LoadFixedAssets();
+                feedbackMessage = $"✅ تم نقل عهدة الماكينة ({selectedMachineToTransfer.Name}) بنجاح إلى ({targetTransferDept})!";
+                isSuccessFeedback = true;
+                isMachineTransferModalOpen = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"خطأ: {ex.Message}";
+            isSuccessFeedback = false;
+        }
+    }
+
+    private void OnCustodianSelected(ChangeEventArgs e)
+    {
+        var code = e.Value?.ToString() ?? "";
+        var emp = employeesCatalog.FirstOrDefault(x => x.DisplayCode == code);
+        if (emp != null)
+        {
+            editingFixedAsset.CustodianCode = emp.DisplayCode;
+            editingFixedAsset.CustodianName = emp.DisplayName;
+        }
+    }
+
+    private void OpenNewFixedAssetModal()
+    {
+        var initialEmp = employeesCatalog.FirstOrDefault();
+        editingFixedAsset = new FixedAssetModel 
+        { 
+            AssetCode = $"AST-{new Random().Next(100, 999)}", 
+            Department = dbDepartments.FirstOrDefault()?.DisplayName ?? "قسم الشرقي والمخبوزات", 
+            CustodianCode = initialEmp?.DisplayCode ?? State.EmployeeCode, 
+            CustodianName = initialEmp?.DisplayName ?? State.FullName,
+            Status = "OPERATIONAL"
+        };
+        isFixedAssetModalOpen = true;
+    }
+
+    private void EditFixedAsset(FixedAssetModel asset) 
+    { 
+        editingFixedAsset = new FixedAssetModel
+        {
+            Id = asset.Id,
+            AssetCode = asset.AssetCode,
+            Name = asset.Name,
+            Department = asset.Department,
+            Category = asset.Category,
+            BrandModel = asset.BrandModel,
+            SerialNumber = asset.SerialNumber,
+            CustodianCode = asset.CustodianCode,
+            CustodianName = asset.CustodianName,
+            Status = asset.Status
+        };
+        isFixedAssetModalOpen = true; 
+    }
+
+    private async Task SaveFixedAsset()
+    {
+        if (string.IsNullOrWhiteSpace(editingFixedAsset.Name) || string.IsNullOrWhiteSpace(editingFixedAsset.AssetCode)) return;
+        try
+        {
+            if (editingFixedAsset.Id == 0)
+            {
+                var dto = new
+                {
+                    AssetCode = editingFixedAsset.AssetCode.Trim(),
+                    Name = editingFixedAsset.Name.Trim(),
+                    Department = editingFixedAsset.Department,
+                    Category = editingFixedAsset.Category ?? "أفران وتسوية",
+                    BrandModel = editingFixedAsset.BrandModel ?? "",
+                    SerialNumber = editingFixedAsset.SerialNumber ?? "",
+                    CustodianCode = editingFixedAsset.CustodianCode,
+                    CustodianName = editingFixedAsset.CustodianName,
+                    InstallationDate = DateTime.UtcNow
+                };
+
+                var res = await Http.PostAsJsonAsync("api/FixedAssets", dto);
+                if (res.IsSuccessStatusCode)
+                {
+                    await LoadFixedAssets();
+                    feedbackMessage = "✅ تم قيد الماكينة وتثبيت العهدة بنجاح!";
+                    isSuccessFeedback = true;
+                    isFixedAssetModalOpen = false;
+                }
+            }
+            else
+            {
+                var dto = new
+                {
+                    Name = editingFixedAsset.Name.Trim(),
+                    Department = editingFixedAsset.Department,
+                    Category = editingFixedAsset.Category ?? "أفران وتسوية",
+                    BrandModel = editingFixedAsset.BrandModel ?? "",
+                    SerialNumber = editingFixedAsset.SerialNumber ?? "",
+                    CustodianCode = editingFixedAsset.CustodianCode,
+                    CustodianName = editingFixedAsset.CustodianName,
+                    Status = editingFixedAsset.Status
+                };
+
+                var res = await Http.PutAsJsonAsync($"api/FixedAssets/{editingFixedAsset.Id}", dto);
+                if (res.IsSuccessStatusCode)
+                {
+                    await LoadFixedAssets();
+                    feedbackMessage = "✅ تم تحديث بيانات الماكينة بنجاح!";
+                    isSuccessFeedback = true;
+                    isFixedAssetModalOpen = false;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -1844,94 +1478,28 @@
         {
             var history = await Http.GetFromJsonAsync<FixedAssetModel>($"api/FixedAssets/{asset.Id}/history");
             if (history != null && history.HistoryLogs != null) 
-            {
                 selectedHistoryAsset.HistoryLogs = history.HistoryLogs;
-            }
         }
         catch { }
         isAssetHistoryModalOpen = true;
     }
 
-    // تصدير واستيراد الإكسيل
     private async Task ExportAssetsToExcel()
     {
         var sb = new StringBuilder();
         sb.AppendLine("كود الأصل,اسم الماكينة,القسم,التصنيف,الماركة والموديل,الرقم التسلسلي,مسؤول العهدة,الحالة الفنية");
-
         foreach (var a in FilteredFixedAssets)
-        {
             sb.AppendLine($"\"{a.AssetCode}\",\"{a.Name}\",\"{a.Department}\",\"{a.Category}\",\"{a.BrandModel}\",\"{a.SerialNumber}\",\"{a.CustodianName}\",\"{TranslateAssetStatus(a.Status)}\"");
-        }
 
         await DownloadCsvFile(sb.ToString(), $"سجل_الأصول_الثابتة_{DateTime.Now:yyyyMMdd_HHmm}.csv");
-    }
-
-    private async Task ImportAssetsFromExcel(InputFileChangeEventArgs e)
-    {
-        var file = e.File;
-        if (file == null) return;
-
-        try
-        {
-            using var reader = new StreamReader(file.OpenReadStream());
-            string? header = await reader.ReadLineAsync();
-            int count = 0;
-
-            while (!reader.EndOfStream)
-            {
-                var line = await reader.ReadLineAsync();
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                var cols = line.Split(',');
-                if (cols.Length >= 2)
-                {
-                    var assetCode = cols[0].Trim().Replace("\"", "");
-                    var name = cols[1].Trim().Replace("\"", "");
-                    var dept = cols.Length > 2 ? cols[2].Trim().Replace("\"", "") : "قسم الشرقي والمخبوزات";
-                    var cat = cols.Length > 3 ? cols[3].Trim().Replace("\"", "") : "أفران وتسوية";
-                    var model = cols.Length > 4 ? cols[4].Trim().Replace("\"", "") : "";
-                    var serial = cols.Length > 5 ? cols[5].Trim().Replace("\"", "") : "";
-                    var custName = cols.Length > 6 ? cols[6].Trim().Replace("\"", "") : State.FullName;
-                    var custCode = cols.Length > 7 ? cols[7].Trim().Replace("\"", "") : State.EmployeeCode;
-
-                    var dto = new
-                    {
-                        AssetCode = assetCode,
-                        Name = name,
-                        Department = dept,
-                        Category = cat,
-                        BrandModel = model,
-                        SerialNumber = serial,
-                        CustodianCode = custCode,
-                        CustodianName = custName,
-                        InstallationDate = DateTime.UtcNow
-                    };
-
-                    var res = await Http.PostAsJsonAsync("api/FixedAssets", dto);
-                    if (res.IsSuccessStatusCode) count++;
-                }
-            }
-
-            await LoadFixedAssets();
-            feedbackMessage = $"✅ تم استيراد ({count}) ماكينة وأصل بنجاح وترحيلها لقاعدة البيانات!";
-            isSuccessFeedback = true;
-        }
-        catch (Exception ex)
-        {
-            feedbackMessage = $"❌ خطأ أثناء الاستيراد: {ex.Message}";
-            isSuccessFeedback = false;
-        }
     }
 
     private async Task ExportCrateMovementsToExcel()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("رقم الإذن,التاريخ,نوع الحركة,نوع الحاوية,الكمية المنصرفة,المرسل,المستلم,الكمية المستلمة,العجز,الحالة");
-
-        foreach (var m in FilteredMovements)
-        {
-            sb.AppendLine($"\"{m.MovementNumber}\",\"{m.CreatedAt:yyyy-MM-dd HH:mm}\",\"{TranslateMovementType(m.MovementType)}\",\"{m.ContainerName}\",{m.DispatchedQuantity},\"{m.SourceLocation}\",\"{m.DestinationLocation}\",{m.ReceivedQuantity ?? 0},{m.ShortageQuantity},\"{TranslateHandoverStatus(m.Status)}\"");
-        }
+        sb.AppendLine("رقم الإذن,التاريخ,نوع الحركة,نوع الحاوية,المنصرف,المصدر,المُسلِّم,المستقبل,المستلم,الكمية المستلمة,العجز,الكسر,الحالة");
+        foreach (var m in crateMovementsHistory)
+            sb.AppendLine($"\"{m.MovementNumber}\",\"{m.CreatedAt:yyyy-MM-dd HH:mm}\",\"{m.MovementType}\",\"{m.ContainerName}\",{m.DispatchedQuantity},\"{m.SourceLocation}\",\"{m.DispatchedByName}\",\"{m.DestinationLocation}\",\"{m.ReceivedByName}\",{m.ReceivedQuantity},{m.ShortageQuantity},{m.DamagedCount},\"{TranslateCrateStatus(m.Status)}\"");
 
         await DownloadCsvFile(sb.ToString(), $"سجل_تداول_الأسبات_{DateTime.Now:yyyyMMdd_HHmm}.csv");
     }
@@ -1940,38 +1508,30 @@
     {
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csvContent)).ToArray();
         var base64 = Convert.ToBase64String(bytes);
-
-        var js = $@"
-            const link = document.createElement('a');
-            link.href = 'data:text/csv;charset=utf-8;base64,{base64}';
-            link.download = '{fileName}';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        ";
+        var js = $"const link = document.createElement('a'); link.href = 'data:text/csv;charset=utf-8;base64,{base64}'; link.download = '{fileName}'; document.body.appendChild(link); link.click(); document.body.removeChild(link);";
         await JS.InvokeVoidAsync("eval", js);
     }
 
     private async Task PrintCustodyCard() => await JS.InvokeVoidAsync("eval", "window.print();");
 
     private string GetAssetStatusBadge(string s) => s == "OPERATIONAL" ? "bg-success" : (s == "UNDER_MAINTENANCE" ? "bg-warning text-dark" : "bg-danger");
-    private string TranslateAssetStatus(string s) => s == "OPERATIONAL" ? "تعمل بكفاءة ✓" : (s == "UNDER_MAINTENANCE" ? "صيانة طارئة ⚙️" : "معطلة ⛔");
-    private string GetMovementBadge(string m) => m == "DISPATCH_BRANCH" ? "bg-warning text-dark" : (m == "RETURN_FACTORY" ? "bg-success" : "bg-info text-dark");
-    private string TranslateMovementType(string m) => m == "DISPATCH_BRANCH" ? "صرف لفرع/سيارة 🚚" : (m == "RETURN_FACTORY" ? "ارتجاع فارغ 📥" : "تحويل صالات 🔄");
-    private string GetHandoverStatusBadge(string s) => s switch
+    private string TranslateAssetStatus(string s) => s == "OPERATIONAL" ? "تعمل بكفاءة ✓" : (s == "UNDER_MAINTENANCE" ? "تحت الصيانة والإصلاح ⚙️" : "معطلة ⛔");
+    
+    private string GetCrateStatusBadge(string s) => s switch
     {
-        "PENDING_RECEIPT" => "bg-warning text-dark",
         "COMPLETED" => "bg-success",
         "DISPUTED" => "bg-danger",
-        "RESOLVED" => "bg-primary",
+        "PENDING_RECEIPT" => "bg-warning text-dark",
+        "RESOLVED" => "bg-info text-dark",
         _ => "bg-secondary"
     };
-    private string TranslateHandoverStatus(string s) => s switch
+
+    private string TranslateCrateStatus(string s) => s switch
     {
+        "COMPLETED" => "مكتمل ومستلم بالكامل ✓",
+        "DISPUTED" => "نزاع عجز وكسر معلق ⚠️",
         "PENDING_RECEIPT" => "بانتظار تأكيد المستلم ⏳",
-        "COMPLETED" => "مكتمل ومؤكد من الطرفين ✓",
-        "DISPUTED" => "معلق بنزاع وعجز ⚠️",
-        "RESOLVED" => "تم فض النزاع والتسوية ⚖️",
+        "RESOLVED" => "تم التحكيم وفض النزاع ⚖️️",
         _ => s
     };
 }
