@@ -1,50 +1,118 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace AbuAdelERP.Api.DTOs
 {
-    // 1. نموذج إنشاء إذن التحويل
+    // ==============================================================
+    // 1. القوائم المرجعية الموحدة لشاشات التحويل (Lookups)
+    // ==============================================================
+    public class TransferWarehouseLookupDto
+    {
+        public long Id { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
+    }
+
+    public class TransferItemLookupDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string? Unit { get; set; }
+        public string? ItemType { get; set; }
+    }
+
+    public class StockTransferLookupsDto
+    {
+        public List<TransferWarehouseLookupDto> Warehouses { get; set; } = new();
+        public List<TransferItemLookupDto> Items { get; set; } = new();
+    }
+
+    // ==============================================================
+    // 2. نموذج إنشاء وصرف إذن التحويل (Dispatch)
+    // ==============================================================
     public class CreateStockTransferDto
     {
+        [Required(ErrorMessage = "يجب تحديد المخزن الراسل.")]
+        [Range(1, long.MaxValue, ErrorMessage = "معرف المخزن الراسل غير صالح.")]
         public long FromWarehouseId { get; set; }
+
+        [Required(ErrorMessage = "يجب تحديد المخزن المستقبل.")]
+        [Range(1, long.MaxValue, ErrorMessage = "معرف المخزن المستقبل غير صالح.")]
         public long ToWarehouseId { get; set; }
+
         public string? DriverName { get; set; }
         public string? VehicleNumber { get; set; }
         public string? Notes { get; set; }
+
+        [Required(ErrorMessage = "يجب تحديد اسم القائم بالصرف.")]
         public string DispatchedBy { get; set; } = "أمين المخزن الراسل";
+
+        [Required(ErrorMessage = "يجب إدراج صنف واحد على الأقل في إذن التحويل.")]
         public List<CreateStockTransferLineDto> Lines { get; set; } = new();
     }
 
     public class CreateStockTransferLineDto
     {
+        [Required(ErrorMessage = "يجب تحديد الصنف.")]
+        [Range(1, long.MaxValue, ErrorMessage = "معرف الصنف غير صالح.")]
         public long ItemId { get; set; }
+
+        [Required(ErrorMessage = "يجب تحديد كمية الصرف.")]
+        [Range(0.001, double.MaxValue, ErrorMessage = "كمية الصرف يجب أن تكون أكبر من الصفر.")]
         public decimal DispatchedQty { get; set; }
+
         public string BatchNumber { get; set; } = "LOT-DEFAULT";
         public DateTime? ExpiryDate { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "تكلفة الوحدة لا يمكن أن تكون سالبة.")]
         public decimal UnitCost { get; set; } = 0;
     }
 
-    // 2. نموذج تأكيد استلام سطر التحويل بالمخزن المستقبل
+    // ==============================================================
+    // 3. نموذج تأكيد استلام سطر التحويل بالمخزن المستقبل (Receive)
+    // ==============================================================
     public class ConfirmTransferLineReceiveDto
     {
+        [Required(ErrorMessage = "يجب تحديد سطر التحويل.")]
+        [Range(1, long.MaxValue, ErrorMessage = "معرف السطر غير صالح.")]
         public long LineId { get; set; }
+
+        [Required(ErrorMessage = "يجب إدخال الكمية المستلمة.")]
+        [Range(0, double.MaxValue, ErrorMessage = "الكمية المستلمة لا يمكن أن تكون سالبة.")]
         public decimal ReceivedQty { get; set; }
+
         public bool IsAccepted { get; set; }
         public string? DiscrepancyReason { get; set; }
+
+        [Required(ErrorMessage = "يجب تحديد اسم مستلم البضاعة.")]
         public string ReceivedBy { get; set; } = "أمين المخزن المستقبل";
     }
 
-    // 3. نموذج فض النزاع وتسوية الفروق
+    // ==============================================================
+    // 4. نموذج فض النزاع وتسوية الفروق والعجز (Dispute Resolution)
+    // ==============================================================
     public class ResolveTransferDisputeDto
     {
+        [Required(ErrorMessage = "يجب تحديد سطر التحويل المتنازع عليه.")]
+        [Range(1, long.MaxValue, ErrorMessage = "معرف السطر غير صالح.")]
         public long LineId { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "الكمية المعتمدة لا يمكن أن تكون سالبة.")]
         public decimal FinalApprovedQty { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "كمية العجز/الهالك لا يمكن أن تكون سالبة.")]
         public decimal LossQty { get; set; }
+
+        [Required(ErrorMessage = "يجب كتابة مبررات وقرار لجنة فض النزاع.")]
         public string ResolutionNotes { get; set; } = string.Empty;
+
         public string ResolvedBy { get; set; } = "لجنة فض المنازعات";
     }
 
-    // 4. تفاصيل إذن التحويل الكاملة
+    // ==============================================================
+    // 5. تفاصيل إذن التحويل وسطور الحركات (Detailed View)
+    // ==============================================================
     public class StockTransferDetailDto
     {
         public long Id { get; set; }
@@ -65,7 +133,6 @@ namespace AbuAdelERP.Api.DTOs
         public List<StockTransferLineDetailDto> Lines { get; set; } = new();
     }
 
-    // 5. تفاصيل سطر إذن التحويل
     public class StockTransferLineDetailDto
     {
         public long Id { get; set; }
@@ -84,7 +151,9 @@ namespace AbuAdelERP.Api.DTOs
         public decimal LossQty { get; set; }
     }
 
-    // 6. كلاسات استعلام الرصيد اللحظي واللوطات المتاحة
+    // ==============================================================
+    // 6. استعلام الرصيد اللحظي واللوطات المتاحة للصرف
+    // ==============================================================
     public class AvailableStockInfoDto
     {
         public decimal TotalAvailableQty { get; set; }

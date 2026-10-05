@@ -1,12 +1,10 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using AbuAdelERP.Api.DTOs;
-using AbuAdelERP.Api.Services;
-using AbuAdelERP.Api.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using AbuAdelERP.Api.DTOs;
+using AbuAdelERP.Api.Services;
 
 namespace AbuAdelERP.Api.Controllers
 {
@@ -15,43 +13,22 @@ namespace AbuAdelERP.Api.Controllers
     public class StockTransfersController : ControllerBase
     {
         private readonly IStockTransferService _service;
-        private readonly AppDbContext _context;
 
-        public StockTransfersController(IStockTransferService service, AppDbContext context)
+        public StockTransfersController(IStockTransferService service)
         {
             _service = service;
-            _context = context;
         }
 
         // ========================================================
-        // 1. القوائم المرجعية الموحدة (تنقية المخازن وحصر الأصناف النشطة)
+        // 1. القوائم المرجعية الموحدة (مستودعات حقيقية وأصناف نشطة)
         // ========================================================
         [HttpGet("lookups")]
-        public async Task<IActionResult> GetLookups()
+        public async Task<ActionResult<StockTransferLookupsDto>> GetLookups()
         {
             try
             {
-                // استبعاد الإدارات والمكاتب المكتبية وحصر القائمة في المخازن ومستودعات الصالات الفعلية
-                var warehouses = await _context.Warehouses
-                    .AsNoTracking()
-                    .Where(w => !w.WarehouseName.Contains("إدارة")
-                             && !w.WarehouseName.Contains("العليا")
-                             && !w.WarehouseName.Contains("المالية")
-                             && !w.WarehouseName.Contains("الموارد")
-                             && !w.WarehouseName.Contains("المشتريات")
-                             && !w.WarehouseName.Contains("المبيعات"))
-                    .OrderBy(w => w.WarehouseName)
-                    .Select(w => new { w.Id, w.WarehouseName })
-                    .ToListAsync();
-
-                var items = await _context.Items
-                    .AsNoTracking()
-                    .Where(i => i.Active == true)
-                    .OrderBy(i => i.ItemName)
-                    .Select(i => new { i.Id, i.ItemCode, i.ItemName, i.Unit, i.ItemType })
-                    .ToListAsync();
-
-                return Ok(new { warehouses, items });
+                var result = await _service.GetTransferLookupsAsync();
+                return Ok(result);
             }
             catch (Exception ex)
             {
@@ -82,7 +59,9 @@ namespace AbuAdelERP.Api.Controllers
             try
             {
                 var result = await _service.GetTransferByIdAsync(id);
-                if (result == null) return NotFound($"إذن التحويل رقم {id} غير موجود.");
+                if (result == null)
+                    return NotFound($"إذن التحويل رقم {id} غير موجود.");
+
                 return Ok(result);
             }
             catch (Exception ex)
@@ -134,9 +113,13 @@ namespace AbuAdelERP.Api.Controllers
         {
             try
             {
-                if (dto == null) return BadRequest("بيانات تأكيد الاستلام غير صالحة.");
+                if (dto == null)
+                    return BadRequest("بيانات تأكيد الاستلام غير صالحة.");
+
                 var success = await _service.ReceiveTransferLineAsync(dto);
-                if (!success) return BadRequest("تعذر تأكيد استلام سطر التحويل، يرجى التحقق من صحة السطر.");
+                if (!success)
+                    return BadRequest("تعذر تأكيد استلام سطر التحويل، يرجى التحقق من صحة السطر.");
+
                 return Ok(true);
             }
             catch (Exception ex)
@@ -150,9 +133,13 @@ namespace AbuAdelERP.Api.Controllers
         {
             try
             {
-                if (dto == null) return BadRequest("بيانات محضر فض النزاع غير صالحة.");
+                if (dto == null)
+                    return BadRequest("بيانات محضر فض النزاع غير صالحة.");
+
                 var success = await _service.ResolveTransferDisputeAsync(dto);
-                if (!success) return BadRequest("تعذر اعتماد تسوية النزاع، يرجى التحقق من صحة السطر.");
+                if (!success)
+                    return BadRequest("تعذر اعتماد تسوية النزاع، يرجى التحقق من صحة السطر.");
+
                 return Ok(true);
             }
             catch (Exception ex)

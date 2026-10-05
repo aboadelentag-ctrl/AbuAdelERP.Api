@@ -1,10 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
-using AbuAdelERP.Api.Models;
-using AbuAdelERP.Api.DTOs;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using AbuAdelERP.Api.Models;
+using AbuAdelERP.Api.DTOs;
 
 namespace AbuAdelERP.Api.Services
 {
@@ -18,21 +18,41 @@ namespace AbuAdelERP.Api.Services
     {
         private readonly AppDbContext _context;
 
+        // قائمة الحركات المعتمدة رسمياً كوارد
+        private static readonly HashSet<string> IncomingTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "PURCHASE_RECEIPT",
+            "PRODUCTION_IN",
+            "INITIAL_STOCK",
+            "STOCK_IN",
+            "TRANSFER_IN",
+            "FG_TRANSFER_IN"
+        };
+
         public StockCardService(AppDbContext context)
         {
             _context = context;
         }
 
+        // ==============================================================
+        // 1. تقرير جرد المخزون الحالي السريع
+        // ==============================================================
         public async Task<List<ItemStockSummaryDto>> GetWarehouseInventoryAsync(long warehouseId)
         {
-            var balances = await _context.StockBalances
-                .Where(b => warehouseId == 0 || b.WarehouseId == warehouseId)
-                .ToListAsync();
+            var balancesQuery = _context.StockBalances.AsNoTracking();
+            if (warehouseId > 0)
+            {
+                balancesQuery = balancesQuery.Where(b => b.WarehouseId == warehouseId);
+            }
+
+            var balances = await balancesQuery.ToListAsync();
+            if (!balances.Any()) return new List<ItemStockSummaryDto>();
 
             var itemIds = balances.Select(b => b.ItemId).Distinct().ToList();
             var warehouseIds = balances.Select(b => b.WarehouseId).Distinct().ToList();
 
             var items = await _context.Items
+                .AsNoTracking()
                 .Where(i => itemIds.Contains(i.Id))
                 .ToDictionaryAsync(i => i.Id, i => new
                 {
@@ -46,57 +66,57 @@ namespace AbuAdelERP.Api.Services
                 });
 
             var warehouses = await _context.Warehouses
+                .AsNoTracking()
                 .Where(w => warehouseIds.Contains(w.Id))
                 .ToDictionaryAsync(w => w.Id, w => w.WarehouseName);
 
-            var list = new List<ItemStockSummaryDto>();
+            var list = new List<ItemStockSummaryDto>(balances.Count);
 
             foreach (var b in balances)
             {
-                string itmCode = items.ContainsKey(b.ItemId) ? items[b.ItemId].ItemCode : "";
-                string itmName = items.ContainsKey(b.ItemId) ? items[b.ItemId].ItemName : "صنف";
-                string unit = items.ContainsKey(b.ItemId) ? items[b.ItemId].Unit : "";
-                bool hasExp = items.ContainsKey(b.ItemId) && items[b.ItemId].HasExpiryDate;
-                decimal rLevel = items.ContainsKey(b.ItemId) ? items[b.ItemId].ReorderLevel : 0;
-                decimal sStock = items.ContainsKey(b.ItemId) ? items[b.ItemId].SafetyStock : 0;
-                decimal mStock = items.ContainsKey(b.ItemId) ? items[b.ItemId].MaxStock : 0;
-                string wName = warehouses.ContainsKey(b.WarehouseId) ? warehouses[b.WarehouseId] : "مخزن";
-
-                decimal totalQty = Convert.ToDecimal(b.Quantity);
-                decimal availQty = Convert.ToDecimal(b.AvailableQuantity);
-                decimal resQty = Convert.ToDecimal(b.ReservedQuantity);
+                items.TryGetValue(b.ItemId, out var itm);
+                warehouses.TryGetValue(b.WarehouseId, out var wName);
 
                 list.Add(new ItemStockSummaryDto
                 {
                     ItemId = b.ItemId,
-                    ItemCode = itmCode,
-                    ItemName = itmName,
-                    Unit = unit,
+                    ItemCode = itm?.ItemCode ?? string.Empty,
+                    ItemName = itm?.ItemName ?? "صنف غير معروف",
+                    Unit = itm?.Unit ?? string.Empty,
                     WarehouseId = b.WarehouseId,
-                    WarehouseName = wName,
-                    TotalQuantity = totalQty,
-                    AvailableQuantity = availQty,
-                    ReservedQuantity = resQty,
-                    HasExpiryDate = hasExp,
-                    ReorderLevel = rLevel,
-                    SafetyStock = sStock,
-                    MaxStock = mStock
+                    WarehouseName = wName ?? "مخزن",
+                    TotalQuantity = Convert.ToDecimal(b.Quantity),
+                    AvailableQuantity = Convert.ToDecimal(b.AvailableQuantity),
+                    ReservedQuantity = Convert.ToDecimal(b.ReservedQuantity),
+                    HasExpiryDate = itm?.HasExpiryDate ?? false,
+                    ReorderLevel = itm?.ReorderLevel ?? 0,
+                    SafetyStock = itm?.SafetyStock ?? 0,
+                    MaxStock = itm?.MaxStock ?? 0
                 });
             }
 
             return list.OrderBy(x => x.ItemName).ToList();
         }
 
+        // ==============================================================
+        // 2. كارت الصنف التراكمي وحركات اللوطات
+        // ==============================================================
         public async Task<ItemStockCardDetailDto?> GetItemStockCardAsync(long itemId, long warehouseId, DateTime? fromDate = null, DateTime? toDate = null)
         {
-            var item = await _context.Items.FirstOrDefaultAsync(i => i.Id == itemId);
+            var item = await _context.Items
+                .AsNoTracking()
+                .FirstOrDefaultAsync(i => i.Id == itemId);
+
             if (item == null) return null;
 
-            var warehouse = await _context.Warehouses.FirstOrDefaultAsync(w => w.Id == warehouseId);
+            var warehouse = warehouseId > 0
+                ? await _context.Warehouses.AsNoTracking().FirstOrDefaultAsync(w => w.Id == warehouseId)
+                : null;
+
             string warehouseName = warehouse?.WarehouseName ?? "كافة المخازن (رصيد مجمع)";
 
-            // 1. حساب الأرصدة الحالية
-            var balancesQuery = _context.StockBalances.Where(b => b.ItemId == itemId);
+            // 1. حساب الأرصدة الحالية اللحظية
+            var balancesQuery = _context.StockBalances.AsNoTracking().Where(b => b.ItemId == itemId);
             if (warehouseId > 0)
             {
                 balancesQuery = balancesQuery.Where(b => b.WarehouseId == warehouseId);
@@ -106,8 +126,8 @@ namespace AbuAdelERP.Api.Services
             decimal currentAvailStock = await balancesQuery.SumAsync(b => (decimal?)b.AvailableQuantity) ?? currentTotalStock;
             decimal currentResStock = await balancesQuery.SumAsync(b => (decimal?)b.ReservedQuantity) ?? 0m;
 
-            // 2. جلب حركات الصنف
-            var movementsQuery = _context.StockMovements.Where(m => m.ItemId == itemId);
+            // 2. جلب حركات الصنف بدون Tracking لتحقيق أقصى سرعة
+            var movementsQuery = _context.StockMovements.AsNoTracking().Where(m => m.ItemId == itemId);
             if (warehouseId > 0)
             {
                 movementsQuery = movementsQuery.Where(m => m.WarehouseId == warehouseId);
@@ -124,30 +144,19 @@ namespace AbuAdelERP.Api.Services
             decimal running = 0;
             var ledger = new List<StockMovementLedgerDto>();
 
-            // قائمة الحركات المعتمدة كوارد
-            var incomingTypes = new HashSet<string>
-            {
-                "PURCHASE_RECEIPT",
-                "PRODUCTION_IN",
-                "INITIAL_STOCK",
-                "STOCK_IN",
-                "TRANSFER_IN",
-                "FG_TRANSFER_IN" // تم التضمين رسمياً
-            };
-
-            // 3. حساب رصيد أول المدة
+            // 3. حساب رصيد أول المدة بدقة
             decimal openingBalance = 0;
             if (fromUtc.HasValue)
             {
-                var priorMovements = allMovements.Where(m => m.MovementAt < fromUtc.Value).ToList();
+                var priorMovements = allMovements.Where(m => m.MovementAt < fromUtc.Value);
                 foreach (var pm in priorMovements)
                 {
                     decimal qty = Math.Abs(Convert.ToDecimal(pm.Quantity));
-                    if (incomingTypes.Contains(pm.MovementType))
+                    if (IncomingTypes.Contains(pm.MovementType))
                     {
                         openingBalance += qty;
                     }
-                    else if (pm.MovementType != "QC_REJECTED")
+                    else if (!string.Equals(pm.MovementType, "QC_REJECTED", StringComparison.OrdinalIgnoreCase))
                     {
                         openingBalance -= qty;
                     }
@@ -181,12 +190,12 @@ namespace AbuAdelERP.Api.Services
                 decimal outQty = 0;
                 decimal mQty = Math.Abs(Convert.ToDecimal(m.Quantity));
 
-                if (incomingTypes.Contains(m.MovementType))
+                if (IncomingTypes.Contains(m.MovementType))
                 {
                     inQty = mQty;
                     running += inQty;
                 }
-                else if (m.MovementType == "QC_REJECTED")
+                else if (string.Equals(m.MovementType, "QC_REJECTED", StringComparison.OrdinalIgnoreCase))
                 {
                     inQty = 0;
                     outQty = 0;
@@ -206,23 +215,23 @@ namespace AbuAdelERP.Api.Services
                     OutQuantity = outQty,
                     RunningBalance = running,
                     UnitCost = Convert.ToDecimal(m.UnitCost),
-                    ReferenceType = m.ReferenceType ?? "",
+                    ReferenceType = m.ReferenceType ?? string.Empty,
                     ReferenceId = m.ReferenceId,
-                    Notes = m.Notes ?? ""
+                    Notes = m.Notes ?? string.Empty
                 });
             }
 
-            // 5. تحليل التشغيلات الحية (مشتريات + إنتاج الصالة + استلام الكنترول)
+            // 5. تحليل التشغيلات الحية وتتبع أرقام اللوط وتواريخ الصلاحية
             var receiptMovements = allMovements.Where(m =>
-                m.MovementType == "PURCHASE_RECEIPT" ||
-                m.MovementType == "PRODUCTION_IN" ||
-                m.MovementType == "FG_TRANSFER_IN");
+                string.Equals(m.MovementType, "PURCHASE_RECEIPT", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(m.MovementType, "PRODUCTION_IN", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(m.MovementType, "FG_TRANSFER_IN", StringComparison.OrdinalIgnoreCase));
 
             if (fromUtc.HasValue) receiptMovements = receiptMovements.Where(m => m.MovementAt >= fromUtc.Value);
             if (toUtc.HasValue) receiptMovements = receiptMovements.Where(m => m.MovementAt <= toUtc.Value);
 
-            var batchMap = new Dictionary<string, decimal>();
-            var expiryMap = new Dictionary<string, string>();
+            var batchMap = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            var expiryMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var rm in receiptMovements)
             {
@@ -273,7 +282,7 @@ namespace AbuAdelERP.Api.Services
                 });
             }
 
-            // مطابقة الرصيد التراكمي اللحظي
+            // مطابقة الرصيد التراكمي
             decimal finalTotal = balancesQuery.Any() ? currentTotalStock : running;
             decimal finalAvail = balancesQuery.Any() ? currentAvailStock : running;
             decimal finalRes = currentResStock;
@@ -329,11 +338,15 @@ namespace AbuAdelERP.Api.Services
             };
         }
 
-        private string ExtractValue(string text, string key, string separator)
+        private static string ExtractValue(string text, string key, string separator)
         {
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(key)) return string.Empty;
+
             int startIdx = text.IndexOf(key, StringComparison.OrdinalIgnoreCase);
-            if (startIdx == -1) return "";
+            if (startIdx == -1) return string.Empty;
+
             startIdx += key.Length;
+            if (startIdx >= text.Length) return string.Empty;
 
             int endIdx = text.IndexOf(separator, startIdx, StringComparison.OrdinalIgnoreCase);
             if (endIdx == -1) endIdx = text.Length;

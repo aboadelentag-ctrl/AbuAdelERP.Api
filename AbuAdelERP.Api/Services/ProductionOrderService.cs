@@ -17,45 +17,52 @@ namespace AbuAdelERP.Api.Services
             _context = context;
         }
 
+        // ==============================================================
+        // 1. استعراض كافة أوامر الإنتاج (سريع ومفصول عن التتبع)
+        // ==============================================================
         public async Task<List<ProductionOrderListDto>> GetAllOrdersAsync()
         {
-            var orders = await _context.ProductionOrders
+            return await _context.ProductionOrders
+                .AsNoTracking()
                 .Include(p => p.Warehouse)
                 .Include(p => p.ProductionOrderDetails)
                     .ThenInclude(d => d.Item)
                 .Include(p => p.ProductionOrderDetails)
                     .ThenInclude(d => d.Recipe)
                 .OrderByDescending(p => p.Id)
-                .ToListAsync();
-
-            return orders.Select(o => new ProductionOrderListDto
-            {
-                Id = o.Id,
-                OrderNumber = o.OrderNumber,
-                WarehouseName = o.Warehouse?.WarehouseName ?? "المخزن الرئيسي",
-                OrderDate = o.OrderDate.ToString("yyyy-MM-dd"),
-                Status = o.Status,
-                ItemsCount = o.ProductionOrderDetails.Count,
-                Notes = o.Notes,
-                Details = o.ProductionOrderDetails.Select(d => new ProductionOrderDetailViewDto
+                .Select(o => new ProductionOrderListDto
                 {
-                    Id = d.Id,
-                    ItemId = d.ItemId,
-                    ItemCode = d.Item?.ItemCode ?? "",
-                    ItemName = d.Item?.ItemName ?? "",
-                    RecipeName = d.Recipe?.RecipeName ?? "",
-                    PlannedQuantity = d.PlannedQuantity,
-                    ProducedQuantity = d.ProducedQuantity,
-                    Unit = d.Unit,
-                    BatchNumber = d.BatchNumber ?? "",
-                    Status = d.Status
-                }).ToList()
-            }).ToList();
+                    Id = o.Id,
+                    OrderNumber = o.OrderNumber,
+                    WarehouseName = o.Warehouse != null ? o.Warehouse.WarehouseName : "المخزن الرئيسي",
+                    OrderDate = o.OrderDate.ToString("yyyy-MM-dd"),
+                    Status = o.Status,
+                    ItemsCount = o.ProductionOrderDetails.Count,
+                    Notes = o.Notes,
+                    Details = o.ProductionOrderDetails.Select(d => new ProductionOrderDetailViewDto
+                    {
+                        Id = d.Id,
+                        ItemId = d.ItemId,
+                        ItemCode = d.Item != null ? d.Item.ItemCode : string.Empty,
+                        ItemName = d.Item != null ? d.Item.ItemName : string.Empty,
+                        RecipeName = d.Recipe != null ? d.Recipe.RecipeName : string.Empty,
+                        PlannedQuantity = d.PlannedQuantity,
+                        ProducedQuantity = d.ProducedQuantity,
+                        Unit = d.Unit,
+                        BatchNumber = d.BatchNumber ?? string.Empty,
+                        Status = d.Status
+                    }).ToList()
+                })
+                .ToListAsync();
         }
 
+        // ==============================================================
+        // 2. جلب تفاصيل أمر إنتاج محدد بشجرة مواده وخامات مراحله
+        // ==============================================================
         public async Task<ProductionOrderListDto?> GetOrderByIdAsync(long id)
         {
             var o = await _context.ProductionOrders
+                .AsNoTracking()
                 .Include(p => p.Warehouse)
                 .Include(p => p.ProductionOrderDetails)
                     .ThenInclude(d => d.Item)
@@ -73,7 +80,7 @@ namespace AbuAdelERP.Api.Services
             {
                 Id = o.Id,
                 OrderNumber = o.OrderNumber,
-                WarehouseName = o.Warehouse?.WarehouseName ?? "",
+                WarehouseName = o.Warehouse != null ? o.Warehouse.WarehouseName : string.Empty,
                 OrderDate = o.OrderDate.ToString("yyyy-MM-dd"),
                 Status = o.Status,
                 ItemsCount = o.ProductionOrderDetails.Count,
@@ -82,21 +89,21 @@ namespace AbuAdelERP.Api.Services
                 {
                     Id = d.Id,
                     ItemId = d.ItemId,
-                    ItemCode = d.Item?.ItemCode ?? "",
-                    ItemName = d.Item?.ItemName ?? "",
-                    RecipeName = d.Recipe?.RecipeName ?? "",
+                    ItemCode = d.Item != null ? d.Item.ItemCode : string.Empty,
+                    ItemName = d.Item != null ? d.Item.ItemName : string.Empty,
+                    RecipeName = d.Recipe != null ? d.Recipe.RecipeName : string.Empty,
                     PlannedQuantity = d.PlannedQuantity,
                     ProducedQuantity = d.ProducedQuantity,
                     Unit = d.Unit,
-                    BatchNumber = d.BatchNumber ?? "",
+                    BatchNumber = d.BatchNumber ?? string.Empty,
                     Status = d.Status,
                     Materials = d.ProductionOrderStages
                         .SelectMany(s => s.ProductionStageMaterials)
                         .Select(m => new ProductionOrderMaterialViewDto
                         {
                             ItemId = m.ItemId,
-                            ItemCode = m.Item?.ItemCode ?? "",
-                            ItemName = m.Item?.ItemName ?? "",
+                            ItemCode = m.Item != null ? m.Item.ItemCode : string.Empty,
+                            ItemName = m.Item != null ? m.Item.ItemName : string.Empty,
                             RequiredQuantity = m.RequiredQuantity,
                             ConsumedQuantity = m.ConsumedQuantity,
                             Unit = m.Unit
@@ -105,100 +112,121 @@ namespace AbuAdelERP.Api.Services
             };
         }
 
+        // ==============================================================
+        // 3. إصدار أمر التشغيل وتفجير معايير الخامات (BOM Explosion) ذرياً
+        // ==============================================================
         public async Task<bool> CreateOrderAsync(CreateProductionOrderDto dto)
         {
             if (dto == null || dto.Items == null || dto.Items.Count == 0)
                 return false;
 
-            DateTime now = DateTime.UtcNow;
-            string generatedOrderNo = string.IsNullOrWhiteSpace(dto.OrderNumber)
-                ? $"PRD-{DateTime.UtcNow:yyyyMMdd}-{new Random().Next(100, 999)}"
-                : dto.OrderNumber.Trim();
-
-            var order = new ProductionOrder
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                CompanyId = dto.CompanyId > 0 ? dto.CompanyId : 1,
-                WarehouseId = dto.WarehouseId,
-                OrderNumber = generatedOrderNo,
-                OrderDate = dto.OrderDate,
-                Status = "Pending_Execution",
-                Notes = dto.Notes,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
+                DateTime now = DateTime.UtcNow;
+                string generatedOrderNo = string.IsNullOrWhiteSpace(dto.OrderNumber)
+                    ? $"PRD-{DateTime.UtcNow:yyyyMMdd}-{new Random().Next(100, 999)}"
+                    : dto.OrderNumber.Trim();
 
-            _context.ProductionOrders.Add(order);
-            await _context.SaveChangesAsync();
+                // 1. إنشاء رأس أمر التشغيل
+                var order = new ProductionOrder
+                {
+                    CompanyId = dto.CompanyId > 0 ? dto.CompanyId : 1,
+                    WarehouseId = dto.WarehouseId,
+                    OrderNumber = generatedOrderNo,
+                    OrderDate = dto.OrderDate,
+                    Status = "Pending_Execution",
+                    Notes = dto.Notes,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
 
-            int itemCounter = 1;
-            foreach (var itemInput in dto.Items)
-            {
-                var recipe = await _context.Recipes
+                _context.ProductionOrders.Add(order);
+                await _context.SaveChangesAsync();
+
+                // 2. تحميل كافة الوصفات المطلوبة مسبقاً دفعة واحدة لتفادي استعلامات N+1
+                var recipeIds = dto.Items.Select(i => i.RecipeId).Distinct().ToList();
+                var recipesMap = await _context.Recipes
+                    .AsNoTracking()
                     .Include(r => r.RecipeLines)
-                    .FirstOrDefaultAsync(r => r.Id == itemInput.RecipeId);
+                    .Where(r => recipeIds.Contains(r.Id))
+                    .ToDictionaryAsync(r => r.Id, r => r);
 
-                if (recipe == null) continue;
+                int itemCounter = 1;
 
-                string lotNumber = $"LOT-{dto.OrderDate:yyyyMMdd}-{itemInput.ItemId}-{itemCounter++}";
-
-                var detail = new ProductionOrderDetail
+                // 3. معالجة تفاصيل الأصناف ومراحل التشغيل
+                foreach (var itemInput in dto.Items)
                 {
-                    ProductionOrderId = order.Id,
-                    ItemId = itemInput.ItemId,
-                    RecipeId = itemInput.RecipeId,
-                    PlannedQuantity = itemInput.PlannedQuantity,
-                    ProducedQuantity = 0,
-                    Unit = itemInput.Unit,
-                    BatchNumber = lotNumber,
-                    Status = "Planned",
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
+                    if (!recipesMap.TryGetValue(itemInput.RecipeId, out var recipe))
+                        continue;
 
-                _context.ProductionOrderDetails.Add(detail);
-                await _context.SaveChangesAsync();
+                    string lotNumber = $"LOT-{dto.OrderDate:yyyyMMdd}-{itemInput.ItemId}-{itemCounter++}";
 
-                var stage = new ProductionOrderStage
-                {
-                    ProductionOrderDetailId = detail.Id,
-                    StageNumber = 1,
-                    ItemId = itemInput.ItemId,
-                    PlannedQuantity = itemInput.PlannedQuantity,
-                    ProducedQuantity = 0,
-                    Status = "Ready",
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
-
-                _context.ProductionOrderStages.Add(stage);
-                await _context.SaveChangesAsync();
-
-                decimal batchMultiplier = recipe.BatchQuantity > 0
-                    ? (itemInput.PlannedQuantity / recipe.BatchQuantity)
-                    : itemInput.PlannedQuantity;
-
-                foreach (var line in recipe.RecipeLines)
-                {
-                    decimal requiredQty = (line.Quantity * batchMultiplier) * (1 + (line.WastePercentage / 100));
-
-                    var stageMaterial = new ProductionStageMaterial
+                    var detail = new ProductionOrderDetail
                     {
-                        ProductionStageId = stage.Id,
-                        ItemId = line.ComponentItemId,
-                        RequiredQuantity = Math.Round(requiredQty, 3),
-                        ConsumedQuantity = 0,
-                        Unit = line.Unit,
-                        WastePercentage = line.WastePercentage,
-                        RecipeLineId = line.Id,
-                        CreatedAt = now
+                        ProductionOrderId = order.Id,
+                        ItemId = itemInput.ItemId,
+                        RecipeId = itemInput.RecipeId,
+                        PlannedQuantity = itemInput.PlannedQuantity,
+                        ProducedQuantity = 0,
+                        Unit = itemInput.Unit,
+                        BatchNumber = lotNumber,
+                        Status = "Planned",
+                        CreatedAt = now,
+                        UpdatedAt = now
                     };
 
-                    _context.ProductionStageMaterials.Add(stageMaterial);
-                }
-            }
+                    _context.ProductionOrderDetails.Add(detail);
+                    await _context.SaveChangesAsync();
 
-            await _context.SaveChangesAsync();
-            return true;
+                    var stage = new ProductionOrderStage
+                    {
+                        ProductionOrderDetailId = detail.Id,
+                        StageNumber = 1,
+                        ItemId = itemInput.ItemId,
+                        PlannedQuantity = itemInput.PlannedQuantity,
+                        ProducedQuantity = 0,
+                        Status = "Ready",
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    };
+
+                    _context.ProductionOrderStages.Add(stage);
+                    await _context.SaveChangesAsync();
+
+                    decimal batchMultiplier = recipe.BatchQuantity > 0
+                        ? (itemInput.PlannedQuantity / recipe.BatchQuantity)
+                        : itemInput.PlannedQuantity;
+
+                    foreach (var line in recipe.RecipeLines)
+                    {
+                        decimal requiredQty = (line.Quantity * batchMultiplier) * (1m + (line.WastePercentage / 100m));
+
+                        var stageMaterial = new ProductionStageMaterial
+                        {
+                            ProductionStageId = stage.Id,
+                            ItemId = line.ComponentItemId,
+                            RequiredQuantity = Math.Round(requiredQty, 3),
+                            ConsumedQuantity = 0,
+                            Unit = line.Unit,
+                            WastePercentage = line.WastePercentage,
+                            RecipeLineId = line.Id,
+                            CreatedAt = now
+                        };
+
+                        _context.ProductionStageMaterials.Add(stageMaterial);
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
     }
 }

@@ -1,12 +1,13 @@
-﻿using AbuAdelERP.Api.DTOs;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
+using AbuAdelERP.Api.DTOs;
 
-namespace AbuAdelERP.Api.Services;
-
-public interface IStockService
+namespace AbuAdelERP.Api.Services
 {
-    Task<object> AddInitialStockAsync(InitialStockDto dto);
-    Task<IEnumerable<object>> GetStockBalancesAsync(long? warehouseId = null);
-    Task<IEnumerable<object>> GetItemLedgerAsync(long itemId);
+    public interface IStockService
+    {
+        Task<StockOperationResultDto> AddInitialStockAsync(InitialStockDto dto);
+        Task<List<StockBalanceViewDto>> GetStockBalancesAsync(long? warehouseId = null);
+        Task<List<StockMovementItemLedgerDto>> GetItemLedgerAsync(long itemId);
+    }
 }

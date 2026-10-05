@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
@@ -21,29 +22,38 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ==============================================================
 // 2. تسجيل كافة خدمات النظام بحاوية الاعتمادية (Dependency Injection)
 // ==============================================================
-builder.Services.AddScoped<IItemService, ItemService>();
+
+// قطاع التصنيع والتشغيل (MES & Production)
+builder.Services.AddScoped<IProductionOrderService, ProductionOrderService>();
+builder.Services.AddScoped<IProductionOperationsService, ProductionOperationsService>();
+builder.Services.AddScoped<IRecipeService, RecipeService>();
+builder.Services.AddScoped<IProductivityService, ProductivityService>();
+
+// قطاع المستودعات والأرصدة والتحويلات (Inventory & Warehouses)
 builder.Services.AddScoped<IWarehouseService, WarehouseService>();
 builder.Services.AddScoped<IStockService, StockService>();
-builder.Services.AddScoped<IRecipeService, RecipeService>();
-builder.Services.AddScoped<IAccountService, AccountService>();
-builder.Services.AddScoped<IFinanceService, FinanceService>();
-builder.Services.AddScoped<IPurchasingService, PurchasingService>();
-builder.Services.AddScoped<IProductivityService, ProductivityService>();
-builder.Services.AddScoped<IQualityService, QualityService>();
+builder.Services.AddScoped<IStockCardService, StockCardService>();
+builder.Services.AddScoped<IStockTransferService, StockTransferService>();
+builder.Services.AddScoped<IFinishedGoodsTransferService, FinishedGoodsTransferService>();
 builder.Services.AddScoped<ICrateService, CrateService>();
-builder.Services.AddScoped<ICostingService, CostingService>();
-builder.Services.AddScoped<ISalesService, SalesService>();
-builder.Services.AddScoped<IProductionOrderService, ProductionOrderService>();
-builder.Services.AddScoped<ISupplierService, SupplierService>();
+builder.Services.AddScoped<IItemService, ItemService>();
+builder.Services.AddScoped<IItemHierarchyService, ItemHierarchyService>();
+
+// قطاع المشتريات والموردين وفحص الخامات (Procurement & Quality)
+builder.Services.AddScoped<IPurchasingService, PurchasingService>();
 builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
 builder.Services.AddScoped<IPurchaseRequestService, PurchaseRequestService>();
-builder.Services.AddScoped<IItemHierarchyService, ItemHierarchyService>();
 builder.Services.AddScoped<IProcurementService, ProcurementService>();
+builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IVendorQcService, VendorQcService>();
-builder.Services.AddScoped<IStockCardService, StockCardService>();
+builder.Services.AddScoped<IQualityService, QualityService>();
 builder.Services.AddScoped<IMaterialRequisitionService, MaterialRequisitionService>();
-builder.Services.AddScoped<IFinishedGoodsTransferService, FinishedGoodsTransferService>();
-builder.Services.AddScoped<IStockTransferService, StockTransferService>();
+
+// قطاع المالية والتكاليف والمبيعات (Finance, Costing & Sales)
+builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddScoped<IFinanceService, FinanceService>();
+builder.Services.AddScoped<ICostingService, CostingService>();
+builder.Services.AddScoped<ISalesService, SalesService>();
 
 // ==============================================================
 // 3. منظومة حماية الـ JWT
@@ -92,7 +102,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.SetIsOriginAllowed(_ => true) // يقبل جميع بورتات اللوكال هوست والشبكة الداخلية
+        policy.SetIsOriginAllowed(_ => true)
               .AllowAnyMethod()
               .AllowAnyHeader();
     });
@@ -110,10 +120,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-// UseCors يجب أن يكون هنا تماماً بعد HttpsRedirection وقبل Authentication
 app.UseCors("AllowAll");
-
 app.UseAuthentication();
 app.UseAuthorization();
 

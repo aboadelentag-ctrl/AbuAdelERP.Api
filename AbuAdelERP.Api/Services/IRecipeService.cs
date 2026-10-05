@@ -1,5 +1,6 @@
-﻿using AbuAdelERP.Api.DTOs;
-using AbuAdelERP.Api.Models;
+﻿using System.Collections.Generic;
+using System.Threading.Tasks;
+using AbuAdelERP.Api.DTOs;
 
 namespace AbuAdelERP.Api.Services
 {
@@ -8,6 +9,7 @@ namespace AbuAdelERP.Api.Services
         Task<List<RecipeDto>> GetAllRecipesAsync();
         Task<RecipeDto?> GetRecipeByIdAsync(long id);
         Task<bool> SaveRecipeAsync(SaveRecipeDto dto);
+        Task<int> BulkImportRecipesAsync(List<SaveRecipeDto> dtoList);
         Task<bool> DeleteRecipeAsync(long id);
     }
 }

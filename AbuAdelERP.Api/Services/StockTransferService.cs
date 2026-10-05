@@ -10,6 +10,7 @@ namespace AbuAdelERP.Api.Services
 {
     public interface IStockTransferService
     {
+        Task<StockTransferLookupsDto> GetTransferLookupsAsync();
         Task<List<StockTransferDetailDto>> GetAllTransfersAsync(string? status = null);
         Task<StockTransferDetailDto?> GetTransferByIdAsync(long id);
         Task<StockTransferDetailDto> CreateAndDispatchTransferAsync(CreateStockTransferDto dto);
@@ -27,14 +28,59 @@ namespace AbuAdelERP.Api.Services
             _context = context;
         }
 
-        // 1. جلب كافة أذون التحويل بأمان مع تجنب أخطاء الـ Null
+        // ========================================================
+        // 1. القوائم المرجعية الموحدة (تنقية المخازن وحصر الأصناف النشطة)
+        // ========================================================
+        public async Task<StockTransferLookupsDto> GetTransferLookupsAsync()
+        {
+            var warehouses = await _context.Warehouses
+                .AsNoTracking()
+                .Where(w => !w.WarehouseName.Contains("إدارة")
+                         && !w.WarehouseName.Contains("العليا")
+                         && !w.WarehouseName.Contains("المالية")
+                         && !w.WarehouseName.Contains("الموارد")
+                         && !w.WarehouseName.Contains("المشتريات")
+                         && !w.WarehouseName.Contains("المبيعات"))
+                .OrderBy(w => w.WarehouseName)
+                .Select(w => new TransferWarehouseLookupDto
+                {
+                    Id = w.Id,
+                    WarehouseName = w.WarehouseName
+                })
+                .ToListAsync();
+
+            var items = await _context.Items
+                .AsNoTracking()
+                .Where(i => i.Active)
+                .OrderBy(i => i.ItemName)
+                .Select(i => new TransferItemLookupDto
+                {
+                    Id = i.Id,
+                    ItemCode = i.ItemCode,
+                    ItemName = i.ItemName,
+                    Unit = i.Unit,
+                    ItemType = i.ItemType
+                })
+                .ToListAsync();
+
+            return new StockTransferLookupsDto
+            {
+                Warehouses = warehouses,
+                Items = items
+            };
+        }
+
+        // ========================================================
+        // 2. جلب كافة أذون التحويل بأمان مع تجنب أخطاء الـ Null
+        // ========================================================
         public async Task<List<StockTransferDetailDto>> GetAllTransfersAsync(string? status = null)
         {
             var query = _context.StockTransfers
+                .AsNoTracking()
                 .Include(t => t.FromWarehouse)
                 .Include(t => t.ToWarehouse)
                 .Include(t => t.StockTransferLines).ThenInclude(l => l.Item)
-                .AsNoTracking();
+                .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(status))
             {
@@ -45,10 +91,13 @@ namespace AbuAdelERP.Api.Services
             return list.Select(MapToDetailDto).ToList();
         }
 
-        // 2. جلب تفاصيل إذن تحويل محدد
+        // ========================================================
+        // 3. جلب تفاصيل إذن تحويل محدد
+        // ========================================================
         public async Task<StockTransferDetailDto?> GetTransferByIdAsync(long id)
         {
             var t = await _context.StockTransfers
+                .AsNoTracking()
                 .Include(x => x.FromWarehouse)
                 .Include(x => x.ToWarehouse)
                 .Include(x => x.StockTransferLines).ThenInclude(l => l.Item)
@@ -57,19 +106,21 @@ namespace AbuAdelERP.Api.Services
             return t == null ? null : MapToDetailDto(t);
         }
 
-        // 3. الاستعلام عن الرصيد المتاح واللوطات الفعلية (FEFO) لمنع التلاعب
+        // ========================================================
+        // 4. الاستعلام عن الرصيد المتاح واللوطات الفعلية (FEFO)
+        // ========================================================
         public async Task<AvailableStockInfoDto> GetAvailableBatchesAsync(long itemId, long warehouseId)
         {
             var balance = await _context.StockBalances
                 .AsNoTracking()
                 .FirstOrDefaultAsync(b => b.ItemId == itemId && b.WarehouseId == warehouseId);
 
-            decimal totalQty = balance?.AvailableQuantity ?? 0m;
+            decimal totalQty = balance?.AvailableQuantity ?? balance?.Quantity ?? 0m;
 
             var receipts = await _context.StockMovements
                 .AsNoTracking()
                 .Where(m => m.ItemId == itemId && m.WarehouseId == warehouseId &&
-                           (m.MovementType == "PURCHASE_RECEIPT" || m.MovementType == "TRANSFER_IN" || m.MovementType == "PRODUCTION_RECEIPT"))
+                           (m.MovementType == "PURCHASE_RECEIPT" || m.MovementType == "TRANSFER_IN" || m.MovementType == "PRODUCTION_IN" || m.MovementType == "PRODUCTION_RECEIPT"))
                 .OrderBy(m => m.MovementAt)
                 .ToListAsync();
 
@@ -78,6 +129,11 @@ namespace AbuAdelERP.Api.Services
             {
                 if (string.IsNullOrWhiteSpace(r.Notes)) continue;
                 string batch = ExtractValue(r.Notes, "تشغيلة:", "|");
+                if (string.IsNullOrWhiteSpace(batch))
+                {
+                    batch = ExtractValue(r.Notes, "تشغيلة/تتبع:", "|");
+                }
+
                 string expStr = ExtractValue(r.Notes, "صلاحية:", "|");
                 DateTime? expDate = null;
                 if (DateTime.TryParse(expStr, out DateTime p)) expDate = p;
@@ -101,8 +157,8 @@ namespace AbuAdelERP.Api.Services
             {
                 batches.Add(new AvailableBatchItemDto
                 {
-                    BatchNumber = $"LOT-WH{warehouseId}-{DateTime.Now:yyyyMMdd}",
-                    ExpiryDate = DateTime.Today.AddYears(1),
+                    BatchNumber = $"LOT-WH{warehouseId}-{DateTime.UtcNow:yyyyMMdd}",
+                    ExpiryDate = DateTime.UtcNow.Date.AddYears(1),
                     AvailableQty = totalQty,
                     UnitCost = 0
                 });
@@ -115,7 +171,9 @@ namespace AbuAdelERP.Api.Services
             };
         }
 
-        // 4. إنشاء إذن التحويل وصرفه فورياً من المخزن الراسل (In-Transit)
+        // ========================================================
+        // 5. إنشاء إذن التحويل وصرفه فورياً من المخزن الراسل (In-Transit)
+        // ========================================================
         public async Task<StockTransferDetailDto> CreateAndDispatchTransferAsync(CreateStockTransferDto dto)
         {
             if (dto.FromWarehouseId <= 0 || dto.ToWarehouseId <= 0 || dto.FromWarehouseId == dto.ToWarehouseId)
@@ -158,7 +216,7 @@ namespace AbuAdelERP.Api.Services
                         ItemId = lineDto.ItemId,
                         Quantity = lineDto.DispatchedQty,
                         ReceivedQuantity = 0,
-                        BatchNumber = !string.IsNullOrWhiteSpace(lineDto.BatchNumber) ? lineDto.BatchNumber : "لوط افتراضي",
+                        BatchNumber = !string.IsNullOrWhiteSpace(lineDto.BatchNumber) ? lineDto.BatchNumber.Trim() : "لوط افتراضي",
                         ExpiryDate = lineDto.ExpiryDate.HasValue ? DateTime.SpecifyKind(lineDto.ExpiryDate.Value.Date, DateTimeKind.Utc) : null,
                         UnitCost = lineDto.UnitCost,
                         LineStatus = "PENDING",
@@ -167,13 +225,14 @@ namespace AbuAdelERP.Api.Services
                     };
                     _context.StockTransferLines.Add(line);
 
-                    // خصم الرصيد من المخزن الراسل
+                    // خصم الرصيد الفعلي والمتاح من المخزن الراسل
                     var sourceBalance = await _context.StockBalances
                         .FirstOrDefaultAsync(b => b.ItemId == lineDto.ItemId && b.WarehouseId == dto.FromWarehouseId);
 
                     if (sourceBalance != null)
                     {
                         sourceBalance.Quantity -= lineDto.DispatchedQty;
+                        sourceBalance.AvailableQuantity = (sourceBalance.AvailableQuantity ?? sourceBalance.Quantity) - lineDto.DispatchedQty;
                         sourceBalance.LastUpdatedAt = now;
                     }
                     else
@@ -184,12 +243,13 @@ namespace AbuAdelERP.Api.Services
                             ItemId = lineDto.ItemId,
                             WarehouseId = dto.FromWarehouseId,
                             Quantity = -lineDto.DispatchedQty,
+                            AvailableQuantity = -lineDto.DispatchedQty,
                             ReservedQuantity = 0,
                             LastUpdatedAt = now
                         });
                     }
 
-                    // تسجيل قيد خروج البضاعة
+                    // تسجيل قيد صرف المخزن
                     _context.StockMovements.Add(new StockMovement
                     {
                         CompanyId = 1,
@@ -217,7 +277,9 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
-        // 5. تأكيد استلام سطر التحويل في المخزن المستقبل صنفاً بصنف
+        // ========================================================
+        // 6. تأكيد استلام سطر التحويل بالمخزن المستقبل صنفاً بصنف
+        // ========================================================
         public async Task<bool> ReceiveTransferLineAsync(ConfirmTransferLineReceiveDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -266,7 +328,9 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
-        // 6. اعتماد قرار لجنة فض المنازعات وتسوية الفروق وعجز النقل
+        // ========================================================
+        // 7. اعتماد قرار لجنة فض المنازعات وتسوية الفروق
+        // ========================================================
         public async Task<bool> ResolveTransferDisputeAsync(ResolveTransferDisputeDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -329,6 +393,7 @@ namespace AbuAdelERP.Api.Services
                     if (targetBalance != null)
                     {
                         targetBalance.Quantity += line.ReceivedQuantity;
+                        targetBalance.AvailableQuantity = (targetBalance.AvailableQuantity ?? 0m) + line.ReceivedQuantity;
                         targetBalance.LastUpdatedAt = now;
                     }
                     else
@@ -339,6 +404,7 @@ namespace AbuAdelERP.Api.Services
                             ItemId = line.ItemId,
                             WarehouseId = transfer.ToWarehouseId,
                             Quantity = line.ReceivedQuantity,
+                            AvailableQuantity = line.ReceivedQuantity,
                             ReservedQuantity = 0,
                             LastUpdatedAt = now
                         });
@@ -401,9 +467,9 @@ namespace AbuAdelERP.Api.Services
                 {
                     Id = l.Id,
                     ItemId = l.ItemId,
-                    ItemCode = l.Item?.ItemCode ?? "",
+                    ItemCode = l.Item?.ItemCode ?? string.Empty,
                     ItemName = l.Item?.ItemName ?? "صنف",
-                    Unit = l.Item?.Unit ?? "",
+                    Unit = l.Item?.Unit ?? string.Empty,
                     DispatchedQty = l.Quantity,
                     ReceivedQty = l.ReceivedQuantity,
                     BatchNumber = l.BatchNumber,
@@ -419,11 +485,17 @@ namespace AbuAdelERP.Api.Services
 
         private static string ExtractValue(string text, string key, string separator)
         {
-            int startIdx = text.IndexOf(key);
-            if (startIdx == -1) return "";
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(key)) return string.Empty;
+
+            int startIdx = text.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+            if (startIdx == -1) return string.Empty;
+
             startIdx += key.Length;
-            int endIdx = text.IndexOf(separator, startIdx);
+            if (startIdx >= text.Length) return string.Empty;
+
+            int endIdx = text.IndexOf(separator, startIdx, StringComparison.OrdinalIgnoreCase);
             if (endIdx == -1) endIdx = text.Length;
+
             return text.Substring(startIdx, endIdx - startIdx).Trim();
         }
     }

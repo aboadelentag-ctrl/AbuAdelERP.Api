@@ -11,9 +11,10 @@ namespace AbuAdelERP.Api.Services
     public interface IFinishedGoodsTransferService
     {
         Task<List<FinishedGoodsTransferViewDto>> GetAllTransfersAsync();
+        Task<TransferLookupsDto> GetLookupsAsync();
         Task<bool> CreateTransferAsync(CreateTransferRequestDto dto);
         Task<bool> AuditCostingAsync(CostingAuditDto dto);
-        Task<bool> ResolveCostingDisputeAsync(ResolveCostingDisputeDto dto);
+        Task<ResolveCostingDisputeDto> ResolveCostingDisputeAsync(ResolveCostingDisputeDto dto);
         Task<bool> InspectQcAsync(QcInspectionDto dto);
         Task<bool> ReSubmitReworkAsync(long transferId, decimal adjustedQty, int adjustedCount, string notes);
         Task<bool> ReceiveAtControlAsync(ControlReceiptDto dto);
@@ -32,6 +33,7 @@ namespace AbuAdelERP.Api.Services
         public async Task<List<FinishedGoodsTransferViewDto>> GetAllTransfersAsync()
         {
             return await _context.FinishedGoodsTransfers
+                .AsNoTracking()
                 .Include(t => t.SourceWarehouse)
                 .Include(t => t.DestinationWarehouse)
                 .Include(t => t.Item)
@@ -71,6 +73,44 @@ namespace AbuAdelERP.Api.Services
                     Status = t.Status
                 })
                 .ToListAsync();
+        }
+
+        public async Task<TransferLookupsDto> GetLookupsAsync()
+        {
+            var warehouses = await _context.Warehouses
+                .AsNoTracking()
+                .Where(w => !w.WarehouseName.Contains("مرتجع") && !w.WarehouseName.Contains("تالف"))
+                .OrderBy(w => w.WarehouseName)
+                .Select(w => new WarehouseLookupDto
+                {
+                    Id = w.Id,
+                    WarehouseName = w.WarehouseName,
+                    WarehouseCode = w.WarehouseCode,
+                    WarehouseType = w.WarehouseType
+                })
+                .ToListAsync();
+
+            var finishedItems = await _context.Items
+                .AsNoTracking()
+                .Where(i => i.Active && (i.ItemType == "منتج تام" || i.ItemType == "FINISHED_GOODS" || i.ItemType == "وسيط"))
+                .OrderBy(i => i.ItemName)
+                .Select(i => new FinishedItemLookupDto
+                {
+                    Id = i.Id,
+                    ItemCode = i.ItemCode,
+                    ItemName = i.ItemName,
+                    ItemType = i.ItemType,
+                    Unit = i.Unit,
+                    DepartmentId = i.DepartmentId,
+                    ShelfLifeDays = i.ShelfLifeDays
+                })
+                .ToListAsync();
+
+            return new TransferLookupsDto
+            {
+                Warehouses = warehouses,
+                FinishedItems = finishedItems
+            };
         }
 
         public async Task<bool> CreateTransferAsync(CreateTransferRequestDto dto)
@@ -131,10 +171,10 @@ namespace AbuAdelERP.Api.Services
             return true;
         }
 
-        public async Task<bool> ResolveCostingDisputeAsync(ResolveCostingDisputeDto dto)
+        public async Task<ResolveCostingDisputeDto> ResolveCostingDisputeAsync(ResolveCostingDisputeDto dto)
         {
             var trf = await _context.FinishedGoodsTransfers.FindAsync(dto.TransferId);
-            if (trf == null) return false;
+            if (trf == null) return dto;
 
             trf.CostingActualQty = dto.FinalAcceptedWeight;
             trf.CostingActualCount = dto.FinalAcceptedCount;
@@ -146,7 +186,7 @@ namespace AbuAdelERP.Api.Services
             trf.Status = "PENDING_QC";
 
             await _context.SaveChangesAsync();
-            return true;
+            return dto;
         }
 
         public async Task<bool> InspectQcAsync(QcInspectionDto dto)
@@ -159,10 +199,9 @@ namespace AbuAdelERP.Api.Services
 
             if (totalDeductions > baseCosting)
             {
-                throw new Exception($"مجموع العينات والمرتجع والهالك ({totalDeductions:N2}) يتجاوز الوزن المعتمد من التكاليف ({baseCosting:N2})!");
+                throw new InvalidOperationException($"مجموع العينات والمرتجع والهالك ({totalDeductions:N2}) يتجاوز الوزن المعتمد من التكاليف ({baseCosting:N2})!");
             }
 
-            // معادلة الكتلة الصارمة: المقبول الصافي يُحسب آلياً
             decimal netApproved = baseCosting - totalDeductions;
 
             trf.QcApprovedQty = netApproved;
@@ -174,7 +213,6 @@ namespace AbuAdelERP.Api.Services
             trf.QcNotes = dto.Notes;
             trf.Status = "PENDING_RECEIPT";
 
-            // توليد إذن إعادة تشغيل وتعديل للصالة آلياً في حال وجود مرتجع
             if (dto.ReworkQty > 0)
             {
                 var reworkTransfer = new FinishedGoodsTransfer
@@ -207,7 +245,7 @@ namespace AbuAdelERP.Api.Services
             trf.ProdDispatchedQty = adjustedQty;
             trf.ProdDispatchedCount = adjustedCount;
             trf.ProdNotes = $"{trf.ProdNotes} | محضر التعديل: {notes}";
-            trf.Status = "PENDING_COSTING"; // عودة الدفعة للميزان
+            trf.Status = "PENDING_COSTING";
 
             await _context.SaveChangesAsync();
             return true;
@@ -219,7 +257,7 @@ namespace AbuAdelERP.Api.Services
             try
             {
                 var trf = await _context.FinishedGoodsTransfers.FindAsync(dto.TransferId);
-                if (trf == null) throw new Exception("إذن التحويل غير موجود.");
+                if (trf == null) throw new InvalidOperationException("إذن التحويل غير موجود.");
 
                 trf.ReceivedActualQty = dto.ReceivedQty;
                 trf.ReceivedActualCount = dto.ReceivedCount;
@@ -227,7 +265,6 @@ namespace AbuAdelERP.Api.Services
                 trf.ControlReceivedAt = DateTime.UtcNow;
                 trf.ControlNotes = dto.Notes;
 
-                // فحص العجز غير المبرر بالجودة
                 if (dto.ReceivedQty < trf.QcApprovedQty)
                 {
                     decimal deficit = trf.QcApprovedQty - dto.ReceivedQty;
@@ -242,7 +279,6 @@ namespace AbuAdelERP.Api.Services
                     return true;
                 }
 
-                // تنفيذ الحركات وترصيد الكنترول
                 await FinalizeInventoryMovements(trf, dto.ReceivedQty);
                 trf.Status = "COMPLETED";
 
@@ -250,10 +286,10 @@ namespace AbuAdelERP.Api.Services
                 await transaction.CommitAsync();
                 return true;
             }
-            catch (Exception ex)
+            catch
             {
                 await transaction.RollbackAsync();
-                throw new Exception($"فشل اعتماد استلام الكنترول: {ex.Message}");
+                throw;
             }
         }
 
@@ -265,7 +301,7 @@ namespace AbuAdelERP.Api.Services
                 var trf = await _context.FinishedGoodsTransfers.FindAsync(dto.TransferId);
                 if (trf == null) return false;
 
-                trf.ReceivedActualQty = dto.FinalAcceptedQty; // تحديث الكمية الفعلية النهائية
+                trf.ReceivedActualQty = dto.FinalAcceptedQty;
                 trf.DisputeStatus = "RESOLVED";
                 trf.DisputeResolvedBy = dto.ResolvedBy;
                 trf.DisputeResolutionNotes = dto.ResolutionNotes;
@@ -288,11 +324,9 @@ namespace AbuAdelERP.Api.Services
 
         private async Task FinalizeInventoryMovements(FinishedGoodsTransfer trf, decimal acceptedControlQty)
         {
-            // إجمالي ما غادر صالة الإنتاج = المعتمد للتحويل ناقصاً ما احتُجز بالصالة للتعديل
             decimal baseWeight = trf.CostingActualQty ?? trf.ProdDispatchedQty;
             decimal totalLeftFloor = baseWeight - trf.QcReworkQty;
 
-            // 1. تحديث أو إنشاء رصيد مخزن الصالة (StockBalance)
             var sourceBal = await _context.StockBalances
                 .FirstOrDefaultAsync(b => b.ItemId == trf.ItemId && b.WarehouseId == trf.SourceWarehouseId);
 
@@ -304,7 +338,6 @@ namespace AbuAdelERP.Api.Services
             }
             else
             {
-                // ضمان إنشاء سطر الصالة حتى لو لم يكن له رصيد افتتاحي
                 _context.StockBalances.Add(new StockBalance
                 {
                     CompanyId = 1,
@@ -317,7 +350,6 @@ namespace AbuAdelERP.Api.Services
                 });
             }
 
-            // حركة خروج المنتج التام من الصالة
             _context.StockMovements.Add(new StockMovement
             {
                 CompanyId = 1,
@@ -331,7 +363,6 @@ namespace AbuAdelERP.Api.Services
                 Notes = $"تحويل تام إلى مخزن الكنترول | إذن: {trf.TransferNumber} | تشغيلة: {trf.BatchNumber}"
             });
 
-            // 2. تحديث رصيد مخزن الكنترول الرئيسي
             var destBal = await _context.StockBalances
                 .FirstOrDefaultAsync(b => b.ItemId == trf.ItemId && b.WarehouseId == trf.DestinationWarehouseId);
 
@@ -369,7 +400,6 @@ namespace AbuAdelERP.Api.Services
                 Notes = $"استلام منتج تام بالكنترول | إذن: {trf.TransferNumber} | تشغيلة: {trf.BatchNumber} | صلاحية: {expFormatted}"
             });
 
-            // 3. قيد عينات الجودة المعملية
             if (trf.QcSampleQty > 0)
             {
                 _context.StockMovements.Add(new StockMovement
@@ -386,7 +416,6 @@ namespace AbuAdelERP.Api.Services
                 });
             }
 
-            // 4. قيد الهالك الفني المعتمد
             if (trf.QcScrapQty > 0)
             {
                 _context.StockMovements.Add(new StockMovement
@@ -403,7 +432,6 @@ namespace AbuAdelERP.Api.Services
                 });
             }
 
-            // 5. قيد عجز النزاع المحمّل باللجنة (إن وجد عجز بين الجودة والكنترول)
             decimal transitDeficit = trf.QcApprovedQty - acceptedControlQty;
             if (transitDeficit > 0)
             {

@@ -1,10 +1,10 @@
-﻿using AbuAdelERP.Api.Models;
-using AbuAdelERP.Api.DTOs;
-using Microsoft.EntityFrameworkCore;
-using System;
-using System.Linq;
+﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using AbuAdelERP.Api.Models;
+using AbuAdelERP.Api.DTOs;
 
 namespace AbuAdelERP.Api.Services
 {
@@ -17,98 +17,137 @@ namespace AbuAdelERP.Api.Services
             _context = context;
         }
 
-        // 1. إضافة رصيد افتتاحي أو حركة مخزنية مع التحقق من وجود الشركة
-        public async Task<object> AddInitialStockAsync(InitialStockDto dto)
+        // ==============================================================
+        // 1. إضافة رصيد افتتاحي ذرياً مع ضبط الرصيد الفعلي والمتاح
+        // ==============================================================
+        public async Task<StockOperationResultDto> AddInitialStockAsync(InitialStockDto dto)
         {
             if (dto == null)
                 throw new ArgumentNullException(nameof(dto), "بيانات الإذن غير صالحة.");
 
-            // استخدام الشركة الأولى المتاحة في قاعدة البيانات تلقائياً لضمان عدم حدوث خطأ Foreign Key
-            var defaultCompany = await _context.Companies.FirstOrDefaultAsync();
-            long companyId = defaultCompany != null ? defaultCompany.Id : 1;
-
-            var movement = new StockMovement
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                CompanyId = companyId,
-                ItemId = dto.ItemId,
-                WarehouseId = dto.WarehouseId,
-                MovementType = "INITIAL_BALANCE",
-                Quantity = dto.Quantity,
-                UnitCost = dto.UnitCost,
-                Notes = dto.Notes ?? string.Empty,
-                ReferenceType = "MANUAL",
-                MovementAt = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            };
+                var defaultCompany = await _context.Companies.AsNoTracking().FirstOrDefaultAsync();
+                long companyId = defaultCompany != null ? defaultCompany.Id : 1;
 
-            await _context.StockMovements.AddAsync(movement);
+                var now = DateTime.UtcNow;
 
-            var balance = await _context.StockBalances
-                .FirstOrDefaultAsync(b => b.ItemId == dto.ItemId && b.WarehouseId == dto.WarehouseId);
-
-            if (balance == null)
-            {
-                balance = new StockBalance
+                var movement = new StockMovement
                 {
                     CompanyId = companyId,
                     ItemId = dto.ItemId,
                     WarehouseId = dto.WarehouseId,
+                    MovementType = "INITIAL_BALANCE",
                     Quantity = dto.Quantity,
-                    ReservedQuantity = 0,
-                    LastUpdatedAt = DateTime.UtcNow
+                    UnitCost = dto.UnitCost,
+                    Notes = dto.Notes ?? string.Empty,
+                    ReferenceType = "MANUAL",
+                    MovementAt = now,
+                    CreatedAt = now
                 };
-                await _context.StockBalances.AddAsync(balance);
-            }
-            else
-            {
-                balance.Quantity += dto.Quantity;
-                balance.LastUpdatedAt = DateTime.UtcNow;
-            }
 
-            await _context.SaveChangesAsync();
-            return new { Message = "تم إضافة الرصيد بنجاح وتحديث المخازن!", CurrentBalance = balance.Quantity };
+                await _context.StockMovements.AddAsync(movement);
+
+                var balance = await _context.StockBalances
+                    .FirstOrDefaultAsync(b => b.ItemId == dto.ItemId && b.WarehouseId == dto.WarehouseId);
+
+                if (balance == null)
+                {
+                    balance = new StockBalance
+                    {
+                        CompanyId = companyId,
+                        ItemId = dto.ItemId,
+                        WarehouseId = dto.WarehouseId,
+                        Quantity = dto.Quantity,
+                        AvailableQuantity = dto.Quantity,
+                        ReservedQuantity = 0,
+                        LastUpdatedAt = now
+                    };
+                    await _context.StockBalances.AddAsync(balance);
+                }
+                else
+                {
+                    balance.Quantity += dto.Quantity;
+                    balance.AvailableQuantity = (balance.AvailableQuantity ?? 0m) + dto.Quantity;
+                    balance.LastUpdatedAt = now;
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return new StockOperationResultDto
+                {
+                    Success = true,
+                    Message = "تم إضافة الرصيد الافتتاحي بنجاح وتحديث الأرصدة الفعلية والمتاحة.",
+                    CurrentBalance = balance.Quantity
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
-        // 2. استعلام عن أرصدة المخازن الحالية
-        public async Task<IEnumerable<object>> GetStockBalancesAsync(long? warehouseId = null)
+        // ==============================================================
+        // 2. استعلام سريع ومجمع لأرصدة المخازن
+        // ==============================================================
+        public async Task<List<StockBalanceViewDto>> GetStockBalancesAsync(long? warehouseId = null)
         {
-            var query = _context.StockBalances.AsQueryable();
+            var query = _context.StockBalances
+                .AsNoTracking()
+                .Include(b => b.Item)
+                .Include(b => b.Warehouse)
+                .AsQueryable();
 
-            if (warehouseId.HasValue)
+            if (warehouseId.HasValue && warehouseId.Value > 0)
                 query = query.Where(b => b.WarehouseId == warehouseId.Value);
 
-            var balances = await query
+            return await query
                 .OrderBy(b => b.WarehouseId)
                 .ThenBy(b => b.ItemId)
-                .Select(b => new
+                .Select(b => new StockBalanceViewDto
                 {
                     WarehouseId = b.WarehouseId,
+                    WarehouseName = b.Warehouse != null ? b.Warehouse.WarehouseName : string.Empty,
                     ItemId = b.ItemId,
+                    ItemCode = b.Item != null ? b.Item.ItemCode : string.Empty,
+                    ItemName = b.Item != null ? b.Item.ItemName : string.Empty,
+                    Unit = b.Item != null ? (b.Item.Unit ?? string.Empty) : string.Empty,
                     Quantity = b.Quantity,
+                    AvailableQuantity = b.AvailableQuantity ?? 0m,
+                    ReservedQuantity = b.ReservedQuantity,
                     LastUpdatedAt = b.LastUpdatedAt
-                }).ToListAsync();
-
-            return balances;
+                })
+                .ToListAsync();
         }
 
-        // 3. استخراج كارت الصنف (تفاصيل كل حركة دخول وخروج)
-        public async Task<IEnumerable<object>> GetItemLedgerAsync(long itemId)
+        // ==============================================================
+        // 3. سجل حركات الصنف المباشر
+        // ==============================================================
+        public async Task<List<StockMovementItemLedgerDto>> GetItemLedgerAsync(long itemId)
         {
-            var movements = await _context.StockMovements
+            return await _context.StockMovements
+                .AsNoTracking()
+                .Include(m => m.Warehouse)
                 .Where(m => m.ItemId == itemId)
                 .OrderByDescending(m => m.MovementAt)
-                .Select(m => new
+                .ThenByDescending(m => m.Id)
+                .Select(m => new StockMovementItemLedgerDto
                 {
+                    MovementId = m.Id,
                     MovementDate = m.MovementAt,
                     WarehouseId = m.WarehouseId,
+                    WarehouseName = m.Warehouse != null ? m.Warehouse.WarehouseName : string.Empty,
                     MovementType = m.MovementType,
                     Quantity = m.Quantity,
-                    ReferenceType = m.ReferenceType,
+                    UnitCost = m.UnitCost,
+                    ReferenceType = m.ReferenceType ?? string.Empty,
                     ReferenceId = m.ReferenceId,
-                    Notes = m.Notes
-                }).ToListAsync();
-
-            return movements;
+                    Notes = m.Notes ?? string.Empty
+                })
+                .ToListAsync();
         }
     }
 }

@@ -1,10 +1,8 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using AbuAdelERP.Api.DTOs;
 using AbuAdelERP.Api.Services;
-using AbuAdelERP.Api.Models;
 using System;
-using System.Linq;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace AbuAdelERP.Api.Controllers
@@ -14,52 +12,22 @@ namespace AbuAdelERP.Api.Controllers
     public class FinishedGoodsTransfersController : ControllerBase
     {
         private readonly IFinishedGoodsTransferService _transferService;
-        private readonly AppDbContext _context;
 
-        public FinishedGoodsTransfersController(IFinishedGoodsTransferService transferService, AppDbContext context)
+        public FinishedGoodsTransfersController(IFinishedGoodsTransferService transferService)
         {
             _transferService = transferService;
-            _context = context;
         }
 
         // ========================================================
         // 1. القوائم المرجعية الموحدة (مخازن الصالات ومخازن التام والأصناف)
         // ========================================================
         [HttpGet("lookups")]
-        public async Task<IActionResult> GetLookups()
+        public async Task<ActionResult<TransferLookupsDto>> GetLookups()
         {
             try
             {
-                var warehouses = await _context.Warehouses
-                    .AsNoTracking()
-                    .Where(w => !w.WarehouseName.Contains("إدارة") && !w.WarehouseName.Contains("العليا"))
-                    .OrderBy(w => w.WarehouseName)
-                    .Select(w => new
-                    {
-                        w.Id,
-                        w.WarehouseName,
-                        w.WarehouseCode,
-                        w.WarehouseType
-                    })
-                    .ToListAsync();
-
-                var finishedItems = await _context.Items
-                    .AsNoTracking()
-                    .Where(i => i.Active && (i.ItemType == "منتج تام" || i.ItemType == "FINISHED_GOODS" || i.ItemType == "وسيط"))
-                    .OrderBy(i => i.ItemName)
-                    .Select(i => new
-                    {
-                        i.Id,
-                        i.ItemCode,
-                        i.ItemName,
-                        i.ItemType,
-                        i.Unit,
-                        i.DepartmentId,
-                        i.ShelfLifeDays
-                    })
-                    .ToListAsync();
-
-                return Ok(new { warehouses, finishedItems });
+                var result = await _transferService.GetLookupsAsync();
+                return Ok(result);
             }
             catch (Exception ex)
             {
@@ -71,7 +39,7 @@ namespace AbuAdelERP.Api.Controllers
         // 2. استعراض سجل أذونات تحويل المنتج التام
         // ========================================================
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<ActionResult<List<FinishedGoodsTransferViewDto>>> GetAll()
         {
             try
             {

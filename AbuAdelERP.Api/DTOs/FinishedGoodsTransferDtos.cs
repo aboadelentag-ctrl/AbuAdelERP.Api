@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace AbuAdelERP.Api.DTOs
 {
@@ -112,5 +113,30 @@ namespace AbuAdelERP.Api.DTOs
         public string DisputeStatus { get; set; } = string.Empty;
         public string? ControlDisputeChargeTo { get; set; }
         public string Status { get; set; } = string.Empty;
+    }
+
+    public class WarehouseLookupDto
+    {
+        public long Id { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
+        public string? WarehouseCode { get; set; }
+        public string? WarehouseType { get; set; }
+    }
+
+    public class FinishedItemLookupDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string? ItemType { get; set; }
+        public string? Unit { get; set; }
+        public long? DepartmentId { get; set; }
+        public int? ShelfLifeDays { get; set; }
+    }
+
+    public class TransferLookupsDto
+    {
+        public List<WarehouseLookupDto> Warehouses { get; set; } = new();
+        public List<FinishedItemLookupDto> FinishedItems { get; set; } = new();
     }
 }

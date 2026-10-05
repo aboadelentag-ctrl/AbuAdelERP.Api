@@ -19,6 +19,9 @@ namespace AbuAdelERP.Api.Controllers
             _recipeService = recipeService;
         }
 
+        // ==============================================================
+        // 1. استعراض كافة وصفات ومعايير التصنيع
+        // ==============================================================
         [HttpGet]
         public async Task<ActionResult<List<RecipeDto>>> GetRecipes()
         {
@@ -33,6 +36,9 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
+        // ==============================================================
+        // 2. جلب تفاصيل بطاقة معيار خلطة محددة
+        // ==============================================================
         [HttpGet("{id}")]
         public async Task<ActionResult<RecipeDto>> GetRecipe(long id)
         {
@@ -44,10 +50,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء جلب الوصفة: {ex.Message}");
             }
         }
 
+        // ==============================================================
+        // 3. إنشاء أو تعديل معيار خلطة
+        // ==============================================================
         [HttpPost]
         public async Task<IActionResult> SaveRecipe([FromBody] SaveRecipeDto dto)
         {
@@ -64,7 +73,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // مسار استيراد معايير وخلطات التصنيع دفعة واحدة من الإكسيل
+        // 4. استيراد معايير وخلطات التصنيع دفعة واحدة من الإكسيل (Bulk Import)
         // ==============================================================
         [HttpPost("bulk-import")]
         public async Task<IActionResult> BulkImportRecipes([FromBody] List<SaveRecipeDto> dtoList)
@@ -74,19 +83,8 @@ namespace AbuAdelERP.Api.Controllers
 
             try
             {
-                int count = 0;
-                foreach (var dto in dtoList)
-                {
-                    var success = await _recipeService.SaveRecipeAsync(dto);
-                    if (success) count++;
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    count = count,
-                    message = $"تم استيراد وحفظ وتحديث ({count}) بطاقة معيار خلطة بنجاح!"
-                });
+                int count = await _recipeService.BulkImportRecipesAsync(dtoList);
+                return Ok(count);
             }
             catch (Exception ex)
             {
@@ -94,13 +92,16 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
+        // ==============================================================
+        // 5. حذف معيار خلطة
+        // ==============================================================
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteRecipe(long id)
         {
             try
             {
                 var success = await _recipeService.DeleteRecipeAsync(id);
-                if (!success) return NotFound();
+                if (!success) return NotFound("الوصفة غير موجودة أو تعذر حذفها.");
                 return Ok(true);
             }
             catch (Exception ex)
