@@ -1,16 +1,19 @@
 ﻿@page "/dynamic-forms"
+@page "/dynamic-form"
 @inject HttpClient Http
 @using System.Text.Json
 @using System.Net.Http.Json
 
+<PageTitle>مُنشئ نماذج الجودة والتفتيش - حلواني أبو عادل</PageTitle>
+
 <div class="container mt-4" dir="rtl">
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom flex-wrap gap-2">
         <div>
-            <h3 class="text-primary m-0 mb-1">🛠️ مُنشئ النماذج الديناميكية (النسخة الشاملة)</h3>
-            <span class="text-muted">تصميم قوالب إدخال البيانات وربطها بكيانات المصنع والوسائط</span>
+            <h3 class="text-primary m-0 mb-1 fw-bold">🛠️ مُنشئ النماذج واستمارات HACCP الرقمية</h3>
+            <span class="text-muted small">تصميم قوالب الفحص المعملي وربطها بنقاط التحكم الحرجة وصالات الإنتاج</span>
         </div>
         <button class="btn btn-success fw-bold shadow-sm" @onclick="ShowAddForm">
-            ➕ تصميم نموذج جديد
+            ➕ تصميم استمارة تفتيش جديدة
         </button>
     </div>
 
@@ -25,8 +28,8 @@
     else
     {
         <div class="card shadow-sm border-0">
-            <div class="card-body p-0">
-                <table class="table table-hover mb-0 text-center align-middle">
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover mb-0 text-center align-middle small">
                     <thead class="table-dark">
                         <tr>
                             <th>م</th>
@@ -43,15 +46,15 @@
                             <tr>
                                 <td>@form.Id</td>
                                 <td class="fw-bold">@form.FormName</td>
-                                <td dir="ltr" class="text-primary fw-bold">@form.FormCode</td>
-                                <td dir="ltr">@form.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                <td dir="ltr" class="text-primary fw-bold font-monospace">@form.FormCode</td>
+                                <td dir="ltr" class="font-monospace text-muted">@form.CreatedAt.ToString("yyyy-MM-dd")</td>
                                 <td>
-                                    <span class="badge @(form.IsActive ? "bg-success" : "bg-danger") fs-6">
+                                    <span class="badge @(form.IsActive ? "bg-success" : "bg-danger")">
                                         @(form.IsActive ? "مفعل" : "معطل")
                                     </span>
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm @(form.IsActive ? "btn-outline-danger" : "btn-outline-success") mx-1 fw-bold"
+                                    <button class="btn btn-sm @(form.IsActive ? "btn-outline-danger" : "btn-outline-success") py-0 px-2 fw-bold"
                                             @onclick="() => ToggleFormStatus(form.Id)">
                                         @(form.IsActive ? "إيقاف ⏸️" : "تفعيل ▶️")
                                     </button>
@@ -69,83 +72,75 @@
         <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);">
             <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
                 <div class="modal-content border-primary">
-                    <div class="modal-header bg-primary text-white">
-                        <h5 class="modal-title fw-bold">🎨 تصميم نموذج بيانات جديد متقدم</h5>
+                    <div class="modal-header bg-primary text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">🎨 تصميم نموذج فحص معملي متقدم</h6>
                         <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
                     </div>
                     <div class="modal-body bg-light">
                         @if (!string.IsNullOrEmpty(errorMessage))
                         {
-                            <div class="alert alert-danger py-2 fw-bold shadow-sm">@errorMessage</div>
+                            <div class="alert alert-danger py-2 fw-bold shadow-sm small">@errorMessage</div>
                         }
 
-                        <div class="row bg-white p-3 rounded shadow-sm mb-3">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold">اسم النموذج (عربي/إنجليزي) <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control border-primary" @bind="newForm.FormName" placeholder="مثال: تقرير هالك المخبوزات اليومي" />
+                        <div class="row bg-white p-3 rounded shadow-sm mb-3 g-2">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">اسم النموذج (عربي) <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm border-primary" @bind="newForm.FormName" placeholder="مثال: فحص درجات حرارة أفران الشرقي والتخمير" />
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold">كود النموذج (إنجليزي بدون مسافات) <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control border-primary" dir="ltr" @bind="newForm.FormCode" placeholder="مثال: Waste_Bakery_01" />
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">كود النموذج (إنجليزي) <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm border-primary font-monospace" dir="ltr" @bind="newForm.FormCode" placeholder="مثال: HACCP_OVEN_TEMP_01" />
                             </div>
                         </div>
 
                         <div class="bg-white p-3 rounded shadow-sm">
                             <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
-                                <h5 class="m-0 text-secondary fw-bold">📋 حقول النموذج</h5>
-                                <button class="btn btn-sm btn-primary fw-bold" @onclick="AddField">➕ إضافة حقل جديد</button>
+                                <h6 class="m-0 text-secondary fw-bold">📋 بنود وعناصر الفحص</h6>
+                                <button class="btn btn-sm btn-primary fw-bold" @onclick="AddField">➕ إضافة بند فحص</button>
                             </div>
 
                             @if (!formFields.Any())
                             {
-                                <div class="text-center text-muted p-3">اضغط على "إضافة حقل جديد" للبدء في تصميم النموذج.</div>
+                                <div class="text-center text-muted p-3 small">اضغط على "إضافة بند فحص" لتحديد عناصر التفتيش.</div>
                             }
 
                             @foreach (var field in formFields)
                             {
-                                <div class="row align-items-end mb-3 pb-3 border-bottom border-light">
-                                    <div class="col-md-4">
-                                        <label class="form-label small fw-bold text-muted">اسم الحقل (Label)</label>
-                                        <input type="text" class="form-control" @bind="field.Label" placeholder="ماذا سيقرأ الموظف؟" />
+                                <div class="row align-items-end mb-2 pb-2 border-bottom border-light g-2">
+                                    <div class="col-md-5">
+                                        <label class="form-label small fw-bold text-muted">اسم البند أو السؤال</label>
+                                        <input type="text" class="form-control form-control-sm" @bind="field.Label" placeholder="مثال: درجة حرارة الفرن الفعلية" />
                                     </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label small fw-bold text-muted">نوع البيانات المتقدم (Type)</label>
-                                        <select class="form-select border-info" @bind="field.Type">
-                                            <optgroup label="إدخال أساسي">
+                                    <div class="col-md-5">
+                                        <label class="form-label small fw-bold text-muted">نوع الحقل</label>
+                                        <select class="form-select form-select-sm border-info fw-bold" @bind="field.Type">
+                                            <optgroup label="إدخال قياسي">
                                                 <option value="text">نص (Text)</option>
-                                                <option value="number">رقم (Number)</option>
+                                                <option value="number">رقم قياسي / حرارة / وزن (Number)</option>
                                                 <option value="date">تاريخ (Date)</option>
-                                                <option value="checkbox">مربع اختيار (نعم/لا)</option>
+                                                <option value="checkbox">مربع اختيار (مطابق / نعم)</option>
                                             </optgroup>
-                                            <optgroup label="ربط ببيانات المؤسسة (ERP)">
-                                                <option value="departments">قائمة أقسام الإنتاج</option>
-                                                <option value="branches">قائمة الفروع</option>
-                                                <option value="warehouses">قائمة المخازن</option>
-                                                <option value="items">قائمة الأصناف التامة</option>
-                                                <option value="materials">الخامات ومواد التعبئة والتغليف</option>
-                                                <option value="equipment">قائمة الآلات والمعدات</option>
-                                            </optgroup>
-                                            <optgroup label="الموارد البشرية (HR)">
-                                                <option value="employees">أسماء الموظفين</option>
-                                                <option value="job_roles">المسمى الوظيفي (شيف، جودة، صيانة...)</option>
-                                            </optgroup>
-                                            <optgroup label="وسائط وإثباتات (Media)">
-                                                <option value="image">التقاط / رفع صورة 📷</option>
-                                                <option value="video">تسجيل فيديو 🎥</option>
-                                                <option value="audio">ملاحظة صوتية 🎤</option>
+                                            <optgroup label="ربط بكيانات المصنع (ERP)">
+                                                <option value="departments">صالات وأقسام الإنتاج</option>
+                                                <option value="branches">فروع ومعارض البيع</option>
+                                                <option value="warehouses">مستودعات المصنع</option>
+                                                <option value="items">أصناف الحلويات التامة</option>
+                                                <option value="materials">الخامات ومواد التعبئة</option>
+                                                <option value="equipment">الأفران والآلات والمعدات</option>
+                                                <option value="job_roles">المسمى الوظيفي</option>
                                             </optgroup>
                                         </select>
                                     </div>
                                     <div class="col-md-2 text-start">
-                                        <button class="btn btn-danger w-100 fw-bold" @onclick="() => RemoveField(field)">🗑️ حذف</button>
+                                        <button class="btn btn-sm btn-danger w-100 fw-bold" @onclick="() => RemoveField(field)">🗑️ حذف</button>
                                     </div>
                                 </div>
                             }
                         </div>
                     </div>
-                    <div class="modal-footer bg-white">
-                        <button type="button" class="btn btn-secondary fw-bold" @onclick="CloseModal">إلغاء</button>
-                        <button type="button" class="btn btn-success fw-bold px-4" @onclick="SaveForm">💾 حفظ التصميم المتقدم</button>
+                    <div class="modal-footer bg-white py-2">
+                        <button type="button" class="btn btn-secondary btn-sm fw-bold px-3" @onclick="CloseModal">إلغاء</button>
+                        <button type="button" class="btn btn-success btn-sm fw-bold px-4" @onclick="SaveForm">💾 حفظ واعتماد الاستمارة</button>
                     </div>
                 </div>
             </div>
@@ -156,10 +151,12 @@
 @code {
     private List<DynamicFormDto>? forms;
     private bool showBuilderModal = false;
-    private DynamicFormDto newForm = new DynamicFormDto();
-    private List<FormField> formFields = new List<FormField>();
+    private DynamicFormDto newForm = new();
+    private List<FormField> formFields = new();
     private string errorMessage = "";
-    private string apiUrl = "https://localhost:7273/api/DynamicForms";
+
+    // تم تعديل المسار ليكون مساراً نسبياً نظيفاً
+    private string apiUrl = "api/DynamicForms";
 
     protected override async Task OnInitializedAsync()
     {
@@ -174,7 +171,7 @@
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"خطأ: {ex.Message}");
+            Console.WriteLine($"[DynamicForms] Error: {ex.Message}");
         }
     }
 
@@ -186,17 +183,11 @@
         showBuilderModal = true;
     }
 
-    private void CloseModal() { showBuilderModal = false; }
+    private void CloseModal() => showBuilderModal = false;
 
-    private void AddField()
-    {
-        formFields.Add(new FormField { Label = "", Type = "text" });
-    }
+    private void AddField() => formFields.Add(new FormField { Label = "", Type = "text" });
 
-    private void RemoveField(FormField field)
-    {
-        formFields.Remove(field);
-    }
+    private void RemoveField(FormField field) => formFields.Remove(field);
 
     private async Task SaveForm()
     {
@@ -207,7 +198,7 @@
         }
         if (!formFields.Any() || formFields.Any(f => string.IsNullOrWhiteSpace(f.Label)))
         {
-            errorMessage = "⚠️ يرجى إضافة حقل واحد على الأقل، والتأكد من كتابة أسماء كل الحقول."; return;
+            errorMessage = "⚠️ يرجى إضافة بند واحد على الأقل مع كتابة التسمية."; return;
         }
 
         newForm.FieldsSchema = JsonSerializer.Serialize(formFields);

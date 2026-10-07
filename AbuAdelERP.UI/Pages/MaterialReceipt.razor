@@ -1,460 +1,264 @@
 ﻿@page "/material-receipt"
-@using AbuAdelERP.UI.Services
 @using System.Net.Http.Json
-@using System.Text
-@using System.Text.Json
-@using System.Text.Json.Serialization
-@using System.IO
+@using AbuAdelERP.UI.DTOs
 @inject HttpClient Http
-@inject IJSRuntime JS
-@inject AppState State
 
-<PageTitle>إذن استلام وفحص الجودة المشترك (GMP Inbound) - حلواني أبو عادل</PageTitle>
+<div class="container-fluid py-4" dir="rtl">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold text-primary mb-1">
+                <i class="bi bi-shield-check me-2"></i>فحص الجودة واستلام الخامات الموردة (GMP)
+            </h3>
+            <p class="text-muted small mb-0">مطابقة الشحنات الموردة، توثيق شهادات التحليل (COA)، تسجيل أرقام اللوطات والصلاحيات، وترحيل الأرصدة</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary px-3 shadow-sm" @onclick="LoadData" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise me-1"></i> تحديث الفواتير المنتظرة
+            </button>
+        </div>
+    </div>
 
-<style>
-    @@media print {
-        .d-print-none, .btn, .alert, .nav, .sidebar, header {
-            display: none !important;
-        }
-        body {
-            background-color: #fff !important;
-            font-size: 11pt !important;
-            direction: rtl !important;
-        }
-        .print-grn-sheet {
-            display: block !important;
-            page-break-after: always;
-            padding: 15px;
-            border: 2px solid #222 !important;
-        }
-        .table-print {
-            width: 100% !important;
-            border-collapse: collapse !important;
-            margin-top: 12px;
-            margin-bottom: 12px;
-        }
-        .table-print th, .table-print td {
-            border: 1px solid #333 !important;
-            padding: 6px 8px !important;
-            text-align: center !important;
-        }
-        .table-print th {
-            background-color: #f2f2f2 !important;
-        }
+    <!-- رسائل التنبيه -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i>@statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        </div>
     }
-</style>
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
 
-<div class="container-fluid px-4 py-3" dir="rtl">
-
-    <!-- رأس الشاشة التنفيذي -->
-    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3 d-print-none">
-        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <div class="d-flex align-items-center gap-2 mb-1">
-                    <h4 class="mb-0 text-warning fw-bold">🏭 إذن استلام وفحص الجودة المشترك للخامات (GMP Inbound)</h4>
-                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">تتبع اللوطات وشهادات COA</span>
-                </div>
-                <small class="text-light text-opacity-75">
-                    الاستلام المباشر من الموردين، توليد أرقام اللوطات والصلاحية، وترحيل الأرصدة المقبولة حصراً لمستودع الخامات الرئيسي.
-                </small>
+    <!-- بطاقات الإحصائيات -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-warning">
+                <span class="text-muted small fw-bold d-block">شحنات معتمدة في انتظار الفحص</span>
+                <h4 class="fw-bold text-warning mb-0">@pendingInvoices.Count</h4>
             </div>
-            <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-primary btn-sm fw-bold shadow-sm" @onclick="PrintReceiptVoucherAsync">
-                    <i class="bi bi-printer me-1"></i> 🖨️ طباعة إذن الاستلام والفحص (GRN)
-                </button>
-                <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportToExcelAsync">
-                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير إكسيل
-                </button>
-                <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
-                    <i class="bi bi-download me-1"></i> تحميل قالب الفحص
-                </button>
-                @if (State.HasAnyPermission("Quality.Inspect", "Warehouse.Receive"))
-                {
-                    <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
-                        <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد من إكسيل
-                    </button>
-                }
-                <button class="btn btn-outline-light btn-sm" @onclick="LoadDataAsync">
-                    <i class="bi bi-arrow-clockwise"></i> تحديث
-                </button>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-info">
+                <span class="text-muted small fw-bold d-block">إجمالي بنود الخامات المطلوب استلامها</span>
+                <h4 class="fw-bold text-info mb-0">@pendingInvoices.Sum(p => p.Lines.Count)</h4>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-success">
+                <span class="text-muted small fw-bold d-block">مستودعات الخامات الجاهزة للاستقبال</span>
+                <h4 class="fw-bold text-success mb-0">@lookups.Warehouses.Count</h4>
             </div>
         </div>
     </div>
 
-    @if (!string.IsNullOrEmpty(statusMessage))
-    {
-        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-3 py-2 fw-bold d-print-none" role="alert">
-            <i class="bi @(isSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-1"></i>
-            <strong>@(isSuccess ? "نجاح:" : "تنبيه:")</strong> @statusMessage
-            <button type="button" class="btn-close py-2" @onclick="() => statusMessage = null"></button>
-        </div>
-    }
-
-    <!-- بطاقة اختيار المورد والفاتورة وقفل الهوية الرقمية -->
-    <div class="card shadow-sm border-0 mb-3 bg-white d-print-none border-top border-4 border-primary">
+    <!-- شريط الفلترة والبحث -->
+    <div class="card shadow-sm border-0 rounded-3 mb-4">
         <div class="card-body p-3">
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label small fw-bold text-dark">1. المورد الواصل للمصنع *</label>
-                    <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedSupplierId" @bind:after="OnSupplierChanged">
-                        <option value="0">-- اختر المورد --</option>
-                        @foreach (var s in suppliers)
+            <div class="row g-3 align-items-center">
+                <div class="col-md-5">
+                    <label class="form-label small fw-bold text-muted mb-1">فلترة بالمورد:</label>
+                    <select class="form-select form-select-sm" @bind="selectedSupplierId" @bind:after="LoadInvoices">
+                        <option value="0">كافة الموردين</option>
+                        @foreach (var s in lookups.Suppliers)
                         {
                             <option value="@s.Id">@s.SupplierName</option>
                         }
                     </select>
                 </div>
-
-                <div class="col-md-5">
-                    <label class="form-label small fw-bold text-dark">
-                        2. فاتورة / أمر الشراء المعتمد لهذا المورد *
-                        <span class="badge bg-light text-primary border ms-1">(@availableInvoices.Count فاتورة مفتوحة)</span>
-                    </label>
-                    <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedInvoiceId" @bind:after="OnInvoiceChanged">
-                        <option value="0">-- اختر الفاتورة المعتمدة --</option>
-                        @foreach (var inv in availableInvoices)
-                        {
-                            <option value="@inv.Id">
-                                فاتورة: @inv.OrderNumber (@inv.OrderDate) - @inv.TotalAmount.ToString("N2") ج.م @(inv.Status == "Partially_Received" ? "⚠️️ [مستلمة جزئياً]" : "✅ [معتمدة]")
-                            </option>
-                        }
-                    </select>
-                </div>
-
-                <!-- مخزن الاستلام: محصور في مستودعات الخامات والتعبئة فقط -->
-                <div class="col-md-3">
-                    <label class="form-label small fw-bold text-dark">3. مستودع الاستلام المعتمد *</label>
-                    <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedWarehouseId">
-                        @foreach (var w in warehouses)
-                        {
-                            <option value="@w.Id">@w.WarehouseName</option>
-                        }
-                    </select>
-                </div>
-
-                <!-- هوية مفتش الجودة: مقفولة برمجياً ومربوطة بحساب الدخول -->
-                <div class="col-md-6">
-                    <label class="form-label small fw-bold text-dark d-flex justify-content-between align-items-center">
-                        <span>مهندس / فاحص الجودة المسؤول:</span>
-                        <span class="badge bg-secondary font-monospace">🔒 موثق تلقائياً من جلسة الدخول</span>
-                    </label>
-                    <input type="text" class="form-control form-control-sm fw-bold bg-white text-primary" 
-                           value="@CurrentInspectorDisplayName" readonly disabled />
-                </div>
-
-                <div class="col-md-6">
-                    <label class="form-label small fw-bold text-secondary">رقم شهادة التحليل الفني الواردة من المورد (COA)</label>
-                    <input type="text" class="form-control form-control-sm font-monospace" @bind="coaNumber" placeholder="رقم شهادة مطابقة الجودة والمواصفات..." />
+                <div class="col-md-7">
+                    <label class="form-label small fw-bold text-muted mb-1">بحث سريع:</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="ابحث برقم أمر الشراء، اسم المورد..." 
+                           @bind="searchTerm" @bind:event="oninput" />
                 </div>
             </div>
         </div>
     </div>
 
-    @if (receiptItems.Any())
-    {
-        <div class="card shadow-sm border-0 mb-3 bg-light d-print-none">
-            <div class="card-body p-2">
-                <div class="row g-2 align-items-center">
-                    <div class="col-md-5">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                            <input type="text" class="form-control" placeholder="تصفية البنود باسم الخامة، الكود، أو رقم اللوط..." 
-                                   @bind="searchTerm" @bind:event="oninput" />
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <select class="form-select form-select-sm fw-bold" @bind="selectedQcFilter">
-                            <option value="all">-- كل القرارات الفنية --</option>
-                            <option value="Approved">✅ مقبول (صالح)</option>
-                            <option value="Partial">⚠️ قبول جزئي</option>
-                            <option value="Rejected">❌ مرفوض فني</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3 text-muted small fw-bold">
-                        <span>المعروض: @FilteredReceiptItems.Count() من أصل @receiptItems.Count خامة</span>
-                    </div>
-                    <div class="col-md-1">
-                        <button class="btn btn-outline-danger btn-sm w-100" title="إعادة تعيين" @onclick="ResetFilters">✕</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-
-    <!-- جدول أصناف الشحنة مع اللوطات والقرارات الفنية -->
-    <div class="card shadow-sm border-0 mb-4 bg-white d-print-none">
-        <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
-            <span class="small fw-bold">📦 أصناف شحنة المورد، التحقق الصحي، وتتبع التشغيلات والصلاحية (FEFO/GMP)</span>
-            <span class="badge bg-warning text-dark fw-bold">تُرحل للمخزن الكميات المقبولة فقط وتغلق الفاتورة آلياً</span>
-        </div>
+    <!-- جدول أوامر الشراء المعتمدة الجاهزة للاستلام -->
+    <div class="card shadow-sm border-0 rounded-3">
         <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-bordered table-hover align-middle mb-0 text-center small">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 18%;" class="text-start ps-3">اسم الصنف / الكود</th>
-                            <th style="width: 12%;">الكمية الواردة (المتبقية)</th>
-                            <th style="width: 16%;">رقم التشغيلة (Batch) *</th>
-                            <th style="width: 13%;">تاريخ الصلاحية</th>
-                            <th style="width: 14%;">قرار الجودة *</th>
-                            <th style="width: 13%;">الكميات (مقبول / مرفوض)</th>
-                            <th style="width: 14%;">سبب الرفض إن وُجد</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (!receiptItems.Any())
-                        {
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="text-muted mt-2 mb-0">جاري فحص وتحديث أوامر الشراء الجاهزة للاستلام...</p>
+                </div>
+            }
+            else if (!FilteredInvoices.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-box-seam fs-1 d-block mb-2"></i>
+                    لا توجد شحنات معتمدة في انتظار الاستلام والفحص حالياً.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead class="table-light text-secondary">
                             <tr>
-                                <td colspan="7" class="py-4 text-muted fw-bold">
-                                    لا توجد فواتير مفتوحة بحاجة إلى استلام، أو يرجى اختيار المورد وفاتورته المعتمدة لتحميل الأصناف المتبقية.
-                                </td>
+                                <th>رقم أمر الشراء</th>
+                                <th>تاريخ الأمر</th>
+                                <th class="text-start ps-3">اسم المورد</th>
+                                <th>عدد البنود المتبقية</th>
+                                <th>إجمالي القيمة</th>
+                                <th>الحالة</th>
+                                <th>الإجراء</th>
                             </tr>
-                        }
-                        else if (!FilteredReceiptItems.Any())
-                        {
-                            <tr>
-                                <td colspan="7" class="py-4 text-muted">لا توجد أصناف مطابقة لفلتر البحث.</td>
-                            </tr>
-                        }
-                        else
-                        {
-                            @foreach (var row in FilteredReceiptItems)
+                        </thead>
+                        <tbody>
+                            @foreach (var inv in FilteredInvoices)
                             {
                                 <tr>
-                                    <td class="text-start ps-3">
-                                        <div class="fw-bold text-primary">@row.ItemName</div>
-                                        <small class="text-muted font-monospace">@row.ItemCode</small>
-                                        <span class="badge bg-light text-dark border ms-1">@row.Unit</span>
+                                    <td class="fw-bold font-monospace text-primary">@inv.OrderNumber</td>
+                                    <td class="small text-muted font-monospace">@inv.OrderDate</td>
+                                    <td class="text-start ps-3 fw-bold text-dark">
+                                        <i class="bi bi-truck me-1 text-muted"></i>@inv.SupplierName
                                     </td>
                                     <td>
-                                        <input type="number" step="0.001" class="form-control form-control-sm text-center fw-bold font-monospace" 
-                                               @bind="row.ReceivedQuantity" @bind:after="() => CalculateQuantities(row)" />
+                                        <span class="badge bg-secondary">@inv.Lines.Count بنود متبقية</span>
+                                    </td>
+                                    <td class="fw-bold text-dark font-monospace">
+                                        @inv.TotalAmount.ToString("N2") ج.م
                                     </td>
                                     <td>
-                                        <input type="text" class="form-control form-control-sm font-monospace text-center fw-bold text-dark border-primary" 
-                                               @bind="row.BatchNumber" placeholder="LOT-..." />
+                                        <span class="badge @(inv.Status == "Approved" ? "bg-warning text-dark" : "bg-info text-dark")">
+                                            @(inv.Status == "Approved" ? "جاهز للتوريد" : "توريد جزئي")
+                                        </span>
                                     </td>
                                     <td>
-                                        <input type="date" class="form-control form-control-sm font-monospace text-center" 
-                                               @bind="row.ExpiryDate" />
-                                    </td>
-                                    <td>
-                                        <select class="form-select form-select-sm fw-bold @GetDecisionColor(row.QcDecision)" 
-                                                @bind="row.QcDecision" @bind:after="() => OnDecisionChanged(row)">
-                                            <option value="Approved">✅ مقبول (صالح)</option>
-                                            <option value="Partial">⚠️ قبول جزئي</option>
-                                            <option value="Rejected">❌ مرفوض فني</option>
-                                        </select>
-                                    </td>
-                                    <td>
-                                        @if (row.QcDecision == "Approved")
-                                        {
-                                            <span class="badge bg-success p-2 w-100 font-monospace">
-                                                كامل الكمية: @row.AcceptedQuantity.ToString("N3")
-                                            </span>
-                                        }
-                                        else if (row.QcDecision == "Rejected")
-                                        {
-                                            <span class="badge bg-danger p-2 w-100 font-monospace">
-                                                مرفوض بالكامل: @row.RejectedQuantity.ToString("N3")
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <div class="d-flex gap-1">
-                                                <input type="number" step="0.001" class="form-control form-control-sm text-center text-success fw-bold font-monospace p-1" 
-                                                       title="الكمية المقبولة" placeholder="المقبول" 
-                                                       @bind="row.AcceptedQuantity" @bind:after="() => OnPartialQtyChanged(row)" />
-                                                <input type="number" step="0.001" class="form-control form-control-sm text-center text-danger fw-bold font-monospace p-1" 
-                                                       title="الكمية المرفوضة" placeholder="المرفوض" 
-                                                       @bind="row.RejectedQuantity" readonly />
-                                            </div>
-                                        }
-                                    </td>
-                                    <td>
-                                        <input type="text" class="form-control form-control-sm text-start" 
-                                               placeholder="@(row.QcDecision == "Approved" ? "مطابق للمواصفة" : "اذكر سبب الرفض...")" 
-                                               @bind="row.RejectionReason" />
+                                        <button class="btn btn-sm btn-success px-3 shadow-sm" @onclick="() => OpenInspectionModal(inv)">
+                                            <i class="bi bi-clipboard2-check me-1"></i> فحص واستلام مخزني
+                                        </button>
                                     </td>
                                 </tr>
                             }
-                        }
-                    </tbody>
-                </table>
-            </div>
-
-            @if (receiptItems.Any())
-            {
-                <div class="p-3 bg-light border-top d-flex justify-content-between align-items-center">
-                    <span class="small fw-bold text-muted">
-                        إجمالي الأصناف: (@receiptItems.Count) | المقبول الفعلي: (@receiptItems.Sum(r => r.AcceptedQuantity).ToString("N2")) | المرفوض: (@receiptItems.Sum(r => r.RejectedQuantity).ToString("N2"))
-                    </span>
-                    <button class="btn btn-success fw-bold px-4 py-2 shadow-sm" 
-                            disabled="@(isSaving || !receiptItems.Any())" @onclick="SaveMaterialReceiptAsync">
-                        @if (isSaving)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                            <span>جاري حفظ واعتماد الفحص وترحيل المخزن...</span>
-                        }
-                        else
-                        {
-                            <span>💾 حفظ إذن الإضافة واعتماد فحص الجودة وترحيل المستودع</span>
-                        }
-                    </button>
+                        </tbody>
+                    </table>
                 </div>
             }
         </div>
     </div>
-
-    <!-- ورقة الطباعة الرسمية (GRN) -->
-    <div class="d-none d-print-block">
-        <div class="print-grn-sheet">
-            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
-                <div>
-                    <h3 class="fw-bold mb-0 text-dark">مؤسسة حلواني أبو عادل</h3>
-                    <small class="text-muted">إدارة سلاسل الإمداد - قطاع المخازن وتأكيد الجودة (ISO 22000 / HACCP)</small>
-                </div>
-                <div class="text-start">
-                    <h4 class="fw-bold text-primary mb-0">إذن استلام وفحص جودة خامات (GRN)</h4>
-                    <span class="badge bg-dark text-white font-monospace fs-6">GRN-@DateTime.Now.ToString("yyyyMMdd-HHmm")</span>
-                </div>
-            </div>
-
-            <div class="row g-2 mb-3 border p-2 rounded bg-light" style="font-size: 10pt;">
-                <div class="col-4"><strong>اسم المورد:</strong> @GetSupplierName()</div>
-                <div class="col-4 text-center"><strong>رقم الفاتورة / الأمر:</strong> @GetInvoiceNumber()</div>
-                <div class="col-4 text-start"><strong>تاريخ الاستلام:</strong> @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
-
-                <div class="col-4"><strong>مستودع الاستلام المعتمد:</strong> @GetWarehouseName()</div>
-                <div class="col-4 text-center"><strong>فاحص الجودة المسؤول:</strong> @CurrentInspectorDisplayName</div>
-                <div class="col-4 text-start"><strong>شهادة التحليل COA:</strong> @(!string.IsNullOrEmpty(coaNumber) ? coaNumber : "غير مرفقة")</div>
-            </div>
-
-            <table class="table-print">
-                <thead>
-                    <tr>
-                        <th style="width: 5%;">م</th>
-                        <th style="width: 14%;">كود الصنف</th>
-                        <th style="width: 23%; text-align: start;">اسم الخامة / الصنف</th>
-                        <th style="width: 16%;">رقم التشغيلة (LOT)</th>
-                        <th style="width: 12%;">تاريخ الصلاحية</th>
-                        <th style="width: 10%;">الوارد</th>
-                        <th style="width: 10%;">المقبول</th>
-                        <th style="width: 10%;">القرار الفني</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @{ int printIndex = 1; }
-                    @foreach (var row in receiptItems)
-                    {
-                        <tr>
-                            <td>@(printIndex++)</td>
-                            <td class="font-monospace">@row.ItemCode</td>
-                            <td style="text-align: start; font-weight: bold;">@row.ItemName</td>
-                            <td class="font-monospace fw-bold">@row.BatchNumber</td>
-                            <td class="font-monospace">@row.ExpiryDate.ToString("yyyy-MM-dd")</td>
-                            <td class="font-monospace">@row.ReceivedQuantity.ToString("N2")</td>
-                            <td class="font-monospace text-success fw-bold">@row.AcceptedQuantity.ToString("N2")</td>
-                            <td>@(row.QcDecision == "Approved" ? "مقبول" : (row.QcDecision == "Rejected" ? "مرفوض" : "قبول جزئي"))</td>
-                        </tr>
-                    }
-                </tbody>
-                <tfoot>
-                    <tr style="background-color: #f8f9fa; font-weight: bold;">
-                        <td colspan="5" class="text-start pe-3">إجمالي الكميات المقبولة والمرحلة للمخزن:</td>
-                        <td class="font-monospace">@receiptItems.Sum(r => r.ReceivedQuantity).ToString("N2")</td>
-                        <td class="font-monospace text-success fs-6">@receiptItems.Sum(r => r.AcceptedQuantity).ToString("N2")</td>
-                        <td>-</td>
-                    </tr>
-                </tfoot>
-            </table>
-
-            <div class="row text-center mt-4 pt-3 border-top" style="font-size: 10pt;">
-                <div class="col-4">
-                    <strong>مهندس فحص وتأكيد الجودة</strong>
-                    <div style="height: 45px;"></div>
-                    <div>@CurrentInspectorDisplayName</div>
-                </div>
-                <div class="col-4">
-                    <strong>أمين مستودع الخامات المستلم</strong>
-                    <div style="height: 45px;"></div>
-                    <div>....................................</div>
-                </div>
-                <div class="col-4">
-                    <strong>إدارة المشتريات والإنتاج</strong>
-                    <div style="height: 45px;"></div>
-                    <div>....................................</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
 </div>
 
-<!-- نافذة استيراد بيانات الفحص من إكسيل -->
-@if (isImportModalOpen)
+<!-- ======================================================== -->
+<!-- Modal: محضر الفحص الفني والاستلام المخزني                 -->
+<!-- ======================================================== -->
+@if (showInspectionModal && selectedInvoice != null)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);" dir="rtl">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content shadow-lg border-0">
-                <div class="modal-header bg-success text-white py-2 px-3">
-                    <h5 class="modal-title fw-bold fs-6">
-                        <i class="bi bi-file-earmark-excel me-1"></i> استيراد أرقام التشغيلات وبيانات الفحص من ملف إكسيل
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.55);">
+        <div class="modal-dialog modal-xl modal-dialog-centered" dir="rtl">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fw-bold">
+                        <i class="bi bi-clipboard2-pulse me-2"></i>محضر استلام وفحص جودة أمر الشراء: @selectedInvoice.OrderNumber
                     </h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="CloseImportModal"></button>
+                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showInspectionModal = false"></button>
                 </div>
-                <div class="modal-body p-3">
-                    <div class="alert alert-info py-2 small mb-3">
-                        <i class="bi bi-info-circle me-1"></i> 
-                        يتعرف النظام تلقائياً على كود الصنف لتحديث رقم اللوط وتاريخ الصلاحية والقرار مباشرة.
-                    </div>
-
-                    <div class="mb-3 p-3 border rounded bg-light">
-                        <label class="form-label small fw-bold text-dark">اختر ملف الإكسيل / CSV من جهازك:</label>
-                        <InputFile OnChange="HandleFileSelected" accept=".csv, text/csv" class="form-control form-control-sm" />
-                    </div>
-
-                    @if (importedPreviewList.Any())
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(modalError))
                     {
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="small fw-bold text-dark">معاينة البنود المقروءة من الملف (@importedPreviewList.Count بند):</span>
-                            <span class="badge bg-success">جاهز للتطبيق</span>
-                        </div>
-                        <div class="table-responsive" style="max-height: 250px;">
-                            <table class="table table-bordered table-sm align-middle text-center small mb-0">
-                                <thead class="table-secondary">
-                                    <tr>
-                                        <th>كود الصنف</th>
-                                        <th>اسم الخامة</th>
-                                        <th>رقم التشغيلة (LOT)</th>
-                                        <th>تاريخ الصلاحية</th>
-                                        <th>الكمية الواردة</th>
-                                        <th>قرار الجودة</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var row in importedPreviewList)
-                                    {
-                                        <tr>
-                                            <td class="font-monospace fw-bold">@row.ItemCode</td>
-                                            <td class="fw-bold">@row.ItemName</td>
-                                            <td class="font-monospace fw-bold text-primary">@row.BatchNumber</td>
-                                            <td class="font-monospace">@row.ExpiryDate.ToString("yyyy-MM-dd")</td>
-                                            <td class="font-monospace">@row.ReceivedQuantity.ToString("N2")</td>
-                                            <td>@row.QcDecision</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
+                        <div class="alert alert-danger py-2 small mb-3">@modalError</div>
                     }
+
+                    <!-- بيانات محضر الاستلام والـ QC -->
+                    <div class="row g-3 mb-4 bg-light p-3 rounded-3 border">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">مستودع التسكين الفعلي <span class="text-danger">*</span></label>
+                            <select class="form-select form-select-sm" @bind="receiptPostDto.WarehouseId">
+                                @foreach (var w in lookups.Warehouses)
+                                {
+                                    <option value="@w.Id">@w.WarehouseName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">رقم شهادة التحليل (COA)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" placeholder="مثال: COA-2026-88" @bind="receiptPostDto.CoaNumber" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">اسم مفتش الجودة</label>
+                            <input type="text" class="form-control form-control-sm" @bind="receiptPostDto.InspectorName" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">كود المفتش</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" @bind="receiptPostDto.InspectorCode" />
+                        </div>
+                    </div>
+
+                    <!-- جدول فحص البنود واللوطات -->
+                    <h6 class="fw-bold mb-2 text-dark">مطابقة بنود الشحنة والكميات الواردة:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle text-center mb-0">
+                            <thead class="table-light small">
+                                <tr>
+                                    <th class="text-start ps-3" style="width: 22%;">الصنف</th>
+                                    <th>المتبقي بالطلب</th>
+                                    <th style="width: 12%;">الكمية المقبولة</th>
+                                    <th style="width: 10%;">المرفوض</th>
+                                    <th style="width: 15%;">رقم التشغيلة (اللوط)</th>
+                                    <th style="width: 13%;">تاريخ الصلاحية</th>
+                                    <th>قرار الجودة / الملاحظات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in receiptPostDto.Items)
+                                {
+                                    <tr>
+                                        <td class="text-start ps-3 fw-bold">
+                                            @item.ItemName
+                                            <div class="small text-muted font-monospace">@item.ItemCode</div>
+                                        </td>
+                                        <td class="font-monospace fw-bold text-secondary">
+                                            @item.RemainingQuantity.ToString("N1") @item.Unit
+                                        </td>
+                                        <td>
+                                            <input type="number" step="0.5" min="0" max="@item.RemainingQuantity"
+                                                   class="form-control form-control-sm text-center fw-bold text-success"
+                                                   @bind="item.AcceptedQuantity" />
+                                        </td>
+                                        <td>
+                                            <input type="number" step="0.5" min="0" max="@item.RemainingQuantity"
+                                                   class="form-control form-control-sm text-center text-danger"
+                                                   @bind="item.RejectedQuantity" />
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm font-monospace"
+                                                   placeholder="LOT-xxxxx" @bind="item.BatchNumber" />
+                                        </td>
+                                        <td>
+                                            <input type="date" class="form-control form-control-sm"
+                                                   @bind="item.ExpiryDate" />
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="مطابق للمواصفة..." @bind="item.RejectionReason" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
-                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
-                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
-                            disabled="@(!importedPreviewList.Any())" 
-                            @onclick="ApplyImportedData">
-                        <i class="bi bi-check-circle"></i> تطبيق البيانات على شاشة الاستلام الحالية
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary px-4" @onclick="() => showInspectionModal = false">إلغاء</button>
+                    <button type="button" class="btn btn-success px-4" @onclick="SubmitMaterialReceipt" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري التسكين والترصيد...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-circle me-1"></i>
+                            <span>اعتماد الاستلام وتسكين المخزن</span>
+                        }
                     </button>
                 </div>
             </div>
@@ -463,490 +267,137 @@
 }
 
 @code {
-    public class ReceiptItemViewModel
-    {
-        public long ItemId { get; set; }
-        public string ItemCode { get; set; } = string.Empty;
-        public string ItemName { get; set; } = string.Empty;
-        public string Unit { get; set; } = "كجم";
-        public decimal ReceivedQuantity { get; set; } = 0;
-        public string BatchNumber { get; set; } = string.Empty;
-        public DateTime ExpiryDate { get; set; } = DateTime.Today.AddYears(1);
-        public string QcDecision { get; set; } = "Approved";
-        public decimal AcceptedQuantity { get; set; } = 0;
-        public decimal RejectedQuantity { get; set; } = 0;
-        public string RejectionReason { get; set; } = "مطابق للمواصفة";
-        public decimal UnitPrice { get; set; } = 0;
-    }
-
-    public class SupplierLookupDto
-    {
-        public long Id { get; set; }
-        public string SupplierName { get; set; } = string.Empty;
-    }
-
-    public class WarehouseLookupDto
-    {
-        public long Id { get; set; }
-        public string WarehouseName { get; set; } = string.Empty;
-    }
-
-    public class LookupsResponseDto
-    {
-        public List<SupplierLookupDto> Suppliers { get; set; } = new();
-        public List<WarehouseLookupDto> Warehouses { get; set; } = new();
-    }
-
-    public class OpenInvoiceLookupDto
-    {
-        public long Id { get; set; }
-        public string OrderNumber { get; set; } = string.Empty;
-        public string OrderDate { get; set; } = string.Empty;
-        public long SupplierId { get; set; }
-        public decimal TotalAmount { get; set; }
-        public string Status { get; set; } = string.Empty;
-        public List<OpenInvoiceLineDto>? Lines { get; set; }
-    }
-
-    public class OpenInvoiceLineDto
-    {
-        public long Id { get; set; }
-        public long ItemId { get; set; }
-        public string? ItemCode { get; set; }
-        public string? ItemName { get; set; }
-        public string? Unit { get; set; }
-        public decimal Quantity { get; set; }
-        public decimal ReceivedQuantity { get; set; }
-        public decimal RemainingQuantity { get; set; }
-        public decimal UnitPrice { get; set; }
-        public string? Notes { get; set; }
-    }
-
-    public class SaveResponseDto
-    {
-        public bool Success { get; set; }
-        public string? NewStatus { get; set; }
-        public string? Message { get; set; }
-    }
-
-    private List<SupplierLookupDto> suppliers = new();
-    private List<WarehouseLookupDto> warehouses = new();
-    private List<OpenInvoiceLookupDto> allPendingInvoices = new();
-    private List<OpenInvoiceLookupDto> availableInvoices = new();
-    private List<ReceiptItemViewModel> receiptItems = new();
-    private List<ReceiptItemViewModel> importedPreviewList = new();
+    private List<PendingInvoiceDto> pendingInvoices = new();
+    private MaterialReceiptLookupsDto lookups = new();
+    private PendingInvoiceDto? selectedInvoice;
+    private MaterialReceiptPostDto receiptPostDto = new();
 
     private long selectedSupplierId = 0;
-    private long selectedInvoiceId = 0;
-    private long selectedWarehouseId = 1;
-    private string coaNumber = string.Empty;
-
-    private string searchTerm = "";
-    private string selectedQcFilter = "all";
-
+    private string searchTerm = string.Empty;
+    private bool isLoading = true;
     private bool isSaving = false;
-    private bool isImportModalOpen = false;
-    private string? statusMessage;
-    private bool isSuccess = true;
+    private bool showInspectionModal = false;
 
-    // هوية فاحص الجودة المعتمد ومربوطة بحساب الدخول لمنع التلاعب
-    private string CurrentInspectorDisplayName => 
-        !string.IsNullOrWhiteSpace(State.FullName) 
-            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]" 
-            : "مفتش الجودة المعتمد";
+    private string? statusMessage;
+    private string? errorMessage;
+    private string? modalError;
+
+    private IEnumerable<PendingInvoiceDto> FilteredInvoices =>
+        string.IsNullOrWhiteSpace(searchTerm)
+            ? pendingInvoices
+            : pendingInvoices.Where(p => (p.OrderNumber?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                      || (p.SupplierName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadDataAsync();
+        await LoadData();
     }
 
-    private async Task LoadDataAsync()
+    private async Task LoadData()
     {
+        isLoading = true;
+        errorMessage = null;
         try
         {
-            var lookups = await Http.GetFromJsonAsync<LookupsResponseDto>("api/MaterialReceipt/lookups");
-            if (lookups != null)
-            {
-                suppliers = lookups.Suppliers ?? new();
-                warehouses = lookups.Warehouses ?? new();
-                if (warehouses.Any()) selectedWarehouseId = warehouses.First().Id;
-            }
-
-            allPendingInvoices = await Http.GetFromJsonAsync<List<OpenInvoiceLookupDto>>("api/MaterialReceipt/pending-invoices") ?? new();
-
-            if (suppliers.Any() && selectedSupplierId == 0)
-            {
-                selectedSupplierId = suppliers.First().Id;
-                OnSupplierChanged();
-            }
+            lookups = await Http.GetFromJsonAsync<MaterialReceiptLookupsDto>("api/materialreceipt/lookups") ?? new();
+            await LoadInvoices();
         }
         catch (Exception ex)
         {
-            statusMessage = $"خطأ في جلب بيانات التهيئة: {ex.Message}";
-            isSuccess = false;
+            errorMessage = $"خطأ في تحميل بيانات محطة الاستلام: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
         }
     }
 
-    private void OnSupplierChanged()
+    private async Task LoadInvoices()
     {
-        availableInvoices = allPendingInvoices.Where(i => i.SupplierId == selectedSupplierId || selectedSupplierId == 0).ToList();
-        if (availableInvoices.Any())
+        try
         {
-            selectedInvoiceId = availableInvoices.First().Id;
-            OnInvoiceChanged();
+            string url = selectedSupplierId > 0
+                ? $"api/materialreceipt/pending-invoices?supplierId={selectedSupplierId}"
+                : "api/materialreceipt/pending-invoices";
+
+            pendingInvoices = await Http.GetFromJsonAsync<List<PendingInvoiceDto>>(url) ?? new();
         }
-        else
+        catch (Exception ex)
         {
-            selectedInvoiceId = 0;
-            receiptItems.Clear();
+            errorMessage = $"تعذر جلب أوامر الشراء المعتمدة: {ex.Message}";
         }
     }
 
-    private void OnInvoiceChanged()
+    private void OpenInspectionModal(PendingInvoiceDto invoice)
     {
-        receiptItems.Clear();
-        var inv = availableInvoices.FirstOrDefault(i => i.Id == selectedInvoiceId);
-        if (inv != null && inv.Lines != null)
+        selectedInvoice = invoice;
+        receiptPostDto = new MaterialReceiptPostDto
         {
-            foreach (var line in inv.Lines)
+            InvoiceId = invoice.Id,
+            WarehouseId = invoice.WarehouseId > 0 ? invoice.WarehouseId : (lookups.Warehouses.FirstOrDefault()?.Id ?? 0),
+            CoaNumber = $"COA-{DateTime.UtcNow:yyyyMM}-{invoice.Id}",
+            InspectorCode = "QC-01",
+            InspectorName = "مفتش الجودة المخزنية",
+            Items = invoice.Lines.Select(l => new MaterialReceiptItemPostDto
             {
-                decimal qtyToReceive = line.RemainingQuantity > 0 ? line.RemainingQuantity : line.Quantity;
-                if (qtyToReceive <= 0) continue;
+                ItemId = l.ItemId,
+                ItemName = l.ItemName,
+                ItemCode = l.ItemCode,
+                Unit = l.Unit,
+                RemainingQuantity = l.RemainingQuantity,
+                AcceptedQuantity = l.RemainingQuantity, // افتراضياً اقتراح الكمية المتبقية كاملة
+                RejectedQuantity = 0,
+                UnitPrice = l.UnitPrice,
+                BatchNumber = $"LOT-{l.ItemId}-{DateTime.UtcNow:yyyyMMdd}",
+                ExpiryDate = DateTime.Today.AddYears(1),
+                QcDecision = "Accepted",
+                RejectionReason = "مطابق للمواصفة"
+            }).ToList()
+        };
 
-                var itmCode = !string.IsNullOrEmpty(line.ItemCode) ? line.ItemCode : line.ItemId.ToString();
-                var item = new ReceiptItemViewModel
-                {
-                    ItemId = line.ItemId,
-                    ItemCode = itmCode,
-                    ItemName = !string.IsNullOrEmpty(line.ItemName) ? line.ItemName : "خامة مسجلة",
-                    Unit = !string.IsNullOrEmpty(line.Unit) ? line.Unit : "كجم",
-                    ReceivedQuantity = qtyToReceive,
-                    BatchNumber = $"LOT-{DateTime.Now:yyyyMMdd}-{itmCode}", // لوط ذكي وموحد
-                    ExpiryDate = DateTime.Today.AddYears(1),
-                    QcDecision = "Approved",
-                    AcceptedQuantity = qtyToReceive,
-                    RejectedQuantity = 0,
-                    RejectionReason = "مطابق للمواصفة",
-                    UnitPrice = line.UnitPrice
-                };
-                receiptItems.Add(item);
-            }
-        }
+        modalError = null;
+        showInspectionModal = true;
     }
 
-    private void CalculateQuantities(ReceiptItemViewModel row)
+    private async Task SubmitMaterialReceipt()
     {
-        if (row.QcDecision == "Approved")
+        if (receiptPostDto.WarehouseId <= 0)
         {
-            row.AcceptedQuantity = row.ReceivedQuantity;
-            row.RejectedQuantity = 0;
-        }
-        else if (row.QcDecision == "Rejected")
-        {
-            row.AcceptedQuantity = 0;
-            row.RejectedQuantity = row.ReceivedQuantity;
-        }
-        else
-        {
-            if (row.AcceptedQuantity > row.ReceivedQuantity)
-                row.AcceptedQuantity = row.ReceivedQuantity;
-            row.RejectedQuantity = row.ReceivedQuantity - row.AcceptedQuantity;
-        }
-    }
-
-    private void OnDecisionChanged(ReceiptItemViewModel row)
-    {
-        CalculateQuantities(row);
-        if (row.QcDecision == "Approved") row.RejectionReason = "مطابق للمواصفة";
-        else if (row.QcDecision == "Rejected") row.RejectionReason = "غير مطابق للاشتراطات الفنية";
-    }
-
-    private void OnPartialQtyChanged(ReceiptItemViewModel row)
-    {
-        if (row.AcceptedQuantity < 0) row.AcceptedQuantity = 0;
-        if (row.AcceptedQuantity > row.ReceivedQuantity) row.AcceptedQuantity = row.ReceivedQuantity;
-        row.RejectedQuantity = row.ReceivedQuantity - row.AcceptedQuantity;
-    }
-
-    private string GetDecisionColor(string decision) => decision switch
-    {
-        "Approved" => "border-success text-success",
-        "Rejected" => "border-danger text-danger",
-        _ => "border-warning text-dark"
-    };
-
-    private string GetSupplierName() => suppliers.FirstOrDefault(s => s.Id == selectedSupplierId)?.SupplierName ?? "غير محدد";
-    private string GetInvoiceNumber() => availableInvoices.FirstOrDefault(i => i.Id == selectedInvoiceId)?.OrderNumber ?? "غير محدد";
-    private string GetWarehouseName() => warehouses.FirstOrDefault(w => w.Id == selectedWarehouseId)?.WarehouseName ?? "مخزن الخامات الرئيسي";
-
-    private IEnumerable<ReceiptItemViewModel> FilteredReceiptItems
-    {
-        get
-        {
-            var query = receiptItems.AsEnumerable();
-            if (!string.IsNullOrWhiteSpace(searchTerm))
-            {
-                var term = searchTerm.Trim();
-                query = query.Where(r =>
-                    r.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    r.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    r.BatchNumber.Contains(term, StringComparison.OrdinalIgnoreCase));
-            }
-            if (selectedQcFilter != "all")
-            {
-                query = query.Where(r => r.QcDecision.Equals(selectedQcFilter, StringComparison.OrdinalIgnoreCase));
-            }
-            return query;
-        }
-    }
-
-    private void ResetFilters()
-    {
-        searchTerm = "";
-        selectedQcFilter = "all";
-    }
-
-    private async Task PrintReceiptVoucherAsync()
-    {
-        if (!receiptItems.Any())
-        {
-            isSuccess = false;
-            statusMessage = "يرجى تحميل أصناف الشحنة أولاً قبل الطباعة.";
+            modalError = "يرجى تحديد مستودع التسكين الفعلي.";
             return;
         }
-        await JS.InvokeVoidAsync("window.print");
-    }
 
-    private async Task SaveMaterialReceiptAsync()
-    {
-        if (!receiptItems.Any()) return;
+        if (!receiptPostDto.Items.Any(i => i.AcceptedQuantity > 0 || i.RejectedQuantity > 0))
+        {
+            modalError = "يجب إدخال كمية مقبولة أو مرفوضة لبند واحد على الأقل.";
+            return;
+        }
 
         isSaving = true;
-        statusMessage = null;
+        modalError = null;
 
         try
         {
-            var payload = new
+            var response = await Http.PostAsJsonAsync("api/materialreceipt", receiptPostDto);
+            if (response.IsSuccessStatusCode)
             {
-                SupplierId = selectedSupplierId,
-                InvoiceId = selectedInvoiceId,
-                WarehouseId = selectedWarehouseId,
-                InspectorName = State.FullName,
-                InspectorCode = State.EmployeeCode,
-                CoaNumber = coaNumber,
-                Items = receiptItems.Select(r => new
-                {
-                    r.ItemId,
-                    r.ItemCode,
-                    r.ItemName,
-                    r.BatchNumber,
-                    r.ExpiryDate,
-                    r.ReceivedQuantity,
-                    r.AcceptedQuantity,
-                    r.RejectedQuantity,
-                    r.QcDecision,
-                    r.RejectionReason,
-                    r.UnitPrice
-                }).ToList()
-            };
-
-            var res = await Http.PostAsJsonAsync("api/MaterialReceipt", payload);
-            if (res.IsSuccessStatusCode)
-            {
-                var result = await res.Content.ReadFromJsonAsync<SaveResponseDto>();
-                isSuccess = true;
-                statusMessage = result?.Message ?? "تم حفظ إذن الفحص والترحيل وإغلاق الفاتورة بنجاح!";
-                
-                receiptItems.Clear();
-                selectedInvoiceId = 0;
-                await LoadDataAsync();
-                OnSupplierChanged();
+                var result = await response.Content.ReadFromJsonAsync<MaterialReceiptResultDto>();
+                statusMessage = result?.Message ?? "تم استلام الخامات وتسكين الأرصدة المخزنية بنجاح!";
+                showInspectionModal = false;
+                await LoadInvoices();
             }
             else
             {
-                isSuccess = false;
-                var err = await res.Content.ReadAsStringAsync();
-                statusMessage = $"تعذر الحفظ: {err}";
+                modalError = await response.Content.ReadAsStringAsync();
             }
         }
         catch (Exception ex)
         {
-            isSuccess = false;
-            statusMessage = $"خطأ أثناء حفظ الاستلام: {ex.Message}";
+            modalError = $"خطأ: {ex.Message}";
         }
         finally
         {
             isSaving = false;
         }
-    }
-
-    private async Task ExportToExcelAsync()
-    {
-        var list = FilteredReceiptItems.ToList();
-        if (!list.Any())
-        {
-            isSuccess = false;
-            statusMessage = "لا توجد بنود استلام لتصديرها.";
-            return;
-        }
-
-        try
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine("كود_الصنف,اسم_الخامة,رقم_التشغيلة_LOT,تاريخ_الصلاحية,الكمية_الواردة,الكمية_المقبولة,الكمية_المرفوضة,قرار_الجودة,سبب_الرفض");
-            foreach (var r in list)
-            {
-                var reason = (r.RejectionReason ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
-                sb.AppendLine($"{EscapeCsv(r.ItemCode)},{EscapeCsv(r.ItemName)},{EscapeCsv(r.BatchNumber)},{r.ExpiryDate:yyyy-MM-dd},{r.ReceivedQuantity},{r.AcceptedQuantity},{r.RejectedQuantity},{r.QcDecision},{EscapeCsv(reason)}");
-            }
-            await TriggerBrowserDownload($"إذن_استلام_وفحص_خامات_{DateTime.Now:yyyyMMdd_HHmm}.csv", sb.ToString());
-            isSuccess = true;
-            statusMessage = $"تم تصدير ({list.Count}) خامة إلى إكسيل بنجاح.";
-        }
-        catch (Exception ex)
-        {
-            isSuccess = false;
-            statusMessage = $"فشل التصدير: {ex.Message}";
-        }
-    }
-
-    private async Task DownloadTemplateAsync()
-    {
-        try
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine("كود_الصنف,اسم_الخامة,رقم_التشغيلة_LOT,تاريخ_الصلاحية,الكمية_الواردة,قرار_الجودة,سبب_الرفض");
-            sb.AppendLine("101001,سكر أبيض ناعم,LOT-20260925-1,2027-09-25,500,Approved,مطابق للمواصفة");
-            await TriggerBrowserDownload("قالب_استيراد_فحص_الخامات.csv", sb.ToString());
-        }
-        catch (Exception ex)
-        {
-            isSuccess = false;
-            statusMessage = $"فشل تحميل القالب: {ex.Message}";
-        }
-    }
-
-    private void OpenImportModal()
-    {
-        importedPreviewList.Clear();
-        isImportModalOpen = true;
-    }
-
-    private void CloseImportModal()
-    {
-        isImportModalOpen = false;
-        importedPreviewList.Clear();
-    }
-
-    private async Task HandleFileSelected(InputFileChangeEventArgs e)
-    {
-        importedPreviewList.Clear();
-        var file = e.File;
-        if (file == null) return;
-
-        try
-        {
-            using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024), Encoding.UTF8);
-            var content = await reader.ReadToEndAsync();
-            var lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-            if (lines.Length <= 1) return;
-
-            var header = lines[0].Split(',');
-            int codeIdx = 0, nameIdx = 1, batchIdx = 2, expIdx = 3, qtyIdx = 4, qcIdx = 5, reasonIdx = 6;
-
-            for (int i = 0; i < header.Length; i++)
-            {
-                var h = header[i].Trim().ToLower();
-                if (h.Contains("كود")) codeIdx = i;
-                else if (h.Contains("اسم")) nameIdx = i;
-                else if (h.Contains("تشغيل") || h.Contains("lot")) batchIdx = i;
-                else if (h.Contains("صلاحي")) expIdx = i;
-                else if (h.Contains("كمي")) qtyIdx = i;
-                else if (h.Contains("قرار")) qcIdx = i;
-                else if (h.Contains("سبب")) reasonIdx = i;
-            }
-
-            for (int i = 1; i < lines.Length; i++)
-            {
-                var line = lines[i].Trim();
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                var cols = line.Split(',');
-                if (cols.Length >= 3)
-                {
-                    decimal.TryParse(qtyIdx < cols.Length ? cols[qtyIdx].Trim() : "0", out var qty);
-                    DateTime expDate = DateTime.Today.AddYears(1);
-                    if (expIdx < cols.Length && DateTime.TryParse(cols[expIdx].Trim(), out var pDate)) expDate = pDate;
-
-                    string decision = qcIdx < cols.Length ? cols[qcIdx].Trim() : "Approved";
-                    if (decision.Contains("مقبول")) decision = "Approved";
-                    else if (decision.Contains("مرفوض")) decision = "Rejected";
-
-                    importedPreviewList.Add(new ReceiptItemViewModel
-                    {
-                        ItemCode = codeIdx < cols.Length ? cols[codeIdx].Trim() : "",
-                        ItemName = nameIdx < cols.Length ? cols[nameIdx].Trim() : "",
-                        BatchNumber = batchIdx < cols.Length ? cols[batchIdx].Trim() : $"LOT-{DateTime.Now:yyyyMMdd}",
-                        ExpiryDate = expDate,
-                        ReceivedQuantity = qty,
-                        QcDecision = decision,
-                        AcceptedQuantity = decision == "Approved" ? qty : 0,
-                        RejectedQuantity = decision == "Rejected" ? qty : 0,
-                        RejectionReason = reasonIdx < cols.Length ? cols[reasonIdx].Trim() : "مطابق للمواصفة"
-                    });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"خطأ في قراءة ملف الإكسيل: {ex.Message}";
-        }
-    }
-
-    private void ApplyImportedData()
-    {
-        int matched = 0;
-        foreach (var imp in importedPreviewList)
-        {
-            var existing = receiptItems.FirstOrDefault(r => 
-                (!string.IsNullOrEmpty(imp.ItemCode) && r.ItemCode == imp.ItemCode) ||
-                r.ItemName.Contains(imp.ItemName) || imp.ItemName.Contains(r.ItemName));
-
-            if (existing != null)
-            {
-                existing.BatchNumber = imp.BatchNumber;
-                existing.ExpiryDate = imp.ExpiryDate;
-                if (imp.ReceivedQuantity > 0) existing.ReceivedQuantity = imp.ReceivedQuantity;
-                existing.QcDecision = imp.QcDecision;
-                CalculateQuantities(existing);
-                if (!string.IsNullOrEmpty(imp.RejectionReason)) existing.RejectionReason = imp.RejectionReason;
-                matched++;
-            }
-        }
-
-        isSuccess = true;
-        statusMessage = $"تم تحديث وتطبيق بيانات ({matched}) خامة من ملف الإكسيل بنجاح!";
-        CloseImportModal();
-    }
-
-    private async Task TriggerBrowserDownload(string fileName, string content)
-    {
-        var utf8WithBom = "\uFEFF" + content;
-        var jsCommand = $@"
-            const a = document.createElement('a');
-            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(`{utf8WithBom}`);
-            a.download = '{fileName}';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        ";
-        await JS.InvokeVoidAsync("eval", jsCommand);
-    }
-
-    private string EscapeCsv(string val)
-    {
-        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
-            return $"\"{val.Replace("\"", "\"\"")}\"";
-        return val;
     }
 }

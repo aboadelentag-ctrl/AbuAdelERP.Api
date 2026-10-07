@@ -18,15 +18,17 @@ namespace AbuAdelERP.Api.Services
     {
         private readonly AppDbContext _context;
 
-        // قائمة الحركات المعتمدة رسمياً كوارد
+        // قائمة الحركات المعتمدة رسمياً كوارد لكافة العمليات
         private static readonly HashSet<string> IncomingTypes = new(StringComparer.OrdinalIgnoreCase)
         {
             "PURCHASE_RECEIPT",
             "PRODUCTION_IN",
+            "PRODUCTION_RECEIPT",
             "INITIAL_STOCK",
             "STOCK_IN",
             "TRANSFER_IN",
-            "FG_TRANSFER_IN"
+            "FG_TRANSFER_IN",
+            "ADJUSTMENT_IN"
         };
 
         public StockCardService(AppDbContext context)
@@ -34,9 +36,6 @@ namespace AbuAdelERP.Api.Services
             _context = context;
         }
 
-        // ==============================================================
-        // 1. تقرير جرد المخزون الحالي السريع
-        // ==============================================================
         public async Task<List<ItemStockSummaryDto>> GetWarehouseInventoryAsync(long warehouseId)
         {
             var balancesQuery = _context.StockBalances.AsNoTracking();
@@ -98,9 +97,6 @@ namespace AbuAdelERP.Api.Services
             return list.OrderBy(x => x.ItemName).ToList();
         }
 
-        // ==============================================================
-        // 2. كارت الصنف التراكمي وحركات اللوطات
-        // ==============================================================
         public async Task<ItemStockCardDetailDto?> GetItemStockCardAsync(long itemId, long warehouseId, DateTime? fromDate = null, DateTime? toDate = null)
         {
             var item = await _context.Items
@@ -115,7 +111,6 @@ namespace AbuAdelERP.Api.Services
 
             string warehouseName = warehouse?.WarehouseName ?? "كافة المخازن (رصيد مجمع)";
 
-            // 1. حساب الأرصدة الحالية اللحظية
             var balancesQuery = _context.StockBalances.AsNoTracking().Where(b => b.ItemId == itemId);
             if (warehouseId > 0)
             {
@@ -126,7 +121,6 @@ namespace AbuAdelERP.Api.Services
             decimal currentAvailStock = await balancesQuery.SumAsync(b => (decimal?)b.AvailableQuantity) ?? currentTotalStock;
             decimal currentResStock = await balancesQuery.SumAsync(b => (decimal?)b.ReservedQuantity) ?? 0m;
 
-            // 2. جلب حركات الصنف بدون Tracking لتحقيق أقصى سرعة
             var movementsQuery = _context.StockMovements.AsNoTracking().Where(m => m.ItemId == itemId);
             if (warehouseId > 0)
             {
@@ -144,7 +138,7 @@ namespace AbuAdelERP.Api.Services
             decimal running = 0;
             var ledger = new List<StockMovementLedgerDto>();
 
-            // 3. حساب رصيد أول المدة بدقة
+            // حساب رصيد أول المدة
             decimal openingBalance = 0;
             if (fromUtc.HasValue)
             {
@@ -179,7 +173,6 @@ namespace AbuAdelERP.Api.Services
                 });
             }
 
-            // 4. تصفية حركات الفترة واحتساب الوارد والمنصرف بدقة
             var filteredMovements = allMovements.AsEnumerable();
             if (fromUtc.HasValue) filteredMovements = filteredMovements.Where(m => m.MovementAt >= fromUtc.Value);
             if (toUtc.HasValue) filteredMovements = filteredMovements.Where(m => m.MovementAt <= toUtc.Value);
@@ -221,10 +214,11 @@ namespace AbuAdelERP.Api.Services
                 });
             }
 
-            // 5. تحليل التشغيلات الحية وتتبع أرقام اللوط وتواريخ الصلاحية
+            // تحليل تتبع اللوطات
             var receiptMovements = allMovements.Where(m =>
                 string.Equals(m.MovementType, "PURCHASE_RECEIPT", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(m.MovementType, "PRODUCTION_IN", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(m.MovementType, "PRODUCTION_RECEIPT", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(m.MovementType, "FG_TRANSFER_IN", StringComparison.OrdinalIgnoreCase));
 
             if (fromUtc.HasValue) receiptMovements = receiptMovements.Where(m => m.MovementAt >= fromUtc.Value);
@@ -238,11 +232,9 @@ namespace AbuAdelERP.Api.Services
                 if (string.IsNullOrWhiteSpace(rm.Notes)) continue;
 
                 string batchNo = ExtractValue(rm.Notes, "تشغيلة:", "|");
-                if (string.IsNullOrWhiteSpace(batchNo))
-                {
-                    batchNo = ExtractValue(rm.Notes, "تشغيلة/تتبع:", "|");
-                }
-
+                if (string.IsNullOrWhiteSpace(batchNo)) batchNo = ExtractValue(rm.Notes, "لوط:", "|");
+                if (string.IsNullOrWhiteSpace(batchNo)) batchNo = ExtractValue(rm.Notes, "LOT:", "|");
+                if (string.IsNullOrWhiteSpace(batchNo)) batchNo = ExtractValue(rm.Notes, "تشغيلة/تتبع:", "|");
                 if (string.IsNullOrWhiteSpace(batchNo)) batchNo = $"تشغيلة-{rm.Id}";
                 batchNo = batchNo.Trim();
 
@@ -282,12 +274,10 @@ namespace AbuAdelERP.Api.Services
                 });
             }
 
-            // مطابقة الرصيد التراكمي
             decimal finalTotal = balancesQuery.Any() ? currentTotalStock : running;
             decimal finalAvail = balancesQuery.Any() ? currentAvailStock : running;
             decimal finalRes = currentResStock;
 
-            // 6. مراقبة حدود المخزون ونقاط إعادة الطلب
             decimal reorderLevel = item.ReorderLevel;
             decimal safetyStock = item.SafetyStock;
             decimal maxStock = item.MaxStock;
@@ -300,12 +290,12 @@ namespace AbuAdelERP.Api.Services
                 if (safetyStock > 0 && finalAvail <= safetyStock)
                 {
                     stockStatus = "Critical";
-                    statusMsg = $"⚠️ تحذير حرج: كسر حد الأمان ({safetyStock:N2} {item.Unit})! يجب التوريد فوراً لتفادي توقف الإنتاج.";
+                    statusMsg = $"⚠️ تحذير حرج: كسر حد الأمان ({safetyStock:N2} {item.Unit})! يجب التوريد فوراً.";
                 }
                 else if (reorderLevel > 0 && finalAvail <= reorderLevel)
                 {
                     stockStatus = "ReorderNeeded";
-                    statusMsg = $"🔔 تنبيه: وصل المخزون لنقطة إعادة الطلب ({reorderLevel:N2} {item.Unit}). يوصى ببدء إصدار أمر شراء.";
+                    statusMsg = $"🔔 تنبيه: وصل المخزون لنقطة إعادة الطلب ({reorderLevel:N2} {item.Unit}).";
                 }
             }
             else
@@ -341,7 +331,6 @@ namespace AbuAdelERP.Api.Services
         private static string ExtractValue(string text, string key, string separator)
         {
             if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(key)) return string.Empty;
-
             int startIdx = text.IndexOf(key, StringComparison.OrdinalIgnoreCase);
             if (startIdx == -1) return string.Empty;
 

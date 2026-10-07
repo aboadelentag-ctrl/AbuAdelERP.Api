@@ -1,20 +1,28 @@
 ﻿@page "/form-viewer"
 @inject HttpClient Http
+@inject AppState State
 @using System.Text.Json
 @using System.Net.Http.Json
 
+<PageTitle>تعبئة نماذج الجودة والتفتيش - حلواني أبو عادل</PageTitle>
+
 <div class="container mt-4" dir="rtl">
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom flex-wrap gap-2">
         <div>
-            <h3 class="text-success m-0 mb-1">📝 تعبئة النماذج (الشاشة الذكية)</h3>
-            <span class="text-muted">شاشة الإدخال الديناميكية للموظفين والمراقبين</span>
+            <h3 class="text-success m-0 mb-1 fw-bold">📝 تعبئة نماذج التفتيش الذكية</h3>
+            <span class="text-muted small">شاشة الإدخال الميدانية لمراقبي الجودة، مهندسي الإنتاج، وفنيي الصيانة</span>
+        </div>
+        <div>
+            <span class="badge bg-light text-dark border p-2 small">
+                👤 المفتش الموثق: <strong>@(string.IsNullOrEmpty(State.FullName) ? "مراقب الجودة" : State.FullName)</strong>
+            </span>
         </div>
     </div>
 
     <!-- 1. اختيار النموذج -->
     <div class="card shadow-sm mb-4 border-0">
         <div class="card-body bg-light rounded">
-            <label class="fw-bold mb-2 text-primary">اختر النموذج المطلوب تعبئته:</label>
+            <label class="fw-bold mb-2 text-primary">اختر نموذج الفحص المطلوب تعبئته:</label>
             <select class="form-select border-primary fw-bold" @onchange="OnFormSelected">
                 <option value="">-- اضغط هنا لاختيار نموذج --</option>
                 @if (activeForms != null)
@@ -32,8 +40,9 @@
     @if (selectedForm != null && formFields != null)
     {
         <div class="card shadow border-0 border-top border-success border-4">
-            <div class="card-header bg-white py-3">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                 <h4 class="text-success m-0 fw-bold">@selectedForm.FormName</h4>
+                <span class="badge bg-success font-monospace">@selectedForm.FormCode</span>
             </div>
             <div class="card-body bg-white p-4">
 
@@ -56,28 +65,28 @@
                             }
                             else if (field.Type == "number")
                             {
-                                <input type="number" class="form-control border-info"
+                                <input type="number" step="0.01" class="form-control border-info font-monospace fw-bold"
                                        value="@answers[field.Label]"
                                        @onchange="@(e => answers[field.Label] = e.Value?.ToString() ?? "")" />
                             }
                             else if (field.Type == "date")
                             {
-                                <input type="date" class="form-control border-info"
+                                <input type="date" class="form-control border-info font-monospace"
                                        value="@answers[field.Label]"
                                        @onchange="@(e => answers[field.Label] = e.Value?.ToString() ?? "")" />
                             }
                             else if (field.Type == "checkbox")
                             {
                                 <div class="form-check mt-2">
-                                    <input type="checkbox" class="form-check-input border-info" style="transform: scale(1.5); margin-right: -1.5rem; margin-left: 1rem;"
+                                    <input type="checkbox" class="form-check-input border-info" style="transform: scale(1.4); margin-right: -1.5rem; margin-left: 1rem;"
                                            checked="@(answers[field.Label] == "true")"
                                            @onchange="@(e => answers[field.Label] = e.Value?.ToString()?.ToLower() ?? "false")" />
-                                    <label class="form-check-label fw-bold">نعم / تم</label>
+                                    <label class="form-check-label fw-bold text-dark">مطابق / نعم / تم الإنجاز</label>
                                 </div>
                             }
                             else if (field.Type == "departments")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
+                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
                                     <option value="">-- اختر القسم --</option>
                                     <option value="الشرقي">قسم الشرقي</option>
                                     <option value="المخبوزات">قسم المخبوزات</option>
@@ -88,90 +97,87 @@
                             }
                             else if (field.Type == "branches")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
+                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
                                     <option value="">-- اختر الفرع --</option>
-                                    <option value="فرع القاهرة">فرع القاهرة</option>
-                                    <option value="فرع الجيزة">فرع الجيزة</option>
+                                    <option value="فرع مصدق - الدقي">فرع مصدق - الدقي</option>
+                                    <option value="فرع المهندسين">فرع المهندسين</option>
+                                    <option value="فرع أكتوبر">فرع أكتوبر</option>
+                                    <option value="معرض المصنع المركزي">معرض المصنع المركزي</option>
                                 </select>
                             }
                             else if (field.Type == "warehouses")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
+                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
                                     <option value="">-- اختر المخزن --</option>
                                     <option value="مخزن الخامات الرئيسي">مخزن الخامات الرئيسي</option>
-                                    <option value="مخزن التعبئة">مخزن التعبئة</option>
-                                    <option value="مخزن المنتج التام">مخزن المنتج التام</option>
+                                    <option value="مخزن التعبئة والتغليف">مخزن التعبئة والتغليف</option>
+                                    <option value="مخزن المنتج التام المركزي">مخزن المنتج التام المركزي</option>
+                                    <option value="مخزن صالة الشرقي">مخزن صالة الشرقي</option>
                                 </select>
                             }
                             else if (field.Type == "items")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
+                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
                                     <option value="">-- اختر الصنف التام --</option>
                                     <option value="بسبوسة سادة">بسبوسة سادة</option>
-                                    <option value="كنافة بالمانجو">كنافة بالمانجو</option>
-                                    <option value="تورتة شوكولاتة">تورتة شوكولاتة</option>
+                                    <option value="كنافة أساور بالمكسرات">كنافة أساور بالمكسرات</option>
+                                    <option value="تورتة بلاك فورست">تورتة بلاك فورست</option>
+                                    <option value="جاتوه سواريه">جاتوه سواريه</option>
                                 </select>
                             }
                             else if (field.Type == "materials")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
-                                    <option value="">-- اختر الخامة/مواد التعبئة --</option>
-                                    <option value="دقيق فاخر">دقيق فاخر</option>
-                                    <option value="سكر أبيض">سكر أبيض</option>
-                                    <option value="كرتونة تورتة">كرتونة تورتة</option>
+                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
+                                    <option value="">-- اختر الخامة / مواد التعبئة --</option>
+                                    <option value="دقيق فاخر 72%">دقيق فاخر 72%</option>
+                                    <option value="سمن بلدي طبيعي">سمن بلدي طبيعي</option>
+                                    <option value="سكر أبيض ناعم">سكر أبيض ناعم</option>
+                                    <option value="فستق حلبي مجروش">فستق حلبي مجروش</option>
+                                    <option value="علبة تورتة فاخرة">علبة تورتة فاخرة</option>
                                 </select>
                             }
                             else if (field.Type == "equipment")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
-                                    <option value="">-- اختر الآلة/المعدة --</option>
-                                    <option value="عجانة رئيسية">عجانة رئيسية</option>
-                                    <option value="فرن دوار 1">فرن دوار 1</option>
-                                    <option value="ماكينة تغليف">ماكينة تغليف</option>
+                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
+                                    <option value="">-- اختر الآلة / المعدة --</option>
+                                    <option value="عجانة مركزية 120 كجم">عجانة مركزية 120 كجم</option>
+                                    <option value="فرن دوار رقم 1">فرن دوار رقم 1</option>
+                                    <option value="فرن دوار رقم 2">فرن دوار رقم 2</option>
+                                    <option value="غرفة تبريد وتجميد 1">غرفة تبريد وتجميد 1</option>
+                                    <option value="ماكينة تغليف وشرنكة">ماكينة تغليف وشرنكة</option>
                                 </select>
                             }
                             else if (field.Type == "employees")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
-                                    <option value="">-- اختر الموظف --</option>
-                                    <option value="أحمد عبدالعزيز">أحمد عبدالعزيز</option>
-                                    <option value="محمد محمود">محمد محمود</option>
-                                </select>
+                                <input type="text" class="form-control border-warning" @bind="answers[field.Label]" placeholder="اسم المسؤول أو الفني المعني..." />
                             }
                             else if (field.Type == "job_roles")
                             {
-                                <select class="form-select border-warning" @bind="answers[field.Label]">
+                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
                                     <option value="">-- اختر المسمى الوظيفي --</option>
-                                    <option value="مهندس جودة">مهندس جودة</option>
-                                    <option value="شيف حلواني">شيف حلواني</option>
-                                    <option value="فني صيانة">فني صيانة</option>
+                                    <option value="مهندس توكيد جودة">مهندس توكيد جودة</option>
+                                    <option value="شيف صالة إنتاج">شيف صالة إنتاج</option>
+                                    <option value="فني صيانة ميكانيكية">فني صيانة ميكانيكية</option>
+                                    <option value="أمين مستودع">أمين مستودع</option>
                                 </select>
                             }
-                            else if (field.Type == "image")
+                            else if (field.Type == "image" || field.Type == "video" || field.Type == "audio")
                             {
-                                <input type="file" class="form-control border-danger" accept="image/*" />
-                                <small class="text-danger">📷 سيتم رفع الصورة وحفظ رابطها تلقائياً</small>
-                            }
-                            else if (field.Type == "video")
-                            {
-                                <input type="file" class="form-control border-danger" accept="video/*" />
-                                <small class="text-danger">🎥 سيتم رفع الفيديو وحفظ رابطه تلقائياً</small>
-                            }
-                            else if (field.Type == "audio")
-                            {
-                                <input type="file" class="form-control border-danger" accept="audio/*" />
-                                <small class="text-danger">🎤 سيتم رفع التسجيل الصوتي وحفظ رابطه</small>
+                                <input type="file" class="form-control border-danger" />
+                                <small class="text-danger">📎 مرفق وسائط موثق</small>
                             }
                             else
                             {
-                                <input type="text" class="form-control bg-light" @bind="answers[field.Label]" placeholder="نوع بيانات غير معروف!" disabled />
+                                <input type="text" class="form-control bg-light" @bind="answers[field.Label]" placeholder="نص..." />
                             }
                         </div>
                     }
                 </div>
             </div>
             <div class="card-footer bg-light text-start py-3">
-                <button class="btn btn-success fw-bold px-5 shadow" @onclick="SubmitForm">🚀 حفظ وإرسال البيانات</button>
+                <button class="btn btn-success fw-bold px-5 shadow" @onclick="SubmitForm" disabled="@isSubmitting">
+                    @(isSubmitting ? "⏳ جاري الحفظ والتوثيق..." : "🚀 حفظ واعتماد محضر التفتيش")
+                </button>
             </div>
         </div>
     }
@@ -181,9 +187,12 @@
     private List<DynamicFormDto>? activeForms;
     private DynamicFormDto? selectedForm;
     private List<FormField>? formFields;
-    private Dictionary<string, string> answers = new Dictionary<string, string>();
+    private Dictionary<string, string> answers = new();
     private string successMessage = "";
-    private string apiUrl = "https://localhost:7273/api/DynamicForms";
+    private bool isSubmitting = false;
+
+    // تم تعديل المسار ليكون مساراً نسبياً نظيفاً
+    private string apiUrl = "api/DynamicForms";
 
     protected override async Task OnInitializedAsync()
     {
@@ -192,7 +201,10 @@
             var allForms = await Http.GetFromJsonAsync<List<DynamicFormDto>>(apiUrl);
             if (allForms != null) activeForms = allForms.Where(f => f.IsActive).ToList();
         }
-        catch (Exception ex) { Console.WriteLine(ex.Message); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FormViewer] Error: {ex.Message}");
+        }
     }
 
     private void OnFormSelected(ChangeEventArgs e)
@@ -225,33 +237,30 @@
     private async Task SubmitForm()
     {
         successMessage = "";
+        isSubmitting = true;
 
-        // تحويل الإجابات إلى JSON بصيغة تدعم اللغة العربية
         var options = new JsonSerializerOptions
         {
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
         var jsonSubmission = JsonSerializer.Serialize(answers, options);
 
-        // تجهيز الطرد (Payload) ليتطابق مع جدولك القديم
         var payload = new
         {
             FormId = selectedForm?.Id ?? 0,
             SubmissionData = jsonSubmission,
-            UserId = 1, // سنربطها لاحقاً برقم الموظف الحقيقي عند عمل شاشة تسجيل الدخول
+            UserId = State.UserId > 0 ? State.UserId : 1,
+            SubmittedByName = !string.IsNullOrEmpty(State.FullName) ? State.FullName : "مراقب الجودة الميداني",
             Status = "مكتمل"
         };
 
         try
         {
-            // إرسال الطرد إلى الـ API
             var response = await Http.PostAsJsonAsync($"{apiUrl}/submit", payload);
 
             if (response.IsSuccessStatusCode)
             {
-                successMessage = "✅ تم حفظ البيانات بنجاح في قاعدة بيانات المصنع!";
-
-                // تفريغ الحقول ليتمكن الموظف من إدخال نموذج جديد
+                successMessage = "✅ تم حفظ واعتماد محضر التفتيش بنجاح في قاعدة بيانات المصنع!";
                 foreach (var key in answers.Keys.ToList())
                 {
                     answers[key] = "";
@@ -259,12 +268,17 @@
             }
             else
             {
-                successMessage = "❌ حدث خطأ أثناء الحفظ، تأكد من الاتصال بقاعدة البيانات.";
+                var err = await response.Content.ReadAsStringAsync();
+                successMessage = $"❌ فشل الحفظ من الخادم: {err}";
             }
         }
         catch (Exception ex)
         {
             successMessage = $"خطأ اتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
         }
     }
 

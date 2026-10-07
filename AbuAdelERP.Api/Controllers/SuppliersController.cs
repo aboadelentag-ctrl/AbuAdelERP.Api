@@ -1,10 +1,10 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using AbuAdelERP.Api.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using AbuAdelERP.Api.Models;
 
 namespace AbuAdelERP.Api.Controllers
 {
@@ -20,226 +20,228 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 1. جلب كافة الموردين (GET: api/suppliers)
+        // 1. جلب كافة الموردين مع الفلترة والبحث السريع
         // ==============================================================
         [HttpGet]
-        public async Task<IActionResult> GetSuppliers()
+        public async Task<IActionResult> GetAll([FromQuery] string? search = null, [FromQuery] bool? active = null)
         {
             try
             {
-                var suppliers = await _context.Suppliers
-                    .AsNoTracking()
-                    .OrderBy(s => s.Id)
-                    .Select(s => new SupplierResponseDto
+                var query = _context.Suppliers.AsNoTracking();
+
+                if (active.HasValue)
+                {
+                    query = query.Where(s => s.Active == active.Value);
+                }
+
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var term = search.Trim().ToLower();
+                    query = query.Where(s => s.SupplierName.ToLower().Contains(term)
+                                          || s.SupplierCode.ToLower().Contains(term)
+                                          || (s.Phone != null && s.Phone.Contains(term))
+                                          || (s.TaxNumber != null && s.TaxNumber.Contains(term)));
+                }
+
+                var list = await query
+                    .OrderBy(s => s.SupplierName)
+                    .Select(s => new SupplierViewDto
                     {
                         Id = s.Id,
                         CompanyId = s.CompanyId,
                         SupplierCode = s.SupplierCode,
-                        Code = s.SupplierCode,
                         SupplierName = s.SupplierName,
-                        Name = s.SupplierName,
                         Phone = s.Phone,
-                        CreditLimit = s.CreditLimit,
+                        Email = s.Email,
+                        Address = s.Address,
+                        TaxNumber = s.TaxNumber,
+                        PaymentTerms = s.PaymentTerms,
                         Active = s.Active,
-                        IsApproved = s.IsApproved,
-                        QualityStatus = s.IsApproved ? "مورد معتمد" : "تحت التقييم (غير معتمد)",
-                        QualityNotes = s.Notes,
-                        Notes = s.Notes
+                        Notes = s.Notes,
+                        CreatedAt = s.CreatedAt
                     })
                     .ToListAsync();
 
-                return Ok(suppliers);
+                return Ok(list);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب الموردين: {ex.GetBaseException().Message}");
+                return StatusCode(500, $"خطأ في جلب بيانات الموردين: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
-        // 2. جلب مورد محدد (GET: api/suppliers/{id})
+        // 2. جلب بيانات مورد محدد
         // ==============================================================
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetSupplier(long id)
+        [HttpGet("{id:long}")]
+        public async Task<IActionResult> GetById(long id)
         {
-            try
-            {
-                var s = await _context.Suppliers.FindAsync(id);
-                if (s == null) return NotFound("المورد غير موجود.");
-
-                return Ok(new SupplierResponseDto
+            var supplier = await _context.Suppliers
+                .AsNoTracking()
+                .Where(s => s.Id == id)
+                .Select(s => new SupplierViewDto
                 {
                     Id = s.Id,
                     CompanyId = s.CompanyId,
                     SupplierCode = s.SupplierCode,
-                    Code = s.SupplierCode,
                     SupplierName = s.SupplierName,
-                    Name = s.SupplierName,
                     Phone = s.Phone,
-                    CreditLimit = s.CreditLimit,
+                    Email = s.Email,
+                    Address = s.Address,
+                    TaxNumber = s.TaxNumber,
+                    PaymentTerms = s.PaymentTerms,
                     Active = s.Active,
-                    IsApproved = s.IsApproved,
-                    QualityStatus = s.IsApproved ? "مورد معتمد" : "تحت التقييم (غير معتمد)",
-                    QualityNotes = s.Notes,
-                    Notes = s.Notes
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ: {ex.GetBaseException().Message}");
-            }
+                    Notes = s.Notes,
+                    CreatedAt = s.CreatedAt
+                })
+                .FirstOrDefaultAsync();
+
+            if (supplier == null) return NotFound("المورد غير مسجل بالنظام.");
+            return Ok(supplier);
         }
 
         // ==============================================================
-        // 3. إضافة مورد جديد (POST: api/suppliers)
+        // 3. إضافة مورد جديد مع توليد الكود ومنع التكرار
         // ==============================================================
         [HttpPost]
-        public async Task<IActionResult> CreateSupplier([FromBody] SupplierInputDto dto)
+        public async Task<IActionResult> Create([FromBody] SupplierCreateUpdateDto dto)
         {
-            if (dto == null || string.IsNullOrWhiteSpace(dto.SupplierName))
-            {
+            if (string.IsNullOrWhiteSpace(dto.SupplierName))
                 return BadRequest("اسم المورد مطلوب.");
-            }
 
-            try
+            var company = await _context.Companies.FirstOrDefaultAsync();
+            long companyId = company?.Id ?? 1;
+
+            string code = dto.SupplierCode?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(code))
             {
-                var companyId = dto.CompanyId > 0 ? dto.CompanyId : ((await _context.Companies.FirstOrDefaultAsync())?.Id ?? 1);
-                var code = !string.IsNullOrWhiteSpace(dto.SupplierCode)
-                    ? dto.SupplierCode.Trim()
-                    : (!string.IsNullOrWhiteSpace(dto.Code) ? dto.Code.Trim() : $"SUP-{(await _context.Suppliers.CountAsync() + 1):D3}");
-
-                var name = !string.IsNullOrWhiteSpace(dto.SupplierName) ? dto.SupplierName.Trim() : dto.Name?.Trim() ?? string.Empty;
-                var notes = !string.IsNullOrWhiteSpace(dto.QualityNotes) ? dto.QualityNotes.Trim() : dto.Notes?.Trim();
-                bool isApproved = dto.IsApproved || (dto.QualityStatus == "مورد معتمد");
-
-                var supplier = new Supplier
-                {
-                    CompanyId = companyId,
-                    SupplierCode = code,
-                    SupplierName = name,
-                    Phone = dto.Phone?.Trim(),
-                    CreditLimit = dto.CreditLimit,
-                    Active = dto.Active,
-                    IsApproved = isApproved,
-                    Notes = notes,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-
-                _context.Suppliers.Add(supplier);
-                await _context.SaveChangesAsync();
-
-                return Ok(new { success = true, id = supplier.Id, message = "تم حفظ المورد بنجاح!" });
+                int count = await _context.Suppliers.CountAsync(s => s.CompanyId == companyId);
+                code = $"SUP-{(count + 1):D4}";
             }
-            catch (Exception ex)
+            else
             {
-                return StatusCode(500, $"خطأ أثناء حفظ المورد: {ex.GetBaseException().Message}");
+                bool exists = await _context.Suppliers.AnyAsync(s => s.CompanyId == companyId && s.SupplierCode.ToLower() == code.ToLower());
+                if (exists) return BadRequest($"كود المورد ({code}) مسجل بالفعل لمورد آخر.");
             }
+
+            var supplier = new Supplier
+            {
+                CompanyId = companyId,
+                SupplierCode = code,
+                SupplierName = dto.SupplierName.Trim(),
+                Phone = dto.Phone?.Trim(),
+                Email = dto.Email?.Trim(),
+                Address = dto.Address?.Trim(),
+                TaxNumber = dto.TaxNumber?.Trim(),
+                PaymentTerms = dto.PaymentTerms?.Trim() ?? "نقدي",
+                Active = dto.Active,
+                Notes = dto.Notes?.Trim(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _context.Suppliers.Add(supplier);
+            await _context.SaveChangesAsync();
+
+            return Ok(new SupplierViewDto
+            {
+                Id = supplier.Id,
+                CompanyId = supplier.CompanyId,
+                SupplierCode = supplier.SupplierCode,
+                SupplierName = supplier.SupplierName,
+                Phone = supplier.Phone,
+                Email = supplier.Email,
+                Address = supplier.Address,
+                TaxNumber = supplier.TaxNumber,
+                PaymentTerms = supplier.PaymentTerms,
+                Active = supplier.Active,
+                Notes = supplier.Notes,
+                CreatedAt = supplier.CreatedAt
+            });
         }
 
         // ==============================================================
-        // 4. تعديل بيانات مورد (PUT: api/suppliers/{id}) - يحل خطأ فشل الحفظ
+        // 4. تعديل بيانات مورد
         // ==============================================================
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateSupplier(long id, [FromBody] SupplierInputDto dto)
+        [HttpPut("{id:long}")]
+        public async Task<IActionResult> Update(long id, [FromBody] SupplierCreateUpdateDto dto)
         {
-            if (dto == null) return BadRequest("بيانات غير صالحة.");
+            var supplier = await _context.Suppliers.FindAsync(id);
+            if (supplier == null) return NotFound("المورد غير موجود.");
 
-            try
+            if (string.IsNullOrWhiteSpace(dto.SupplierName))
+                return BadRequest("اسم المورد مطلوب.");
+
+            if (!string.IsNullOrWhiteSpace(dto.SupplierCode))
             {
-                var supplier = await _context.Suppliers.FindAsync(id);
-                if (supplier == null) return NotFound("المورد غير موجود.");
+                string code = dto.SupplierCode.Trim();
+                bool codeExists = await _context.Suppliers
+                    .AnyAsync(s => s.CompanyId == supplier.CompanyId && s.SupplierCode.ToLower() == code.ToLower() && s.Id != id);
 
-                var name = !string.IsNullOrWhiteSpace(dto.SupplierName) ? dto.SupplierName.Trim() : dto.Name?.Trim();
-                if (!string.IsNullOrWhiteSpace(name)) supplier.SupplierName = name;
-
-                var code = !string.IsNullOrWhiteSpace(dto.SupplierCode) ? dto.SupplierCode.Trim() : dto.Code?.Trim();
-                if (!string.IsNullOrWhiteSpace(code)) supplier.SupplierCode = code;
-
-                supplier.Phone = dto.Phone?.Trim();
-                supplier.CreditLimit = dto.CreditLimit;
-                supplier.Active = dto.Active;
-                supplier.IsApproved = dto.IsApproved || (dto.QualityStatus == "مورد معتمد");
-                supplier.Notes = !string.IsNullOrWhiteSpace(dto.QualityNotes) ? dto.QualityNotes.Trim() : dto.Notes?.Trim();
-                supplier.UpdatedAt = DateTime.UtcNow;
-
-                await _context.SaveChangesAsync();
-                return Ok(new { success = true, message = "تم تحديث بيانات المورد بنجاح!" });
+                if (codeExists) return BadRequest($"كود المورد ({code}) مستخدم في سجل مورد آخر.");
+                supplier.SupplierCode = code;
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء تحديث المورد: {ex.GetBaseException().Message}");
-            }
+
+            supplier.SupplierName = dto.SupplierName.Trim();
+            supplier.Phone = dto.Phone?.Trim();
+            supplier.Email = dto.Email?.Trim();
+            supplier.Address = dto.Address?.Trim();
+            supplier.TaxNumber = dto.TaxNumber?.Trim();
+            supplier.PaymentTerms = dto.PaymentTerms?.Trim() ?? supplier.PaymentTerms;
+            supplier.Active = dto.Active;
+            supplier.Notes = dto.Notes?.Trim();
+            supplier.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+            return NoContent();
         }
 
         // ==============================================================
-        // 5. مسار الحذف الفعلي (DELETE: api/suppliers/{id}) - يحل خطأ MethodNotAllowed
+        // 5. تبديل حالة التفعيل
         // ==============================================================
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteSupplier(long id)
+        [HttpPatch("{id:long}/toggle-status")]
+        public async Task<IActionResult> ToggleStatus(long id)
         {
-            try
-            {
-                var supplier = await _context.Suppliers
-                    .Include(s => s.PurchaseOrders)
-                    .FirstOrDefaultAsync(s => s.Id == id);
+            var supplier = await _context.Suppliers.FindAsync(id);
+            if (supplier == null) return NotFound("المورد غير موجود.");
 
-                if (supplier == null)
-                {
-                    return NotFound("المورد غير موجود بالفعل.");
-                }
+            supplier.Active = !supplier.Active;
+            supplier.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
 
-                // فحص الارتباط بأوامر الشراء لحماية تكامل البيانات
-                if (supplier.PurchaseOrders != null && supplier.PurchaseOrders.Any())
-                {
-                    return BadRequest("لا يمكن حذف المورد نظراً لوجود أوامر شراء مسجلة باسمه في المنظومة. يمكنك إيقاف تعامله بدلاً من حذفه.");
-                }
-
-                _context.Suppliers.Remove(supplier);
-                await _context.SaveChangesAsync();
-                return Ok(new { success = true, message = "تم حذف المورد نهائياً بنجاح!" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"تعذر حذف المورد: {ex.GetBaseException().Message}");
-            }
+            return Ok(supplier.Active);
         }
+    }
 
-        // ==============================================================
-        // DTOs لدعم التوافق مع أسماء خصائص الواجهة
-        // ==============================================================
-        public class SupplierInputDto
-        {
-            public long Id { get; set; }
-            public long CompanyId { get; set; } = 1;
-            public string? SupplierCode { get; set; }
-            public string? Code { get; set; }
-            public string? SupplierName { get; set; }
-            public string? Name { get; set; }
-            public string? Phone { get; set; }
-            public decimal CreditLimit { get; set; } = 0;
-            public bool Active { get; set; } = true;
-            public bool IsApproved { get; set; } = false;
-            public string? QualityStatus { get; set; }
-            public string? QualityNotes { get; set; }
-            public string? Notes { get; set; }
-        }
+    // ==============================================================
+    // DTOs الموردين المتوافقة مع الكيان
+    // ==============================================================
+    public class SupplierViewDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; }
+        public string SupplierCode { get; set; } = string.Empty;
+        public string SupplierName { get; set; } = string.Empty;
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public string? Address { get; set; }
+        public string? TaxNumber { get; set; }
+        public string? PaymentTerms { get; set; }
+        public bool Active { get; set; } = true;
+        public string? Notes { get; set; }
+        public DateTime? CreatedAt { get; set; }
+    }
 
-        public class SupplierResponseDto
-        {
-            public long Id { get; set; }
-            public long CompanyId { get; set; }
-            public string SupplierCode { get; set; } = string.Empty;
-            public string Code { get; set; } = string.Empty;
-            public string SupplierName { get; set; } = string.Empty;
-            public string Name { get; set; } = string.Empty;
-            public string? Phone { get; set; }
-            public decimal CreditLimit { get; set; }
-            public bool Active { get; set; }
-            public bool IsApproved { get; set; }
-            public string QualityStatus { get; set; } = string.Empty;
-            public string? QualityNotes { get; set; }
-            public string? Notes { get; set; }
-        }
+    public class SupplierCreateUpdateDto
+    {
+        public string? SupplierCode { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public string? Address { get; set; }
+        public string? TaxNumber { get; set; }
+        public string? PaymentTerms { get; set; } = "نقدي";
+        public bool Active { get; set; } = true;
+        public string? Notes { get; set; }
     }
 }

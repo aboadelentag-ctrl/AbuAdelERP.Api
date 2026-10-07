@@ -20,20 +20,31 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 1. جلب كافة المخازن مع بيانات المخزن الأب
+        // 1. جلب كافة المخازن (مع دعم الفلترة بالفرع والشجرة الهرمية)
         // ==============================================================
         [HttpGet]
-        public async Task<IActionResult> GetWarehouses()
+        public async Task<IActionResult> GetWarehouses([FromQuery] long? branchId = null)
         {
             try
             {
-                var warehouses = await _context.Warehouses
+                var query = _context.Warehouses
                     .Include(w => w.ParentWarehouse)
-                    .AsNoTracking()
-                    .OrderBy(w => w.WarehouseCode)
+                    .Include(w => w.Branch)
+                    .AsNoTracking();
+
+                if (branchId.HasValue && branchId.Value > 0)
+                {
+                    query = query.Where(w => w.BranchId == branchId.Value);
+                }
+
+                var warehouses = await query
+                    .OrderBy(w => w.BranchId)
+                    .ThenBy(w => w.WarehouseCode)
                     .Select(w => new WarehouseDto
                     {
                         Id = w.Id,
+                        BranchId = w.BranchId,
+                        BranchName = w.Branch != null ? w.Branch.BranchName : "الفرع الرئيسي",
                         WarehouseCode = w.WarehouseCode,
                         WarehouseName = w.WarehouseName,
                         WarehouseType = w.WarehouseType,
@@ -60,10 +71,14 @@ namespace AbuAdelERP.Api.Controllers
         {
             var warehouse = await _context.Warehouses
                 .Include(w => w.ParentWarehouse)
+                .Include(w => w.Branch)
+                .AsNoTracking()
                 .Where(w => w.Id == id)
                 .Select(w => new WarehouseDto
                 {
                     Id = w.Id,
+                    BranchId = w.BranchId,
+                    BranchName = w.Branch != null ? w.Branch.BranchName : "الفرع الرئيسي",
                     WarehouseCode = w.WarehouseCode,
                     WarehouseName = w.WarehouseName,
                     WarehouseType = w.WarehouseType,
@@ -79,7 +94,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 3. إضافة مخزن جديد
+        // 3. إضافة مخزن جديد (مربوط بالفرع)
         // ==============================================================
         [HttpPost]
         public async Task<IActionResult> PostWarehouse([FromBody] WarehouseDto dto)
@@ -88,28 +103,40 @@ namespace AbuAdelERP.Api.Controllers
             if (company == null) return BadRequest("لا توجد شركات مسجلة بالنظام.");
 
             dto.WarehouseCode = dto.WarehouseCode?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(dto.WarehouseCode))
+                return BadRequest("كود المخزن إجباري.");
 
             bool exists = await _context.Warehouses
                 .AnyAsync(w => w.CompanyId == company.Id && w.WarehouseCode.ToLower() == dto.WarehouseCode.ToLower());
 
             if (exists) return BadRequest($"كود المخزن ({dto.WarehouseCode}) مستخدم بالفعل.");
 
+            // تحديد الفرع: إما المحدد أو أول فرع مسجل بالنظام
+            long branchId = dto.BranchId.HasValue && dto.BranchId.Value > 0
+                ? dto.BranchId.Value
+                : await _context.Branches.Select(b => b.Id).FirstOrDefaultAsync();
+
+            if (branchId <= 0) branchId = 1;
+
             var warehouse = new Warehouse
             {
                 CompanyId = company.Id,
+                BranchId = branchId,
                 WarehouseCode = dto.WarehouseCode,
                 WarehouseName = dto.WarehouseName?.Trim() ?? string.Empty,
-                WarehouseType = dto.WarehouseType?.Trim() ?? string.Empty,
+                WarehouseType = dto.WarehouseType?.Trim() ?? "خامات",
                 ParentWarehouseId = dto.ParentWarehouseId > 0 ? dto.ParentWarehouseId : null,
                 Description = dto.Description?.Trim() ?? string.Empty,
                 Active = dto.Active,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
 
             _context.Warehouses.Add(warehouse);
             await _context.SaveChangesAsync();
 
             dto.Id = warehouse.Id;
+            dto.BranchId = warehouse.BranchId;
             return Ok(dto);
         }
 
@@ -134,6 +161,12 @@ namespace AbuAdelERP.Api.Controllers
 
             if (exists) return BadRequest($"كود المخزن ({dto.WarehouseCode}) مستخدم في مخزن آخر.");
 
+            // التحقق من صحة الفرع في حال تم تغييره
+            if (dto.BranchId.HasValue && dto.BranchId.Value > 0)
+            {
+                existing.BranchId = dto.BranchId.Value;
+            }
+
             existing.WarehouseCode = dto.WarehouseCode;
             existing.WarehouseName = dto.WarehouseName?.Trim() ?? string.Empty;
             existing.WarehouseType = dto.WarehouseType?.Trim() ?? string.Empty;
@@ -147,7 +180,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 5. حذف مخزن
+        // 5. حذف مخزن (مع الفحوصات الأمنية)
         // ==============================================================
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteWarehouse(long id)
@@ -158,13 +191,13 @@ namespace AbuAdelERP.Api.Controllers
             bool hasChildren = await _context.Warehouses.AnyAsync(w => w.ParentWarehouseId == id);
             if (hasChildren)
             {
-                return BadRequest("لا يمكن حذف هذا المخزن لأنه يمتلك مخازن فرعية تابعة له.");
+                return BadRequest("لا يمكن حذف هذا المخزن لأنه يمتلك مخازن فرعية تابعة له في الشجرة الهرمية.");
             }
 
             bool hasStock = await _context.StockBalances.AnyAsync(s => s.WarehouseId == id && s.Quantity > 0);
             if (hasStock)
             {
-                return BadRequest("لا يمكن حذف هذا المخزن لأنه يحتوي على أرصدة أصناف فعلية.");
+                return BadRequest("لا يمكن حذف هذا المخزن لأنه يحتوي على أرصدة أصناف فعلية غير صفرية.");
             }
 
             _context.Warehouses.Remove(warehouse);
@@ -173,7 +206,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 6. استيراد وتحديث المخازن دفعة واحدة من الإكسيل (Bulk Import)
+        // 6. استيراد وتحديث المخازن دفعة واحدة (Bulk Import مع الفروع)
         // ==============================================================
         [HttpPost("bulk-import")]
         public async Task<IActionResult> BulkImportWarehouses([FromBody] List<WarehouseImportDto> items)
@@ -184,6 +217,9 @@ namespace AbuAdelERP.Api.Controllers
             var company = await _context.Companies.FirstOrDefaultAsync();
             if (company == null) return BadRequest("لا توجد شركات مسجلة بالنظام.");
 
+            var defaultBranch = await _context.Branches.FirstOrDefaultAsync();
+            long defaultBranchId = defaultBranch?.Id ?? 1;
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -191,17 +227,33 @@ namespace AbuAdelERP.Api.Controllers
                 int updated = 0;
                 var now = DateTime.UtcNow;
 
-                // المرحلة الأولى: إنشاء أو تحديث البيانات الأساسية للمخزن
+                var branches = await _context.Branches.AsNoTracking().ToListAsync();
+
                 foreach (var item in items)
                 {
                     var code = item.WarehouseCode?.Trim() ?? string.Empty;
                     if (string.IsNullOrEmpty(code)) continue;
+
+                    // تحديد معرف الفرع من الكود أو الاسم
+                    long targetBranchId = defaultBranchId;
+                    if (!string.IsNullOrWhiteSpace(item.BranchCodeOrName))
+                    {
+                        var branchMatch = branches.FirstOrDefault(b =>
+                            b.BranchCode.Equals(item.BranchCodeOrName.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                            b.BranchName.Equals(item.BranchCodeOrName.Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (branchMatch != null) targetBranchId = branchMatch.Id;
+                    }
+                    else if (item.BranchId.HasValue && item.BranchId.Value > 0)
+                    {
+                        targetBranchId = item.BranchId.Value;
+                    }
 
                     var existing = await _context.Warehouses
                         .FirstOrDefaultAsync(w => w.CompanyId == company.Id && w.WarehouseCode.ToLower() == code.ToLower());
 
                     if (existing != null)
                     {
+                        existing.BranchId = targetBranchId;
                         existing.WarehouseName = !string.IsNullOrWhiteSpace(item.WarehouseName) ? item.WarehouseName.Trim() : existing.WarehouseName;
                         existing.WarehouseType = !string.IsNullOrWhiteSpace(item.WarehouseType) ? item.WarehouseType.Trim() : existing.WarehouseType;
                         existing.Description = item.Description?.Trim() ?? existing.Description;
@@ -214,12 +266,14 @@ namespace AbuAdelERP.Api.Controllers
                         var newWarehouse = new Warehouse
                         {
                             CompanyId = company.Id,
+                            BranchId = targetBranchId,
                             WarehouseCode = code,
                             WarehouseName = !string.IsNullOrWhiteSpace(item.WarehouseName) ? item.WarehouseName.Trim() : code,
                             WarehouseType = !string.IsNullOrWhiteSpace(item.WarehouseType) ? item.WarehouseType.Trim() : "خامات",
                             Description = item.Description?.Trim() ?? string.Empty,
                             Active = item.Active,
-                            CreatedAt = now
+                            CreatedAt = now,
+                            UpdatedAt = now
                         };
                         _context.Warehouses.Add(newWarehouse);
                         created++;
@@ -228,9 +282,8 @@ namespace AbuAdelERP.Api.Controllers
 
                 await _context.SaveChangesAsync();
 
-                // المرحلة الثانية: ربط العلاقات الشجرية (المخزن الأب) بعد ضمان وجود كافة المعرفات في قاعدة البيانات
+                // ربط المخزن الأب
                 var allWarehouses = await _context.Warehouses.Where(w => w.CompanyId == company.Id).ToListAsync();
-
                 foreach (var item in items)
                 {
                     var code = item.WarehouseCode?.Trim() ?? string.Empty;
@@ -251,7 +304,6 @@ namespace AbuAdelERP.Api.Controllers
                     }
                     else
                     {
-                        // إذا تُركت خانة الأب فارغة، يعتبر مخزناً رئيسياً مستقلاً
                         current.ParentWarehouseId = null;
                     }
                 }
@@ -264,7 +316,7 @@ namespace AbuAdelERP.Api.Controllers
                     success = true,
                     createdCount = created,
                     updatedCount = updated,
-                    message = $"تم استيراد البيانات بنجاح: تم إنشاء ({created}) مخزن جديد، وتحديث بيانات ({updated}) مخزن مسجل مسبقاً."
+                    message = $"تم استيراد المخازن بنجاح: تم إنشاء ({created}) وتحديث ({updated}) مخزن."
                 });
             }
             catch (Exception ex)
@@ -275,7 +327,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 7. جلب رصيد المخزن مع تجميع الفروع التابعة (Roll-up)
+        // 7. جلب رصيد المخزن مجمعاً مع المخازن التابعة هرمياً
         // ==============================================================
         [HttpGet("{id}/stock-balance")]
         public async Task<IActionResult> GetWarehouseStockBalance(long id)
@@ -310,6 +362,8 @@ namespace AbuAdelERP.Api.Controllers
     public class WarehouseDto
     {
         public long Id { get; set; }
+        public long? BranchId { get; set; } = 1;
+        public string? BranchName { get; set; } = string.Empty;
         public string WarehouseCode { get; set; } = string.Empty;
         public string WarehouseName { get; set; } = string.Empty;
         public string WarehouseType { get; set; } = string.Empty;
@@ -321,6 +375,8 @@ namespace AbuAdelERP.Api.Controllers
 
     public class WarehouseImportDto
     {
+        public long? BranchId { get; set; }
+        public string? BranchCodeOrName { get; set; }
         public string WarehouseCode { get; set; } = string.Empty;
         public string WarehouseName { get; set; } = string.Empty;
         public string WarehouseType { get; set; } = "خامات";

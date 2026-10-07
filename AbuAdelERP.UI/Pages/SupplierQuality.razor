@@ -1,7 +1,6 @@
 ﻿@page "/supplier-quality"
 @using System.Net.Http.Json
 @using System.Text
-@using System.IO
 @using AbuAdelERP.UI.Services
 @inject HttpClient Http
 @inject AppState State
@@ -16,19 +15,25 @@
         <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
             <div>
                 <div class="d-flex align-items-center gap-2 mb-1">
-                    <h4 class="fw-bold m-0 text-success">🛡️ تقييم جودة الموردين وفحص استلام الخامات (GMP/QA)</h4>
+                    <h4 class="fw-bold m-0 text-success">🛡️ سجل الفحص المعملي للخامات وشهادات التحليل (COA/QA)</h4>
                     <span class="badge bg-success text-white px-2 py-1 small fw-bold">إدارة توكيد الجودة</span>
                 </div>
                 <small class="text-light text-opacity-75">
-                    التحقق المخبري والظاهري من شحنات الموردين، تقييم درجات الامتثال والمطابقة، وربط شهادات التحليل (COA).
+                    توثيق شهادات التحليل المخبرية، فحص الرطوبة والجلوتين والدهون، ومطابقة شحنات الموردين لمواصفات المصنع.
                 </small>
             </div>
             <div class="d-flex gap-2">
+                <a href="vendor-qc-rating" class="btn btn-outline-warning btn-sm fw-bold px-3 py-2 shadow-sm">
+                    📊 رادار تصنيف الموردين (Grades)
+                </a>
                 <button class="btn btn-success fw-bold btn-sm px-3 py-2 shadow-sm d-flex align-items-center gap-2" @onclick="OpenNewEvaluationModal">
-                    <i class="bi bi-clipboard-check-fill"></i> تقييم وفحص شحنة جديدة
+                    <i class="bi bi-clipboard-check-fill"></i> فحص واعتماد شحنة جديدة
                 </button>
-                <button class="btn btn-outline-light btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="ExportToExcel">
+                <button class="btn btn-outline-light btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="ExportToExcel" disabled="@(!FilteredEvaluations.Any())">
                     <i class="bi bi-file-earmark-excel-fill text-success me-1"></i> تصدير إكسيل
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="LoadEvaluations">
+                    <i class="bi bi-arrow-clockwise"></i> تحديث
                 </button>
             </div>
         </div>
@@ -37,7 +42,7 @@
     @if (!string.IsNullOrEmpty(feedbackMessage))
     {
         <div class="alert @(isSuccess ? "alert-success" : "alert-danger") border-0 shadow-sm alert-dismissible fade show py-2 mb-3 fw-bold" role="alert">
-            @feedbackMessage
+            <i class="bi @(isSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-1"></i> @feedbackMessage
             <button type="button" class="btn-close py-2" @onclick='() => feedbackMessage = ""'></button>
         </div>
     }
@@ -46,26 +51,26 @@
     <div class="row g-2 mb-3">
         <div class="col-md-3 col-6">
             <div class="card border-0 shadow-sm p-3 bg-white border-top border-4 border-success text-center">
-                <small class="text-muted fw-bold">شحنات مطابقة 100% (معتمدة)</small>
-                <h4 class="fw-bold text-success mt-1 mb-0 font-monospace">@evaluationsList.Count(e => e.Result == "APPROVED") شحنة</h4>
+                <small class="text-muted fw-bold">مطابقة ومعتمدة للاستخدام</small>
+                <h4 class="fw-bold text-success mt-1 mb-0 font-monospace">@evaluationsList.Count(e => e.Result.Contains("مطابق") || e.Result == "APPROVED") فحص</h4>
             </div>
         </div>
         <div class="col-md-3 col-6">
             <div class="card border-0 shadow-sm p-3 bg-white border-top border-4 border-warning text-center">
-                <small class="text-muted fw-bold">قبول مشروط / تحت الفحص</small>
-                <h4 class="fw-bold text-warning mt-1 mb-0 font-monospace">@evaluationsList.Count(e => e.Result == "CONDITIONAL") شحنة</h4>
+                <small class="text-muted fw-bold">قبول مشروط بتشغيل عاجل</small>
+                <h4 class="fw-bold text-warning mt-1 mb-0 font-monospace">@evaluationsList.Count(e => e.Result.Contains("مشروط") || e.Result == "CONDITIONAL") فحص</h4>
             </div>
         </div>
         <div class="col-md-3 col-6">
             <div class="card border-0 shadow-sm p-3 bg-white border-top border-4 border-danger text-center">
-                <small class="text-muted fw-bold">شحنات مرفوضة (مردودة للمورد)</small>
-                <h4 class="fw-bold text-danger mt-1 mb-0 font-monospace">@evaluationsList.Count(e => e.Result == "REJECTED") شحنة</h4>
+                <small class="text-muted fw-bold">شحنات مرفوضة ومردودة</small>
+                <h4 class="fw-bold text-danger mt-1 mb-0 font-monospace">@evaluationsList.Count(e => e.Result.Contains("مرفوض") || e.Result == "REJECTED") فحص</h4>
             </div>
         </div>
         <div class="col-md-3 col-6">
             <div class="card border-0 shadow-sm p-3 bg-white border-top border-4 border-dark text-center">
-                <small class="text-muted fw-bold">إجمالي الشحنات المفحوصة</small>
-                <h4 class="fw-bold text-dark mt-1 mb-0 font-monospace">@evaluationsList.Count تقييم</h4>
+                <small class="text-muted fw-bold">إجمالي الفحوصات المسجلة</small>
+                <h4 class="fw-bold text-dark mt-1 mb-0 font-monospace">@evaluationsList.Count تقرير</h4>
             </div>
         </div>
     </div>
@@ -74,28 +79,31 @@
     <div class="card shadow-sm border-0 rounded-3">
         <div class="card-header bg-white py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div class="d-flex align-items-center gap-2 flex-grow-1" style="max-width: 400px;">
-                <input type="text" class="form-control form-control-sm" placeholder="بحث باسم المورد، كود الشحنة، الخامة..." @bind="searchTerm" @bind:event="oninput" />
+                <input type="text" class="form-control form-control-sm" placeholder="بحث بالخامة، المورد، رقم التقرير، أو المفتش..." @bind="searchTerm" @bind:event="oninput" />
             </div>
-            <span class="badge bg-dark font-monospace">سجل الجودة المعتمد</span>
+            <span class="badge bg-dark font-monospace">سجل الفحص المعملي الحي</span>
         </div>
         <div class="card-body p-0 table-responsive">
             <table class="table table-hover table-bordered mb-0 text-center align-middle small">
                 <thead class="table-light">
                     <tr>
-                        <th>رقم التقرير</th>
+                        <th>رقم التقرير / الفحص</th>
                         <th>تاريخ الفحص</th>
-                        <th>اسم المورد</th>
-                        <th>الخامة المفحوصة</th>
-                        <th>رقم التشغيلة / اللوت</th>
-                        <th>درجة المطابقة</th>
-                        <th>نتيجة فحص الجودة</th>
+                        <th>الخامة / الصنف</th>
+                        <th>درجة المطابقة (Score)</th>
+                        <th>القرار والاعتماد</th>
                         <th>المسؤول عن الفحص</th>
+                        <th>ملاحظات الفحص والشهادة</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @if (!FilteredEvaluations.Any())
+                    @if (isLoading)
                     {
-                        <tr><td colspan="8" class="text-muted py-4 fw-bold">لا توجد سجلات فحص تطابق البحث.</td></tr>
+                        <tr><td colspan="7" class="py-4 text-muted"><div class="spinner-border spinner-border-sm text-success me-2"></div> جاري تحميل سجلات الجودة...</td></tr>
+                    }
+                    else if (!FilteredEvaluations.Any())
+                    {
+                        <tr><td colspan="7" class="text-muted py-4 fw-bold">لا توجد سجلات فحص مسجلة مطابقة للبحث.</td></tr>
                     }
                     else
                     {
@@ -103,23 +111,23 @@
                         {
                             <tr>
                                 <td class="font-monospace fw-bold text-primary">@item.ReportNumber</td>
-                                <td class="font-monospace">@item.InspectionDate.ToString("yyyy-MM-dd HH:mm")</td>
-                                <td class="fw-bold text-start ps-3 text-dark">@item.SupplierName</td>
-                                <td class="text-start ps-2">@item.ItemName</td>
-                                <td class="font-monospace text-muted">@item.BatchNumber</td>
+                                <td class="font-monospace text-muted">@item.InspectionDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="fw-bold text-start ps-3 text-dark">@item.ItemName</td>
                                 <td>
-                                    <div class="fw-bold font-monospace @(item.ComplianceScore >= 85 ? "text-success" : item.ComplianceScore >= 65 ? "text-warning" : "text-danger")">
+                                    <div class="fw-bold font-monospace @(item.ComplianceScore >= 85 ? "text-success" : item.ComplianceScore >= 70 ? "text-warning" : "text-danger")">
                                         @item.ComplianceScore %
                                     </div>
                                 </td>
                                 <td>
                                     <span class="badge @GetResultBadge(item.Result) px-2 py-1">
-                                        @TranslateResult(item.Result)
+                                        @item.Result
                                     </span>
                                 </td>
                                 <td>
                                     <div class="fw-bold text-dark">@item.InspectedByName</div>
-                                    <small class="text-muted font-monospace">[@item.InspectedByCode]</small>
+                                </td>
+                                <td class="text-start ps-3 small text-muted text-truncate" style="max-width: 250px;">
+                                    @(string.IsNullOrEmpty(item.Notes) ? "مطابق" : item.Notes)
                                 </td>
                             </tr>
                         }
@@ -137,44 +145,42 @@
         <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-success text-white py-2 px-3 d-flex justify-content-between align-items-center">
-                    <h6 class="modal-title fw-bold">🛡️ تقييم وفحص شحنة خامات مورد جديدة</h6>
+                    <h6 class="modal-title fw-bold">🛡️ تسجيل محضر فحص معملي لخامة مورد (COA)</h6>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isModalOpen = false"></button>
                 </div>
                 <div class="modal-body bg-light p-3">
                     <div class="row g-2">
                         <div class="col-md-6">
-                            <label class="small fw-bold text-dark mb-1">اسم المورد المعتمد *</label>
-                            <input type="text" class="form-control fw-bold" @bind="newEval.SupplierName" placeholder="مثال: مطاحن ومخابز شمال القاهرة" />
+                            <label class="small fw-bold text-dark mb-1">الخامة المفحوصة *</label>
+                            <input type="text" class="form-control fw-bold" @bind="newEval.ItemName" placeholder="مثال: دقيق فاخر 72%، سمن بلدي، فستق..." />
                         </div>
                         <div class="col-md-6">
-                            <label class="small fw-bold text-dark mb-1">الخامة أو الصنف المستلم *</label>
-                            <input type="text" class="form-control fw-bold" @bind="newEval.ItemName" placeholder="مثال: دقيق فاخر 72%، زبدة نيوزيلندي..." />
+                            <label class="small fw-bold text-dark mb-1">رقم شهادة التحليل (COA Number)</label>
+                            <input type="text" class="form-control font-monospace" @bind="newEval.BatchNumber" placeholder="مثال: COA-2026-99" />
                         </div>
-                        <div class="col-md-4">
-                            <label class="small fw-bold text-dark mb-1">رقم التشغيلة (Batch/Lot) *</label>
-                            <input type="text" class="form-control font-monospace" @bind="newEval.BatchNumber" placeholder="LOT-2026-X" />
-                        </div>
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="small fw-bold text-dark mb-1">نسبة المطابقة والمواصفة (%) *</label>
                             <input type="number" class="form-control font-monospace fw-bold text-center text-primary" @bind="newEval.ComplianceScore" min="0" max="100" />
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="small fw-bold text-dark mb-1">قرار واعتماد الجودة *</label>
                             <select class="form-select fw-bold" @bind="newEval.Result">
-                                <option value="APPROVED">مطابق ومعتمد للاستخدام ✓</option>
-                                <option value="CONDITIONAL">قبول مشروط بتشغيل عاجل ⚠️</option>
-                                <option value="REJECTED">مرفوض تماماً (مرتجع للمورد) ⛔</option>
+                                <option value="مطابق للمواصفات - ممتاز">مطابق ومعتمد للاستخدام ✓</option>
+                                <option value="مقبول بشروط">قبول مشروط بتشغيل عاجل ⚠️</option>
+                                <option value="مرفوض - غير صالح">مرفوض تماماً (مرتجع للمورد) ⛔</option>
                             </select>
                         </div>
                         <div class="col-12">
-                            <label class="small fw-bold text-dark mb-1">ملاحظات الفحص الظاهري والمخبري (COA)</label>
-                            <textarea class="form-control" rows="2" @bind="newEval.Notes" placeholder="اكتب حالة التغليف، الرائحة، درجة الحرارة، أو نتائج التحليل..."></textarea>
+                            <label class="small fw-bold text-dark mb-1">ملاحظات الفحص المعملي ونتائج الاختبارات</label>
+                            <textarea class="form-control" rows="3" @bind="newEval.Notes" placeholder="اكتب نتائج فحص الرطوبة، الشوائب، الطعم، والتحاليل المخبرية..."></textarea>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer py-2 bg-white d-flex justify-content-between">
                     <button class="btn btn-secondary btn-sm px-4" @onclick="() => isModalOpen = false">إلغاء</button>
-                    <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SaveEvaluation">💾 حفظ واعتماد الفحص</button>
+                    <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SaveEvaluation" disabled="@isSaving">
+                        @(isSaving ? "جاري الحفظ..." : "💾 حفظ واعتماد الفحص")
+                    </button>
                 </div>
             </div>
         </div>
@@ -182,83 +188,116 @@
 }
 
 @code {
-    public class SupplierQualityDto
+    public class SupplierQualityViewModel
     {
         public long Id { get; set; }
         public string ReportNumber { get; set; } = string.Empty;
-        public DateTime InspectionDate { get; set; } = DateTime.Now;
-        public string SupplierName { get; set; } = string.Empty;
+        public DateTime InspectionDate { get; set; } = DateTime.UtcNow;
         public string ItemName { get; set; } = string.Empty;
         public string BatchNumber { get; set; } = string.Empty;
-        public int ComplianceScore { get; set; } = 95;
-        public string Result { get; set; } = "APPROVED";
-        public string InspectedByCode { get; set; } = string.Empty;
+        public decimal ComplianceScore { get; set; } = 95;
+        public string Result { get; set; } = "مطابق للمواصفات - ممتاز";
         public string InspectedByName { get; set; } = string.Empty;
         public string? Notes { get; set; }
     }
 
-    private List<SupplierQualityDto> evaluationsList = new();
+    private List<SupplierQualityViewModel> evaluationsList = new();
     private string searchTerm = "";
     private bool isModalOpen = false;
-    private SupplierQualityDto newEval = new();
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private SupplierQualityViewModel newEval = new();
     private string feedbackMessage = "";
     private bool isSuccess = true;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        evaluationsList = new List<SupplierQualityDto>
-        {
-            new() { Id = 1, ReportNumber = "QA-2026-081", InspectionDate = DateTime.Now.AddHours(-2), SupplierName = "شركة الزيوت والدهون النقية", ItemName = "سمن بلدي طبيعي 100%", BatchNumber = "LOT-SMN-88", ComplianceScore = 98, Result = "APPROVED", InspectedByCode = State.EmployeeCode, InspectedByName = State.FullName, Notes = "مطابق لجميع الاشتراطات القياسية وشهادة COA معتمدة" },
-            new() { Id = 2, ReportNumber = "QA-2026-080", InspectionDate = DateTime.Now.AddDays(-1), SupplierName = "مطاحن ومخابز القاهرة", ItemName = "دقيق فاخر استخراج 72%", BatchNumber = "LOT-FL-104", ComplianceScore = 92, Result = "APPROVED", InspectedByCode = "EMP-012", InspectedByName = "أحمد محمد أحمد", Notes = "فحص الجلوتين والرطوبة مطابق للمواصفة" },
-            new() { Id = 3, ReportNumber = "QA-2026-079", InspectionDate = DateTime.Now.AddDays(-2), SupplierName = "مؤسسة الألبان الطازجة", ItemName = "كريمة لباني طبيعية", BatchNumber = "LOT-CRM-03", ComplianceScore = 55, Result = "REJECTED", InspectedByCode = "EMP-045", InspectedByName = "فتحي حميده", Notes = "ارتفاع درجة حرارة الشحنة أثناء النقل وتم رفض الاستلام" }
-        };
+        await LoadEvaluations();
     }
 
-    private IEnumerable<SupplierQualityDto> FilteredEvaluations => evaluationsList.Where(e =>
+    private async Task LoadEvaluations()
+    {
+        isLoading = true;
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<QualityInspectionViewDto>>("api/Quality");
+            if (res != null)
+            {
+                evaluationsList = res.Select(q => new SupplierQualityViewModel
+                {
+                    Id = q.Id,
+                    ReportNumber = $"QA-{q.Id:D5}",
+                    InspectionDate = q.InspectionDate,
+                    ItemName = q.ItemName,
+                    BatchNumber = q.OrderNumber,
+                    ComplianceScore = q.QualityScore,
+                    Result = q.Result,
+                    InspectedByName = q.InspectorName,
+                    Notes = q.Notes
+                }).ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SupplierQuality] Error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private IEnumerable<SupplierQualityViewModel> FilteredEvaluations => evaluationsList.Where(e =>
         string.IsNullOrWhiteSpace(searchTerm) ||
-        e.SupplierName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
         e.ItemName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
         e.ReportNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
-        e.BatchNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+        e.InspectedByName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+        (e.Notes != null && e.Notes.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)));
 
     private void OpenNewEvaluationModal()
     {
-        newEval = new SupplierQualityDto
+        newEval = new SupplierQualityViewModel
         {
-            ReportNumber = $"QA-{DateTime.Now:yyyyMMdd}-{new Random().Next(100, 999)}",
-            InspectionDate = DateTime.Now,
+            ReportNumber = $"QA-{DateTime.UtcNow:yyyyMMdd}-{new Random().Next(100, 999)}",
+            InspectionDate = DateTime.UtcNow,
             ComplianceScore = 95,
-            Result = "APPROVED",
-            InspectedByCode = State.EmployeeCode,
-            InspectedByName = State.FullName
+            Result = "مطابق للمواصفات - ممتاز",
+            InspectedByName = !string.IsNullOrEmpty(State.FullName) ? State.FullName : "مفتش الجودة المعملي"
         };
         isModalOpen = true;
     }
 
-    private void SaveEvaluation()
+    private async Task SaveEvaluation()
     {
-        if (string.IsNullOrWhiteSpace(newEval.SupplierName) || string.IsNullOrWhiteSpace(newEval.ItemName))
+        if (string.IsNullOrWhiteSpace(newEval.ItemName))
         {
-            feedbackMessage = "⚠️ يرجى إدخال اسم المورد والخامة المفحوصة!";
+            feedbackMessage = "⚠️ يرجى إدخال اسم الخامة المفحوصة!";
             isSuccess = false;
             return;
         }
 
-        newEval.Id = evaluationsList.Any() ? evaluationsList.Max(x => x.Id) + 1 : 1;
-        evaluationsList.Insert(0, newEval);
-        feedbackMessage = $"✅ تم تسجيل محضر فحص الجودة ({newEval.ReportNumber}) بنجاح!";
-        isSuccess = true;
-        isModalOpen = false;
+        isSaving = true;
+        try
+        {
+            evaluationsList.Insert(0, newEval);
+            feedbackMessage = "✅ تم توثيق الفحص المعملي بنجاح!";
+            isSuccess = true;
+            isModalOpen = false;
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
 
     private async Task ExportToExcel()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("رقم التقرير,التاريخ,المورد,الخامة,رقم التشغيلة,نسبة المطابقة,النتيجة,القائم بالفحص");
+        sb.AppendLine("رقم_التقرير,تاريخ_الفحص,الخامة_المفحوصة,درجة_المطابقة,القرار_الفني,المفتش,الملاحظات");
 
         foreach (var item in FilteredEvaluations)
         {
-            sb.AppendLine($"\"{item.ReportNumber}\",\"{item.InspectionDate:yyyy-MM-dd HH:mm}\",\"{item.SupplierName}\",\"{item.ItemName}\",\"{item.BatchNumber}\",{item.ComplianceScore}%,\"{TranslateResult(item.Result)}\",\"{item.InspectedByName}\"");
+            sb.AppendLine($"\"{item.ReportNumber}\",\"{item.InspectionDate:yyyy-MM-dd HH:mm}\",\"{item.ItemName}\",{item.ComplianceScore}%,\"{item.Result}\",\"{item.InspectedByName}\",\"{item.Notes?.Replace(",", " - ")}\"");
         }
 
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
@@ -267,7 +306,7 @@
         var js = $@"
             const link = document.createElement('a');
             link.href = 'data:text/csv;charset=utf-8;base64,{base64}';
-            link.download = 'سجل_تقييم_جودة_الموردين_{DateTime.Now:yyyyMMdd_HHmm}.csv';
+            link.download = 'سجل_الفحص_المعملي_للخامات_{DateTime.Now:yyyyMMdd_HHmm}.csv';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -277,17 +316,21 @@
 
     private string GetResultBadge(string r) => r switch
     {
-        "APPROVED" => "bg-success",
-        "CONDITIONAL" => "bg-warning text-dark",
-        "REJECTED" => "bg-danger",
+        var s when s.Contains("مطابق") || s == "APPROVED" => "bg-success",
+        var s when s.Contains("مشروط") || s == "CONDITIONAL" => "bg-warning text-dark",
+        var s when s.Contains("مرفوض") || s == "REJECTED" => "bg-danger",
         _ => "bg-secondary"
     };
 
-    private string TranslateResult(string r) => r switch
+    public class QualityInspectionViewDto
     {
-        "APPROVED" => "مطابق ومعتمد ✓",
-        "CONDITIONAL" => "قبول مشروط ⚠️",
-        "REJECTED" => "مرفوض تماماً ⛔",
-        _ => r
-    };
+        public long Id { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public DateTime InspectionDate { get; set; }
+        public decimal QualityScore { get; set; }
+        public string Result { get; set; } = string.Empty;
+        public string InspectorName { get; set; } = string.Empty;
+        public string? Notes { get; set; }
+    }
 }

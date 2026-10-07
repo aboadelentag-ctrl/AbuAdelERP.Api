@@ -1,103 +1,233 @@
 ﻿@page "/suppliers"
 @using System.Net.Http.Json
-@using System.Text
-@using System.Text.Json
-@using System.Text.Json.Serialization
-@using System.IO
+@using AbuAdelERP.UI.DTOs
 @inject HttpClient Http
-@inject IJSRuntime JS
 
-<div class="container-fluid px-4 py-3" dir="rtl">
-
-    <!-- رأس الصفحة وأزرار التصدير والاستيراد (مضبوط بدون تداخل) -->
-    <div class="card shadow-sm border-0 mb-3 bg-white border-start border-primary border-4">
-        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <h4 class="mb-1 text-dark fw-bold">🤝 إدارة الموردين واعتماد الجودة</h4>
-                <small class="text-muted">التحكم في الموردين النشطين والمعتمدين لضمان سلامة التوريدات وإصدار أوامر الشراء</small>
-            </div>
-            <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportToExcelAsync">
-                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير إكسيل
-                </button>
-                <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
-                    <i class="bi bi-download me-1"></i> تحميل قالب الإكسيل
-                </button>
-                <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
-                    <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد من إكسيل
-                </button>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="LoadSuppliersAsync">
-                    <i class="bi bi-arrow-clockwise"></i> تحديث البيانات
-                </button>
-            </div>
+<div class="container-fluid py-4" dir="rtl">
+    <!-- رأس الصفحة -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold text-primary mb-1">
+                <i class="bi bi-truck-flatbed me-2"></i>دليل الموردين وسلاسل الإمداد
+            </h3>
+            <p class="text-muted small mb-0">إدارة موردي الخامات ومواد التعبئة، شروط السداد، والبيانات الضريبية</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary px-4 shadow-sm" @onclick="OpenCreateModal">
+                <i class="bi bi-person-plus-fill me-1"></i> تسجيل مورد جديد
+            </button>
+            <button class="btn btn-outline-secondary px-3" @onclick="LoadSuppliers" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
         </div>
     </div>
 
-    <!-- تنبيهات النظام -->
-    @if (!string.IsNullOrEmpty(successMessage))
+    <!-- رسائل التنبيه -->
+    @if (!string.IsNullOrEmpty(statusMessage))
     {
-        <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
-            <i class="bi bi-check-circle me-1"></i> @successMessage
-            <button type="button" class="btn-close py-2" @onclick="() => successMessage = null"></button>
+        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i>@statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
         </div>
     }
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
-            <i class="bi bi-exclamation-triangle me-1"></i> @errorMessage
-            <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
         </div>
     }
 
-    <!-- بطاقة إضافة / تعديل مورد -->
-    <div class="card shadow-sm border-0 border-top border-primary border-3 mb-3 bg-white">
-        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-            <h6 class="mb-0 fw-bold text-primary">
-                @(currentSupplier.Id > 0 ? "✏️ تعديل بيانات مورد" : "➕ إضافة مورد جديد")
-            </h6>
-            @if (currentSupplier.Id > 0)
-            {
-                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" @onclick="ResetForm">إلغاء التعديل</button>
-            }
+    <!-- بطاقات الإحصائيات السريعة -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-primary">
+                <span class="text-muted small fw-bold d-block">إجمالي الموردين المسجلين</span>
+                <h4 class="fw-bold text-dark mb-0">@suppliers.Count</h4>
+            </div>
         </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-success">
+                <span class="text-muted small fw-bold d-block">الموردين النشطين</span>
+                <h4 class="fw-bold text-success mb-0">@suppliers.Count(s => s.Active)</h4>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-warning">
+                <span class="text-muted small fw-bold d-block">موردين آجل (تسهيلات سداد)</span>
+                <h4 class="fw-bold text-warning mb-0">@suppliers.Count(s => s.PaymentTerms != null && s.PaymentTerms.Contains("آجل"))</h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط البحث والفلترة -->
+    <div class="card shadow-sm border-0 rounded-3 mb-4">
         <div class="card-body p-3">
-            <div class="row g-2">
-                <div class="col-md-3">
-                    <label class="form-label small fw-bold text-secondary mb-1">كود المورد <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="مثال: SUP-010"
-                           @bind="currentSupplier.SupplierCode" />
+            <div class="row g-3 align-items-center">
+                <div class="col-md-8">
+                    <input type="text" class="form-control" placeholder="بحث باسم المورد، الكود، الهاتف، أو الرقم الضريبي..." 
+                           @bind="searchTerm" @bind:event="oninput" />
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label small fw-bold text-secondary mb-1">اسم المورد أو الشركة <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control form-control-sm fw-bold" placeholder="اسم الشركة / المصنع المورد"
-                           @bind="currentSupplier.SupplierName" />
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small fw-bold text-secondary mb-1">حد الائتمان (ج.م)</label>
-                    <input type="number" step="100" class="form-control form-control-sm font-monospace"
-                           @bind="currentSupplier.CreditLimit" />
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small fw-bold text-secondary mb-1">رقم الهاتف</label>
-                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="01xxxxxxxxx"
-                           @bind="currentSupplier.Phone" />
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small fw-bold text-secondary mb-1">اعتماد الجودة</label>
-                    <select class="form-select form-select-sm fw-bold" @bind="currentSupplier.QualityStatus">
-                        <option value="تحت التقييم (غير معتمد)">تحت التقييم (غير معتمد)</option>
-                        <option value="مورد معتمد">مورد معتمد</option>
+                <div class="col-md-4">
+                    <select class="form-select" @bind="activeFilter" @bind:after="LoadSuppliers">
+                        <option value="">كافة الموردين (نشط ومعطل)</option>
+                        <option value="true">الموردين النشطين فقط</option>
+                        <option value="false">الموردين المعطلين فقط</option>
                     </select>
                 </div>
+            </div>
+        </div>
+    </div>
 
-                <div class="col-md-10">
-                    <label class="form-label small fw-bold text-secondary mb-1">ملاحظات والتزامات الجودة</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="شهادات الجودة (ISO/HACCP)، أصناف التوريد الأساسية..."
-                           @bind="currentSupplier.QualityNotes" />
+    <!-- جدول الموردين -->
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-body p-0">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="text-muted mt-2 mb-0">جاري تحميل بيانات الموردين...</p>
                 </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <button type="button" class="btn btn-primary btn-sm w-100 fw-bold shadow-sm"
-                            disabled="@isSaving" @onclick="SaveSupplierAsync">
+            }
+            else if (!FilteredSuppliers.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-people fs-1 d-block mb-2"></i>
+                    لا يوجد موردين مطابقين لمعايير البحث.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead class="table-light text-secondary">
+                            <tr>
+                                <th>كود المورد</th>
+                                <th class="text-start ps-3">اسم المورد</th>
+                                <th>الهاتف والتواصل</th>
+                                <th>العنوان</th>
+                                <th>الرقم الضريبي</th>
+                                <th>شروط السداد</th>
+                                <th>الحالة</th>
+                                <th>الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in FilteredSuppliers)
+                            {
+                                <tr>
+                                    <td class="fw-bold font-monospace text-primary">@s.SupplierCode</td>
+                                    <td class="text-start ps-3 fw-bold text-dark">
+                                        @s.SupplierName
+                                        @if (!string.IsNullOrEmpty(s.Notes))
+                                        {
+                                            <div class="small text-muted text-truncate" style="max-width: 200px;">@s.Notes</div>
+                                        }
+                                    </td>
+                                    <td class="small">
+                                        <div><i class="bi bi-telephone me-1 text-muted"></i>@(s.Phone ?? "---")</div>
+                                        @if (!string.IsNullOrEmpty(s.Email))
+                                        {
+                                            <div class="text-muted"><i class="bi bi-envelope me-1"></i>@s.Email</div>
+                                        }
+                                    </td>
+                                    <td class="small text-muted">@(s.Address ?? "---")</td>
+                                    <td class="font-monospace small">@(s.TaxNumber ?? "---")</td>
+                                    <td>
+                                        <span class="badge @(s.PaymentTerms == "نقدي" ? "bg-light text-dark border" : "bg-info text-dark")">
+                                            @(s.PaymentTerms ?? "نقدي")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm @(s.Active ? "btn-outline-success" : "btn-outline-danger")"
+                                                @onclick="() => ToggleSupplierStatus(s.Id)">
+                                            @(s.Active ? "نشط" : "معطل")
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => OpenEditModal(s)" title="تعديل">
+                                            <i class="bi bi-pencil-square"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal: إضافة / تعديل مورد -->
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered" dir="rtl">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold">
+                        <i class="bi @(editingId > 0 ? "bi-pencil-square" : "bi-person-plus-fill") me-2"></i>
+                        @(editingId > 0 ? "تعديل بيانات مورد" : "تسجيل مورد جديد")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(modalError))
+                    {
+                        <div class="alert alert-danger py-2 small mb-3">@modalError</div>
+                    }
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">اسم المورد / الشركة <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" placeholder="مثال: مطاحن ومضارب الغربية" @bind="currentSupplier.SupplierName" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">كود المورد (اتركه فارغاً للتوليد التلقائي)</label>
+                            <input type="text" class="form-control font-monospace" placeholder="مثال: SUP-0012" @bind="currentSupplier.SupplierCode" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">رقم الهاتف / المحمول</label>
+                            <input type="text" class="form-control" placeholder="01xxxxxxxxx" @bind="currentSupplier.Phone" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">البريد الإلكتروني</label>
+                            <input type="email" class="form-control" placeholder="supplier@domain.com" @bind="currentSupplier.Email" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">الرقم الضريبي</label>
+                            <input type="text" class="form-control font-monospace" placeholder="رقم التسجيل الضريبي" @bind="currentSupplier.TaxNumber" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">شروط السداد المعتمدة</label>
+                            <select class="form-select" @bind="currentSupplier.PaymentTerms">
+                                <option value="نقدي">نقدي عند الاستلام</option>
+                                <option value="آجل 15 يوم">آجل 15 يوم</option>
+                                <option value="آجل 30 يوم">آجل 30 يوم</option>
+                                <option value="آجل 60 يوم">آجل 60 يوم</option>
+                                <option value="دفعة مقدمة">دفعة مقدمة مع التوريد</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold">العنوان ومقر التوريد</label>
+                            <input type="text" class="form-control" placeholder="المحافظة - المركز - العنوان بالتفصيل" @bind="currentSupplier.Address" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold">ملاحظات ومواصفات التوريد</label>
+                            <textarea class="form-control" rows="2" placeholder="أي شروط جودة خاصة، أصناف التوريد، أو بنود الاتفاق..." @bind="currentSupplier.Notes"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch fs-5">
+                                <input class="form-check-input" type="checkbox" id="supplierActiveSwitch" @bind="currentSupplier.Active" />
+                                <label class="form-check-label fs-6 fw-bold ms-2" for="supplierActiveSwitch">المورد نشط ومتاح لأوامر الشراء</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary px-4" @onclick="CloseModal">إلغاء</button>
+                    <button type="button" class="btn btn-success px-4" @onclick="SaveSupplier" disabled="@isSaving">
                         @if (isSaving)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
@@ -105,421 +235,58 @@
                         }
                         else
                         {
-                            <span><i class="bi bi-save me-1"></i> @(currentSupplier.Id > 0 ? "تحديث المورد" : "حفظ المورد")</span>
+                            <i class="bi bi-save me-1"></i>
+                            <span>حفظ المورد</span>
                         }
                     </button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- بطاقات الإحصائيات (KPI Cards) -->
-    <div class="row g-3 mb-3">
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-primary border-4 p-3 bg-white">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <small class="text-muted fw-bold">إجمالي الموردين</small>
-                        <h4 class="mb-0 fw-bold text-dark mt-1">@suppliers.Count</h4>
-                    </div>
-                    <div class="bg-light p-2 rounded-circle border">
-                        <i class="bi bi-people fs-4 text-primary"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-success border-4 p-3 bg-white">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <small class="text-muted fw-bold">الموردين المعتمدين (Approved)</small>
-                        <h4 class="mb-0 fw-bold text-success mt-1">@suppliers.Count(s => s.IsApprovedStatus)</h4>
-                    </div>
-                    <div class="bg-light p-2 rounded-circle border">
-                        <i class="bi bi-shield-check fs-4 text-success"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <small class="text-muted fw-bold">قيد التقييم / غير معتمدين</small>
-                        <h4 class="mb-0 fw-bold text-warning mt-1">@suppliers.Count(s => !s.IsApprovedStatus)</h4>
-                    </div>
-                    <div class="bg-light p-2 rounded-circle border">
-                        <i class="bi bi-hourglass-split fs-4 text-warning"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-danger border-4 p-3 bg-white">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <small class="text-muted fw-bold">موردين موقوفين (غير نشط)</small>
-                        <h4 class="mb-0 fw-bold text-danger mt-1">@suppliers.Count(s => !s.Active)</h4>
-                    </div>
-                    <div class="bg-light p-2 rounded-circle border">
-                        <i class="bi bi-slash-circle fs-4 text-danger"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- شريط الفلاتر المتقدمة الشامل -->
-    <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
-        <div class="card-body p-3">
-            <div class="row g-2 align-items-center">
-
-                <div class="col-md-5">
-                    <label class="form-label small fw-bold text-secondary mb-1">🔍 بحث سريع (اسم، كود، أو هاتف)</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="اكتب اسم المورد، الكود، أو رقم الهاتف..."
-                           @bind="searchTerm" @bind:event="oninput" />
-                </div>
-
-                <div class="col-md-3">
-                    <label class="form-label small fw-bold text-secondary mb-1">🎖️ اعتماد الجودة</label>
-                    <select class="form-select form-select-sm" @bind="selectedApprovalFilter">
-                        <option value="all">-- كل الموردين --</option>
-                        <option value="approved">🛡️ مورد معتمد فقط</option>
-                        <option value="pending">⏳ قيد التقييم / غير معتمد</option>
-                    </select>
-                </div>
-
-                <div class="col-md-3">
-                    <label class="form-label small fw-bold text-secondary mb-1">⚡ حالة التعامل</label>
-                    <select class="form-select form-select-sm" @bind="selectedStatusFilter">
-                        <option value="all">كل الحالات</option>
-                        <option value="active">🟢 نشط فقط</option>
-                        <option value="inactive">🔴 موقوف</option>
-                    </select>
-                </div>
-
-                <div class="col-md-1 d-flex align-items-end">
-                    <button class="btn btn-outline-danger btn-sm w-100" title="تفريغ الفلاتر" @onclick="ResetFilters">✕</button>
-                </div>
-
-            </div>
-
-            @if (HasActiveFilters)
-            {
-                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
-                    <span class="small text-primary fw-bold">
-                        <i class="bi bi-funnel-fill me-1"></i> نتائج التصفية: (@FilteredSuppliers.Count() من إجمالي @suppliers.Count مورد)
-                    </span>
-                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-bold" style="font-size: 0.78rem;" @onclick="ResetFilters">
-                        ✕ إلغاء الفلاتر وعرض الكل
-                    </button>
-                </div>
-            }
-        </div>
-    </div>
-
-    <!-- جدول سجل الموردين -->
-    <div class="card shadow-sm border-0">
-        <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
-            <span class="small fw-bold">📋 سجل الموردين</span>
-            <span class="badge bg-primary">المعروض: @FilteredSuppliers.Count() مورد</span>
-        </div>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0 text-center small">
-                <thead class="table-light">
-                    <tr>
-                        <th style="width: 100px;">الكود</th>
-                        <th class="text-start">اسم المورد</th>
-                        <th>الهاتف</th>
-                        <th>حد الائتمان</th>
-                        <th>حالة التعامل</th>
-                        <th>اعتماد الجودة</th>
-                        <th>الملاحظات</th>
-                        <th style="width: 240px;">إجراءات سريعة</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (isLoading)
-                    {
-                        <tr>
-                            <td colspan="8" class="py-4 text-muted">
-                                <div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري تحميل سجل الموردين...
-                            </td>
-                        </tr>
-                    }
-                    else if (!FilteredSuppliers.Any())
-                    {
-                        <tr>
-                            <td colspan="8" class="py-4 text-muted">
-                                <i class="bi bi-search fs-3 d-block mb-2 text-secondary"></i>
-                                لا يوجد موردين مطابقين لشروط البحث والفلترة المحددة.
-                                <div class="mt-2">
-                                    <button class="btn btn-sm btn-outline-primary" @onclick="ResetFilters">إعادة ضبط الفلاتر</button>
-                                </div>
-                            </td>
-                        </tr>
-                    }
-                    else
-                    {
-                        @foreach (var sup in FilteredSuppliers)
-                        {
-                            <tr class="@(sup.Id == currentSupplier.Id ? "table-primary" : "")" @key="sup.Id">
-                                <td class="font-monospace fw-bold text-secondary">@sup.SupplierCode</td>
-                                <td class="text-start fw-bold text-dark">@sup.SupplierName</td>
-                                <td class="font-monospace text-muted">@(!string.IsNullOrEmpty(sup.Phone) ? sup.Phone : "-")</td>
-                                <td class="font-monospace fw-bold">@sup.CreditLimit.ToString("N2") ج.م</td>
-                                <td>
-                                    <span class="badge @(sup.Active ? "bg-success" : "bg-danger")">
-                                        @(sup.Active ? "نشط" : "موقوف")
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="badge @(sup.IsApprovedStatus ? "bg-primary" : "bg-warning text-dark")">
-                                        @(sup.IsApprovedStatus ? "مورد معتمد" : "غير معتمد")
-                                    </span>
-                                </td>
-                                <td class="text-muted text-truncate" style="max-width: 180px;">
-                                    @(string.IsNullOrEmpty(sup.QualityNotes) ? "-" : sup.QualityNotes)
-                                </td>
-                                <td>
-                                    <button class="btn btn-outline-primary btn-sm py-0 px-2 fw-bold me-1" @onclick="() => EditSupplier(sup)">
-                                        تعديل
-                                    </button>
-
-                                    <button class="btn btn-outline-@(sup.IsApprovedStatus ? "warning text-dark" : "info") btn-sm py-0 px-2 fw-bold me-1"
-                                            @onclick="() => ToggleApprovalStatus(sup)">
-                                        @(sup.IsApprovedStatus ? "إلغاء الاعتماد" : "اعتماد المورد")
-                                    </button>
-
-                                    <button class="btn btn-outline-@(sup.Active ? "danger" : "success") btn-sm py-0 px-2 fw-bold me-1"
-                                            @onclick="() => ToggleActiveStatus(sup)">
-                                        @(sup.Active ? "إيقاف" : "تنشيط")
-                                    </button>
-
-                                    <button class="btn btn-outline-danger btn-sm py-0 px-2 fw-bold" @onclick="() => DeleteSupplierAsync(sup)">
-                                        حذف
-                                    </button>
-                                </td>
-                            </tr>
-                        }
-                    }
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- نافذة استيراد الموردين من ملف إكسيل -->
-@if (isImportModalOpen)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content shadow-lg border-0" dir="rtl">
-
-                <div class="modal-header bg-success text-white py-2 px-3">
-                    <h5 class="modal-title fw-bold fs-6">
-                        <i class="bi bi-file-earmark-excel me-1"></i> استيراد سجل الموردين من ملف إكسيل
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="CloseImportModal"></button>
-                </div>
-
-                <div class="modal-body p-3">
-                    <div class="alert alert-info py-2 small mb-3">
-                        <i class="bi bi-info-circle me-1"></i>
-                        يمكنك حفظ شيت الإكسيل بصيغة <strong>CSV (UTF-8)</strong> ثم رفعه هنا مباشرة.
-                        يقوم النظام بالتحقق من كود أو اسم المورد لمنع التكرار وتحديث البيانات السابقة آلياً.
-                    </div>
-
-                    <div class="mb-3 p-3 border rounded bg-light">
-                        <label class="form-label small fw-bold text-dark">اختر ملف الإكسيل / CSV من جهازك:</label>
-                        <InputFile OnChange="HandleFileSelected" accept=".csv, text/csv" class="form-control form-control-sm" />
-                    </div>
-
-                    @if (importedPreviewList.Any())
-                    {
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="small fw-bold text-dark">معاينة الموردين المقروءة من الملف (@importedPreviewList.Count مورد):</span>
-                            <span class="badge bg-success">جاهز للاستيراد</span>
-                        </div>
-                        <div class="table-responsive" style="max-height: 250px;">
-                            <table class="table table-bordered table-sm align-middle text-center small mb-0">
-                                <thead class="table-secondary">
-                                    <tr>
-                                        <th>الكود</th>
-                                        <th class="text-start">اسم المورد</th>
-                                        <th>الهاتف</th>
-                                        <th>حد الائتمان</th>
-                                        <th>اعتماد الجودة</th>
-                                        <th>الحالة</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var row in importedPreviewList)
-                                    {
-                                        <tr>
-                                            <td class="font-monospace fw-bold">@row.SupplierCode</td>
-                                            <td class="text-start fw-bold">@row.SupplierName</td>
-                                            <td class="font-monospace">@row.Phone</td>
-                                            <td class="font-monospace">@row.CreditLimit.ToString("N2")</td>
-                                            <td>
-                                                <span class="badge @(row.IsApproved ? "bg-primary" : "bg-warning text-dark")">
-                                                    @(row.IsApproved ? "مورد معتمد" : "غير معتمد")
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span class="badge @(row.Active ? "bg-success" : "bg-danger")">
-                                                    @(row.Active ? "نشط" : "موقوف")
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                </div>
-
-                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
-                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
-                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm"
-                            disabled="@(isSavingImport || !importedPreviewList.Any())"
-                            @onclick="ProcessAndSaveImportAsync">
-                        @if (isSavingImport)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                            <span>جاري حفظ وتحديث بيانات الموردين...</span>
-                        }
-                        else
-                        {
-                            <span><i class="bi bi-check-circle"></i> تأكيد واستيراد كافة الموردين (@importedPreviewList.Count)</span>
-                        }
-                    </button>
-                </div>
-
             </div>
         </div>
     </div>
 }
 
 @code {
-    public class SupplierDto
-    {
-        public long Id { get; set; }
-        public long CompanyId { get; set; } = 1;
-
-        [JsonPropertyName("supplierCode")]
-        public string? SupplierCodeProp { get; set; }
-
-        [JsonPropertyName("code")]
-        public string? CodeProp { get; set; }
-
-        [JsonIgnore]
-        public string SupplierCode
-        {
-            get => !string.IsNullOrWhiteSpace(SupplierCodeProp) ? SupplierCodeProp
-                 : (!string.IsNullOrWhiteSpace(CodeProp) ? CodeProp : "");
-            set => SupplierCodeProp = value;
-        }
-
-        [JsonPropertyName("supplierName")]
-        public string? SupplierNameProp { get; set; }
-
-        [JsonPropertyName("name")]
-        public string? NameProp { get; set; }
-
-        [JsonIgnore]
-        public string SupplierName
-        {
-            get => !string.IsNullOrWhiteSpace(SupplierNameProp) ? SupplierNameProp
-                 : (!string.IsNullOrWhiteSpace(NameProp) ? NameProp : "");
-            set => SupplierNameProp = value;
-        }
-
-        public string? Phone { get; set; }
-        public decimal CreditLimit { get; set; } = 0;
-        public bool Active { get; set; } = true;
-
-        [JsonPropertyName("isApproved")]
-        public bool? IsApproved { get; set; }
-
-        [JsonPropertyName("qualityStatus")]
-        public string? QualityStatusProp { get; set; }
-
-        [JsonIgnore]
-        public string QualityStatus
-        {
-            get => !string.IsNullOrWhiteSpace(QualityStatusProp) ? QualityStatusProp
-                 : ((IsApproved.HasValue && IsApproved.Value) ? "مورد معتمد" : "تحت التقييم (غير معتمد)");
-            set
-            {
-                QualityStatusProp = value;
-                IsApproved = value == "مورد معتمد";
-            }
-        }
-
-        [JsonIgnore]
-        public bool IsApprovedStatus => QualityStatus == "مورد معتمد" || (IsApproved.HasValue && IsApproved.Value);
-
-        [JsonPropertyName("qualityNotes")]
-        public string? QualityNotesProp { get; set; }
-
-        [JsonPropertyName("notes")]
-        public string? NotesProp { get; set; }
-
-        [JsonIgnore]
-        public string? QualityNotes
-        {
-            get => !string.IsNullOrWhiteSpace(QualityNotesProp) ? QualityNotesProp : NotesProp;
-            set => QualityNotesProp = value;
-        }
-    }
-
-    public class SupplierImportRowDto
-    {
-        public string SupplierCode { get; set; } = string.Empty;
-        public string SupplierName { get; set; } = string.Empty;
-        public string Phone { get; set; } = string.Empty;
-        public decimal CreditLimit { get; set; } = 0;
-        public bool IsApproved { get; set; } = false;
-        public string QualityNotes { get; set; } = string.Empty;
-        public bool Active { get; set; } = true;
-    }
-
-    private List<SupplierDto> suppliers = new();
-    private SupplierDto currentSupplier = new();
-    private List<SupplierImportRowDto> importedPreviewList = new();
-
-    private string searchTerm = "";
-    private string selectedApprovalFilter = "all";
-    private string selectedStatusFilter = "all";
-
+    private List<SupplierViewDto> suppliers = new();
+    private SupplierCreateUpdateDto currentSupplier = new();
+    private long editingId = 0;
+    private string searchTerm = string.Empty;
+    private string activeFilter = "";
     private bool isLoading = true;
     private bool isSaving = false;
-    private bool isSavingImport = false;
-    private bool isImportModalOpen = false;
-
-    private string? successMessage;
+    private bool showModal = false;
+    private string? statusMessage;
     private string? errorMessage;
+    private string? modalError;
+
+    private IEnumerable<SupplierViewDto> FilteredSuppliers =>
+        string.IsNullOrWhiteSpace(searchTerm)
+            ? suppliers
+            : suppliers.Where(s => (s.SupplierName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                || (s.SupplierCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                || (s.Phone?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                || (s.TaxNumber?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadSuppliersAsync();
+        await LoadSuppliers();
     }
 
-    private async Task LoadSuppliersAsync()
+    private async Task LoadSuppliers()
     {
         isLoading = true;
         errorMessage = null;
         try
         {
-            suppliers = await Http.GetFromJsonAsync<List<SupplierDto>>("api/suppliers") ?? new();
+            string url = "api/suppliers";
+            if (!string.IsNullOrEmpty(activeFilter))
+            {
+                url += $"?active={activeFilter}";
+            }
+            suppliers = await Http.GetFromJsonAsync<List<SupplierViewDto>>(url) ?? new();
         }
         catch (Exception ex)
         {
-            errorMessage = $"تعذر جلب بيانات الموردين: {ex.Message}";
+            errorMessage = $"فشل تحميل الموردين: {ex.Message}";
         }
         finally
         {
@@ -527,133 +294,67 @@
         }
     }
 
-    private bool HasActiveFilters =>
-        !string.IsNullOrWhiteSpace(searchTerm) ||
-        selectedApprovalFilter != "all" ||
-        selectedStatusFilter != "all";
-
-    private void ResetFilters()
+    private void OpenCreateModal()
     {
-        searchTerm = "";
-        selectedApprovalFilter = "all";
-        selectedStatusFilter = "all";
+        editingId = 0;
+        currentSupplier = new SupplierCreateUpdateDto { Active = true, PaymentTerms = "نقدي" };
+        modalError = null;
+        showModal = true;
     }
 
-    private IEnumerable<SupplierDto> FilteredSuppliers
+    private void OpenEditModal(SupplierViewDto item)
     {
-        get
+        editingId = item.Id;
+        currentSupplier = new SupplierCreateUpdateDto
         {
-            var query = suppliers.AsEnumerable();
-
-            if (!string.IsNullOrWhiteSpace(searchTerm))
-            {
-                var term = searchTerm.Trim();
-                query = query.Where(s =>
-                    s.SupplierName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    s.SupplierCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    (!string.IsNullOrEmpty(s.Phone) && s.Phone.Contains(term)));
-            }
-
-            if (selectedApprovalFilter == "approved")
-            {
-                query = query.Where(s => s.IsApprovedStatus);
-            }
-            else if (selectedApprovalFilter == "pending")
-            {
-                query = query.Where(s => !s.IsApprovedStatus);
-            }
-
-            if (selectedStatusFilter == "active")
-            {
-                query = query.Where(s => s.Active);
-            }
-            else if (selectedStatusFilter == "inactive")
-            {
-                query = query.Where(s => !s.Active);
-            }
-
-            return query;
-        }
-    }
-
-    private void EditSupplier(SupplierDto sup)
-    {
-        currentSupplier = new SupplierDto
-        {
-            Id = sup.Id,
-            CompanyId = sup.CompanyId,
-            SupplierCode = sup.SupplierCode,
-            SupplierName = sup.SupplierName,
-            Phone = sup.Phone,
-            CreditLimit = sup.CreditLimit,
-            Active = sup.Active,
-            QualityStatus = sup.QualityStatus,
-            QualityNotes = sup.QualityNotes
+            SupplierCode = item.SupplierCode,
+            SupplierName = item.SupplierName,
+            Phone = item.Phone,
+            Email = item.Email,
+            Address = item.Address,
+            TaxNumber = item.TaxNumber,
+            PaymentTerms = item.PaymentTerms,
+            Active = item.Active,
+            Notes = item.Notes
         };
-        errorMessage = null;
+        modalError = null;
+        showModal = true;
     }
 
-    private void ResetForm()
-    {
-        currentSupplier = new SupplierDto();
-        errorMessage = null;
-    }
+    private void CloseModal() => showModal = false;
 
-    private async Task SaveSupplierAsync()
+    private async Task SaveSupplier()
     {
-        if (string.IsNullOrWhiteSpace(currentSupplier.SupplierName) || string.IsNullOrWhiteSpace(currentSupplier.SupplierCode))
+        if (string.IsNullOrWhiteSpace(currentSupplier.SupplierName))
         {
-            errorMessage = "يرجى كتابة كود المورد واسم الشركة بشكل صحيح.";
+            modalError = "اسم المورد مطلوب.";
             return;
         }
 
         isSaving = true;
-        errorMessage = null;
-
+        modalError = null;
         try
         {
-            var payload = new
-            {
-                Id = currentSupplier.Id,
-                CompanyId = currentSupplier.CompanyId > 0 ? currentSupplier.CompanyId : 1,
-                SupplierCode = currentSupplier.SupplierCode.Trim(),
-                Code = currentSupplier.SupplierCode.Trim(),
-                SupplierName = currentSupplier.SupplierName.Trim(),
-                Name = currentSupplier.SupplierName.Trim(),
-                Phone = currentSupplier.Phone?.Trim(),
-                CreditLimit = currentSupplier.CreditLimit,
-                Active = currentSupplier.Active,
-                IsApproved = currentSupplier.IsApprovedStatus,
-                QualityStatus = currentSupplier.QualityStatus,
-                QualityNotes = currentSupplier.QualityNotes,
-                Notes = currentSupplier.QualityNotes
-            };
+            HttpResponseMessage response;
+            if (editingId > 0)
+                response = await Http.PutAsJsonAsync($"api/suppliers/{editingId}", currentSupplier);
+            else
+                response = await Http.PostAsJsonAsync("api/suppliers", currentSupplier);
 
-            HttpResponseMessage res;
-            if (currentSupplier.Id > 0)
+            if (response.IsSuccessStatusCode)
             {
-                res = await Http.PutAsJsonAsync($"api/suppliers/{currentSupplier.Id}", payload);
+                statusMessage = editingId > 0 ? "تم تحديث بيانات المورد بنجاح." : "تم تسجيل المورد بنجاح.";
+                CloseModal();
+                await LoadSuppliers();
             }
             else
             {
-                res = await Http.PostAsJsonAsync("api/suppliers", payload);
-            }
-
-            if (res.IsSuccessStatusCode)
-            {
-                successMessage = currentSupplier.Id > 0 ? "تم تحديث بيانات المورد بنجاح." : "تم تسجيل المورد الجديد بنجاح.";
-                ResetForm();
-                await LoadSuppliersAsync();
-            }
-            else
-            {
-                var err = await res.Content.ReadAsStringAsync();
-                errorMessage = $"فشل الحفظ: {err}";
+                modalError = await response.Content.ReadAsStringAsync();
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"خطأ في الاتصال: {ex.Message}";
+            modalError = $"خطأ: {ex.Message}";
         }
         finally
         {
@@ -661,329 +362,21 @@
         }
     }
 
-    private async Task ToggleApprovalStatus(SupplierDto sup)
+    private async Task ToggleSupplierStatus(long id)
     {
-        var newStatus = sup.IsApprovedStatus ? "تحت التقييم (غير معتمد)" : "مورد معتمد";
         try
         {
-            var payload = new
+            var response = await Http.PatchAsync($"api/suppliers/{id}/toggle-status", null);
+            if (response.IsSuccessStatusCode)
             {
-                Id = sup.Id,
-                SupplierCode = sup.SupplierCode,
-                SupplierName = sup.SupplierName,
-                Phone = sup.Phone,
-                CreditLimit = sup.CreditLimit,
-                Active = sup.Active,
-                IsApproved = !sup.IsApprovedStatus,
-                QualityStatus = newStatus,
-                QualityNotes = sup.QualityNotes
-            };
-
-            var res = await Http.PutAsJsonAsync($"api/suppliers/{sup.Id}", payload);
-            if (res.IsSuccessStatusCode)
-            {
-                sup.QualityStatus = newStatus;
-                successMessage = $"تم تحديث حالة اعتماد المورد ({sup.SupplierName}) إلى: {newStatus}";
+                var s = suppliers.FirstOrDefault(x => x.Id == id);
+                if (s != null) s.Active = !s.Active;
+                statusMessage = "تم تحديث حالة المورد.";
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"تعذر تعديل الاعتماد: {ex.Message}";
-        }
-    }
-
-    private async Task ToggleActiveStatus(SupplierDto sup)
-    {
-        sup.Active = !sup.Active;
-        try
-        {
-            var payload = new
-            {
-                Id = sup.Id,
-                SupplierCode = sup.SupplierCode,
-                SupplierName = sup.SupplierName,
-                Phone = sup.Phone,
-                CreditLimit = sup.CreditLimit,
-                Active = sup.Active,
-                IsApproved = sup.IsApprovedStatus,
-                QualityStatus = sup.QualityStatus,
-                QualityNotes = sup.QualityNotes
-            };
-
-            var res = await Http.PutAsJsonAsync($"api/suppliers/{sup.Id}", payload);
-            if (res.IsSuccessStatusCode)
-            {
-                successMessage = $"تم تغيير حالة المورد ({sup.SupplierName}) إلى: {(sup.Active ? "نشط" : "موقوف")}";
-            }
-            else
-            {
-                sup.Active = !sup.Active;
-            }
-        }
-        catch (Exception ex)
-        {
-            sup.Active = !sup.Active;
-            errorMessage = $"تعذر تعديل الحالة: {ex.Message}";
-        }
-    }
-
-    // دالة الحذف المحصنة بدقة
-    private async Task DeleteSupplierAsync(SupplierDto sup)
-    {
-        bool confirm = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف المورد ({sup.SupplierName}) نهائياً من قاعدة البيانات؟");
-        if (!confirm) return;
-
-        try
-        {
-            var res = await Http.DeleteAsync($"api/suppliers/{sup.Id}");
-            if (res.IsSuccessStatusCode)
-            {
-                suppliers.RemoveAll(s => s.Id == sup.Id);
-                successMessage = $"تم حذف المورد ({sup.SupplierName}) بنجاح.";
-                errorMessage = null;
-                StateHasChanged();
-            }
-            else
-            {
-                var err = await res.Content.ReadAsStringAsync();
-                if (string.IsNullOrWhiteSpace(err))
-                {
-                    err = $"كود الخطأ ({res.StatusCode}) - يرجى التأكد من إضافة مسار الحذف في كود السيرفر SuppliersController.cs";
-                }
-                errorMessage = $"تعذر الحذف: {err}";
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"خطأ أثناء محاولة الحذف: {ex.Message}";
-        }
-    }
-
-    private async Task ExportToExcelAsync()
-    {
-        var listToExport = FilteredSuppliers.ToList();
-        if (!listToExport.Any())
-        {
-            errorMessage = "لا يوجد موردين مطابقين لتصديرهم.";
-            return;
-        }
-
-        try
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine("كود_المورد,اسم_المورد,الهاتف,حد_الائتمان,حالة_التعامل,اعتماد_الجودة,الملاحظات");
-
-            foreach (var s in listToExport)
-            {
-                var activeStr = s.Active ? "نشط" : "موقوف";
-                var approvalStr = s.IsApprovedStatus ? "مورد معتمد" : "غير معتمد";
-                var notes = (s.QualityNotes ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
-                sb.AppendLine($"{EscapeCsv(s.SupplierCode)},{EscapeCsv(s.SupplierName)},{EscapeCsv(s.Phone ?? "")},{s.CreditLimit},{activeStr},{approvalStr},{EscapeCsv(notes)}");
-            }
-
-            var fileName = $"سجل_الموردين_أبو_عادل_{DateTime.Now:yyyyMMdd_HHmm}.csv";
-            await TriggerBrowserDownload(fileName, sb.ToString());
-            successMessage = $"تم تصدير ({listToExport.Count}) مورد إلى إكسيل بنجاح.";
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"حدث خطأ أثناء التصدير: {ex.Message}";
-        }
-    }
-
-    private async Task DownloadTemplateAsync()
-    {
-        try
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine("كود_المورد,اسم_المورد,الهاتف,حد_الائتمان,اعتماد_الجودة,الملاحظات,الحالة");
-            sb.AppendLine("SUP-001,شركة النيل للخامات الغذائية,01012345678,50000,مورد معتمد,شهادة ISO 22000 وسجل تجاري معتمد,1");
-            sb.AppendLine("SUP-002,مؤسسة الأهرام لمواد التعبئة,01198765432,25000,تحت التقييم,مورد كراتين وأكياس,1");
-
-            var fileName = "قالب_استيراد_الموردين_أبو_عادل.csv";
-            await TriggerBrowserDownload(fileName, sb.ToString());
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"فشل تحميل القالب: {ex.Message}";
-        }
-    }
-
-    private async Task TriggerBrowserDownload(string fileName, string content)
-    {
-        var utf8WithBom = "\uFEFF" + content;
-        var jsCommand = $@"
-            const a = document.createElement('a');
-            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(`{utf8WithBom}`);
-            a.download = '{fileName}';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        ";
-        await JS.InvokeVoidAsync("eval", jsCommand);
-    }
-
-    private string EscapeCsv(string val)
-    {
-        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
-        {
-            return $"\"{val.Replace("\"", "\"\"")}\"";
-        }
-        return val;
-    }
-
-    private void OpenImportModal()
-    {
-        importedPreviewList.Clear();
-        errorMessage = null;
-        isImportModalOpen = true;
-    }
-
-    private void CloseImportModal()
-    {
-        isImportModalOpen = false;
-        importedPreviewList.Clear();
-    }
-
-    private async Task HandleFileSelected(InputFileChangeEventArgs e)
-    {
-        importedPreviewList.Clear();
-        errorMessage = null;
-
-        var file = e.File;
-        if (file == null) return;
-
-        try
-        {
-            using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024), Encoding.UTF8);
-            var content = await reader.ReadToEndAsync();
-            var lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-            if (lines.Length <= 1)
-            {
-                errorMessage = "الملف فارغ أو لا يحتوي على صفوف بيانات.";
-                return;
-            }
-
-            for (int i = 1; i < lines.Length; i++)
-            {
-                var line = lines[i].Trim();
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                var cols = ParseCsvLine(line);
-                if (cols.Count >= 2)
-                {
-                    decimal.TryParse(cols.Count > 3 ? cols[3].Trim() : "0", out var credit);
-
-                    var approvalStr = cols.Count > 4 ? cols[4].Trim() : "";
-                    bool isApp = approvalStr.Contains("معتمد") && !approvalStr.Contains("غير");
-
-                    var activeStr = cols.Count > 6 ? cols[6].Trim() : "1";
-                    bool isActive = activeStr == "1" || activeStr.Equals("نشط", StringComparison.OrdinalIgnoreCase) || activeStr.Equals("true", StringComparison.OrdinalIgnoreCase);
-
-                    importedPreviewList.Add(new SupplierImportRowDto
-                    {
-                        SupplierCode = cols[0].Trim(),
-                        SupplierName = cols[1].Trim(),
-                        Phone = cols.Count > 2 ? cols[2].Trim() : "",
-                        CreditLimit = credit,
-                        IsApproved = isApp,
-                        QualityNotes = cols.Count > 5 ? cols[5].Trim() : "",
-                        Active = isActive
-                    });
-                }
-            }
-
-            if (!importedPreviewList.Any())
-            {
-                errorMessage = "تعذر استخراج بيانات الموردين من الملف.";
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"فشل قراءة الملف: {ex.Message}";
-        }
-    }
-
-    private List<string> ParseCsvLine(string line)
-    {
-        var result = new List<string>();
-        bool inQuotes = false;
-        var curVal = new StringBuilder();
-
-        foreach (char c in line)
-        {
-            if (c == '\"') inQuotes = !inQuotes;
-            else if (c == ',' && !inQuotes)
-            {
-                result.Add(curVal.ToString());
-                curVal.Clear();
-            }
-            else curVal.Append(c);
-        }
-        result.Add(curVal.ToString());
-        return result;
-    }
-
-    private async Task ProcessAndSaveImportAsync()
-    {
-        if (!importedPreviewList.Any()) return;
-
-        isSavingImport = true;
-        errorMessage = null;
-
-        try
-        {
-            int updatedCount = 0;
-            int createdCount = 0;
-
-            foreach (var row in importedPreviewList)
-            {
-                var existing = suppliers.FirstOrDefault(s =>
-                    s.SupplierCode.Equals(row.SupplierCode, StringComparison.OrdinalIgnoreCase) ||
-                    s.SupplierName.Equals(row.SupplierName, StringComparison.OrdinalIgnoreCase));
-
-                var payload = new
-                {
-                    Id = existing?.Id ?? 0,
-                    CompanyId = 1,
-                    SupplierCode = row.SupplierCode,
-                    Code = row.SupplierCode,
-                    SupplierName = row.SupplierName,
-                    Name = row.SupplierName,
-                    Phone = row.Phone,
-                    CreditLimit = row.CreditLimit,
-                    Active = row.Active,
-                    IsApproved = row.IsApproved,
-                    QualityStatus = row.IsApproved ? "مورد معتمد" : "تحت التقييم (غير معتمد)",
-                    QualityNotes = row.QualityNotes,
-                    Notes = row.QualityNotes
-                };
-
-                HttpResponseMessage res;
-                if (existing != null)
-                {
-                    res = await Http.PutAsJsonAsync($"api/suppliers/{existing.Id}", payload);
-                    if (res.IsSuccessStatusCode) updatedCount++;
-                }
-                else
-                {
-                    res = await Http.PostAsJsonAsync("api/suppliers", payload);
-                    if (res.IsSuccessStatusCode) createdCount++;
-                }
-            }
-
-            successMessage = $"اكتملت المعالجة: تم تحديث ({updatedCount}) وإضافة ({createdCount}) مورد جديد بنجاح.";
-            CloseImportModal();
-            await LoadSuppliersAsync();
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"خطأ أثناء حفظ الموردين: {ex.Message}";
-        }
-        finally
-        {
-            isSavingImport = false;
+            errorMessage = $"فشل تغيير الحالة: {ex.Message}";
         }
     }
 }

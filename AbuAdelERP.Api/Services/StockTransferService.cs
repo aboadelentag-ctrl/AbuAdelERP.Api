@@ -35,12 +35,13 @@ namespace AbuAdelERP.Api.Services
         {
             var warehouses = await _context.Warehouses
                 .AsNoTracking()
-                .Where(w => !w.WarehouseName.Contains("إدارة")
-                         && !w.WarehouseName.Contains("العليا")
-                         && !w.WarehouseName.Contains("المالية")
-                         && !w.WarehouseName.Contains("الموارد")
-                         && !w.WarehouseName.Contains("المشتريات")
-                         && !w.WarehouseName.Contains("المبيعات"))
+                .Where(w => w.Active &&
+                           !w.WarehouseName.Contains("إدارة") &&
+                           !w.WarehouseName.Contains("العليا") &&
+                           !w.WarehouseName.Contains("المالية") &&
+                           !w.WarehouseName.Contains("الموارد") &&
+                           !w.WarehouseName.Contains("المشتريات") &&
+                           !w.WarehouseName.Contains("المبيعات"))
                 .OrderBy(w => w.WarehouseName)
                 .Select(w => new TransferWarehouseLookupDto
                 {
@@ -58,7 +59,7 @@ namespace AbuAdelERP.Api.Services
                     Id = i.Id,
                     ItemCode = i.ItemCode,
                     ItemName = i.ItemName,
-                    Unit = i.Unit,
+                    Unit = i.Unit ?? "وحدة",
                     ItemType = i.ItemType
                 })
                 .ToListAsync();
@@ -120,7 +121,10 @@ namespace AbuAdelERP.Api.Services
             var receipts = await _context.StockMovements
                 .AsNoTracking()
                 .Where(m => m.ItemId == itemId && m.WarehouseId == warehouseId &&
-                           (m.MovementType == "PURCHASE_RECEIPT" || m.MovementType == "TRANSFER_IN" || m.MovementType == "PRODUCTION_IN" || m.MovementType == "PRODUCTION_RECEIPT"))
+                           (m.MovementType == "PURCHASE_RECEIPT" ||
+                            m.MovementType == "TRANSFER_IN" ||
+                            m.MovementType == "PRODUCTION_IN" ||
+                            m.MovementType == "PRODUCTION_RECEIPT"))
                 .OrderBy(m => m.MovementAt)
                 .ToListAsync();
 
@@ -132,6 +136,14 @@ namespace AbuAdelERP.Api.Services
                 if (string.IsNullOrWhiteSpace(batch))
                 {
                     batch = ExtractValue(r.Notes, "تشغيلة/تتبع:", "|");
+                }
+                if (string.IsNullOrWhiteSpace(batch))
+                {
+                    batch = ExtractValue(r.Notes, "لوط:", "|");
+                }
+                if (string.IsNullOrWhiteSpace(batch))
+                {
+                    batch = ExtractValue(r.Notes, "LOT:", "|");
                 }
 
                 string expStr = ExtractValue(r.Notes, "صلاحية:", "|");
@@ -210,15 +222,18 @@ namespace AbuAdelERP.Api.Services
 
                 foreach (var lineDto in dto.Lines.Where(l => l.ItemId > 0 && l.DispatchedQty > 0))
                 {
+                    var item = await _context.Items.FindAsync(lineDto.ItemId);
+                    decimal cost = lineDto.UnitCost > 0 ? lineDto.UnitCost : (item?.BasePrice ?? 0m);
+
                     var line = new StockTransferLine
                     {
                         TransferId = transfer.Id,
                         ItemId = lineDto.ItemId,
                         Quantity = lineDto.DispatchedQty,
                         ReceivedQuantity = 0,
-                        BatchNumber = !string.IsNullOrWhiteSpace(lineDto.BatchNumber) ? lineDto.BatchNumber.Trim() : "لوط افتراضي",
+                        BatchNumber = !string.IsNullOrWhiteSpace(lineDto.BatchNumber) ? lineDto.BatchNumber.Trim() : $"LOT-{now:yyyyMMdd}-{lineDto.ItemId}",
                         ExpiryDate = lineDto.ExpiryDate.HasValue ? DateTime.SpecifyKind(lineDto.ExpiryDate.Value.Date, DateTimeKind.Utc) : null,
-                        UnitCost = lineDto.UnitCost,
+                        UnitCost = cost,
                         LineStatus = "PENDING",
                         LossQty = 0,
                         CreatedAt = now
@@ -256,8 +271,8 @@ namespace AbuAdelERP.Api.Services
                         ItemId = lineDto.ItemId,
                         WarehouseId = dto.FromWarehouseId,
                         MovementType = "TRANSFER_OUT",
-                        Quantity = lineDto.DispatchedQty,
-                        UnitCost = lineDto.UnitCost,
+                        Quantity = -lineDto.DispatchedQty,
+                        UnitCost = cost,
                         ReferenceType = "STOCK_TRANSFER",
                         ReferenceId = transfer.Id,
                         MovementAt = now,
@@ -371,6 +386,9 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
+        // ========================================================
+        // 8. إتمام ترصيد الاستلام والتسويات في المستودع المستلم
+        // ========================================================
         private async Task FinalizeTransferReceiptAsync(StockTransfer transfer)
         {
             transfer.Status = "COMPLETED";
@@ -433,7 +451,7 @@ namespace AbuAdelERP.Api.Services
                         ItemId = line.ItemId,
                         WarehouseId = transfer.FromWarehouseId,
                         MovementType = "TRANSFER_LOSS",
-                        Quantity = line.LossQty,
+                        Quantity = -line.LossQty,
                         UnitCost = line.UnitCost,
                         ReferenceType = "STOCK_TRANSFER",
                         ReferenceId = transfer.Id,

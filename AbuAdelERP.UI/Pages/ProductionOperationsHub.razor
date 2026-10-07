@@ -382,7 +382,7 @@
                 @if (State.HasAnyPermission("Productivity.Entry", "Productivity.Manage", "Production.OperationsHub"))
                 {
                     <button class="btn btn-warning text-dark btn-sm fw-bold px-4 shadow-sm" disabled="@isSubmittingShift" @onclick="SubmitShiftAndProductivity">
-                        @(isSubmittingShift ? "⏳ جاري الاعتماد والترصيد..." : "⏱️️ اعتماد وإنهاء الوردية واحتساب معدل الإنتاجية بالساعة")
+                        @(isSubmittingShift ? "⏳ جاري الاعتماد والترصيد..." : "⏱ اعتماد وإنهاء الوردية واحتساب معدل الإنتاجية بالساعة")
                     </button>
                 }
             </div>
@@ -855,7 +855,6 @@
         await LoadAllReportsData();
     }
 
-    // تهيئة التبويب الافتراضي حسب صلاحية المستخدم
     private void InitializeDefaultActiveTab()
     {
         if (State.HasAnyPermission("Production.OrdersView", "Production.OperationsHub")) activeTab = "orders";
@@ -1198,14 +1197,19 @@
                     BatchNumber = i.BatchNumber,
                     NormalScrapQuantity = i.NormalScrapQuantity,
                     AbnormalScrapQuantity = i.AbnormalScrapQuantity,
-                    ScrapReason = i.ScrapReason
+                    ScrapReason = i.ScrapReason,
+                    Materials = i.Materials.Select(m => new
+                    {
+                        ComponentItemId = m.ComponentItemId,
+                        ActualConsumedQuantity = m.ActualConsumedQuantity
+                    }).ToList()
                 }).ToList()
             };
 
             var res = await Http.PostAsJsonAsync("api/productionoperations/finalize-order-complete", payload);
             if (res.IsSuccessStatusCode)
             {
-                statusMessage = "✅ تم تقفيل واعتماد جميع أصناف الأمر وترصيد اللوطات والهالك بنجاح!";
+                statusMessage = "✅ تم تقفيل واعتماد جميع أصناف الأمر وترصيد اللوطات وخصم الخامات المستهلكة بنجاح!";
                 isSuccess = true;
                 currentExecutionOrder = null;
                 selectedExecutionOrderId = 0;
@@ -1364,7 +1368,7 @@
     public class NewOrderItemLine { public long ItemId { get; set; } public string ItemName { get; set; } = ""; public decimal PlannedQuantity { get; set; } public string Unit { get; set; } = ""; }
     public class OrderExecutionFullDto { public long Id { get; set; } public string OrderNumber { get; set; } = ""; public List<ExecutionItemDetailDto> Items { get; set; } = new(); }
     public class ExecutionItemDetailDto { public long DetailId { get; set; } public string ItemCode { get; set; } = ""; public string ItemName { get; set; } = ""; public string Unit { get; set; } = ""; public decimal PlannedQuantity { get; set; } public decimal ProducedQuantity { get; set; } public decimal NormalScrapQuantity { get; set; } public decimal AbnormalScrapQuantity { get; set; } public string ScrapReason { get; set; } = ""; public string BatchNumber { get; set; } = ""; public string Status { get; set; } = ""; public List<ExecutionMaterialItemDto> Materials { get; set; } = new(); }
-    public class ExecutionMaterialItemDto { public string ComponentCode { get; set; } = ""; public string ComponentName { get; set; } = ""; public string Unit { get; set; } = ""; public decimal RequiredQuantity { get; set; } public decimal ActualConsumedQuantity { get; set; } }
+    public class ExecutionMaterialItemDto { public long ComponentItemId { get; set; } public string ComponentCode { get; set; } = ""; public string ComponentName { get; set; } = ""; public string Unit { get; set; } = ""; public decimal RequiredQuantity { get; set; } public decimal ActualConsumedQuantity { get; set; } }
     public class ShiftCrewMemberDto { public long EmployeeId { get; set; } public string EmployeeCode { get; set; } = ""; public string EmployeeName { get; set; } = ""; public long? DepartmentId { get; set; } public string DepartmentName { get; set; } = ""; public string JobTitleName { get; set; } = ""; public string AttendanceStatus { get; set; } = "حاضر"; public decimal HoursWorked { get; set; } = 8; }
     public class BatchCostReq { public long ProductionOrderId { get; set; } public decimal LaborCostPerHour { get; set; } = 50; public decimal OverheadCost { get; set; } = 0; }
     public class CostResultDto { public decimal TotalBatchCost { get; set; } public decimal UnitCost { get; set; } public decimal ProducedQuantity { get; set; } public decimal ActualHoursWorked { get; set; } }

@@ -20,7 +20,103 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 1. جلب الأرصدة الحالية لجميع الأصناف موزعة على المخازن
+        // 1. ملخص مؤشرات القيادة التنفيذية والتقييم المالي للمخزون
+        // ==============================================================
+        [HttpGet("dashboard-summary")]
+        public async Task<IActionResult> GetDashboardSummary()
+        {
+            try
+            {
+                var balances = await _context.StockBalances
+                    .Include(b => b.Item)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                decimal totalValuation = 0m;
+                decimal rawMaterialsValuation = 0m;
+                decimal wipValuation = 0m;
+                decimal finishedGoodsValuation = 0m;
+                int lowStockCount = 0;
+                int outOfStockCount = 0;
+
+                foreach (var b in balances)
+                {
+                    decimal price = b.Item?.BasePrice ?? 0m;
+                    decimal qty = b.Quantity > 0 ? b.Quantity : 0m;
+                    decimal lineVal = qty * price;
+                    totalValuation += lineVal;
+
+                    string itemType = b.Item?.ItemType ?? "خامات";
+                    if (itemType.Contains("خام"))
+                        rawMaterialsValuation += lineVal;
+                    else if (itemType.Contains("نصف") || itemType.Contains("وسيط") || itemType.Contains("عجين"))
+                        wipValuation += lineVal;
+                    else
+                        finishedGoodsValuation += lineVal;
+
+                    decimal available = b.Quantity - b.ReservedQuantity;
+                    if (b.Item != null && b.Item.ReorderLevel > 0 && available <= b.Item.ReorderLevel && available > 0)
+                        lowStockCount++;
+
+                    if (available <= 0)
+                        outOfStockCount++;
+                }
+
+                // فحص اللوطات المهددة بانتهاء الصلاحية خلال 45 يوماً
+                var today = DateTime.UtcNow.Date;
+                var thresholdDate = today.AddDays(45);
+
+                var recentMovements = await _context.StockMovements
+                    .AsNoTracking()
+                    .Where(m => m.Notes != null && m.Notes.Contains("صلاحية:"))
+                    .OrderByDescending(m => m.MovementAt)
+                    .Take(500)
+                    .Select(m => m.Notes)
+                    .ToListAsync();
+
+                int expiringLotsCount = 0;
+                var checkedBatches = new HashSet<string>();
+
+                foreach (var note in recentMovements)
+                {
+                    if (string.IsNullOrEmpty(note)) continue;
+                    string expStr = ExtractValue(note, "صلاحية:", "|");
+                    string batchNo = ExtractValue(note, "تشغيلة:", "|");
+                    if (string.IsNullOrEmpty(batchNo)) batchNo = ExtractValue(note, "لوط:", "|");
+
+                    if (!string.IsNullOrEmpty(expStr) && !string.IsNullOrEmpty(batchNo) && !checkedBatches.Contains(batchNo))
+                    {
+                        checkedBatches.Add(batchNo);
+                        if (DateTime.TryParse(expStr, out DateTime expDate))
+                        {
+                            if (expDate >= today && expDate <= thresholdDate)
+                                expiringLotsCount++;
+                        }
+                    }
+                }
+
+                var summary = new InventoryDashboardSummaryDto
+                {
+                    TotalInventoryValue = Math.Round(totalValuation, 2),
+                    RawMaterialsValue = Math.Round(rawMaterialsValuation, 2),
+                    WipValue = Math.Round(wipValuation, 2),
+                    FinishedGoodsValue = Math.Round(finishedGoodsValuation, 2),
+                    TotalStockRecords = balances.Count,
+                    LowStockCount = lowStockCount,
+                    OutOfStockCount = outOfStockCount,
+                    ExpiringLotsCount = expiringLotsCount
+                };
+
+                return Ok(summary);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في احتساب ملخص لوحة القيادة: {ex.Message}");
+            }
+        }
+
+        // ==============================================================
+        // 2. جلب الأرصدة الحالية لجميع الأصناف موزعة على المخازن
         // ==============================================================
         [HttpGet("balances")]
         public async Task<IActionResult> GetBalances([FromQuery] long? warehouseId = null, [FromQuery] string? search = null)
@@ -57,6 +153,8 @@ namespace AbuAdelERP.Api.Controllers
                         Quantity = b.Quantity,
                         ReservedQuantity = b.ReservedQuantity,
                         AvailableQuantity = b.Quantity - b.ReservedQuantity,
+                        EstimatedUnitCost = b.Item != null ? b.Item.BasePrice : 0m,
+                        TotalValue = (b.Quantity > 0 ? b.Quantity : 0m) * (b.Item != null ? b.Item.BasePrice : 0m),
                         LastUpdatedAt = b.LastUpdatedAt
                     })
                     .ToListAsync();
@@ -70,7 +168,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 2. تحديث وتعديل أرصدة الأصناف (من شيت الجرد أو الاستيراد)
+        // 3. تحديث وتعديل أرصدة الأصناف (من شيت الجرد أو الاستيراد)
         // ==============================================================
         [HttpPost("import-balances")]
         public async Task<IActionResult> ImportBalances([FromBody] List<StockBalanceImportDto> items)
@@ -95,6 +193,7 @@ namespace AbuAdelERP.Api.Controllers
                     if (balance != null)
                     {
                         balance.Quantity = dto.Quantity;
+                        balance.AvailableQuantity = balance.Quantity - balance.ReservedQuantity;
                         balance.LastUpdatedAt = now;
                         updatedCount++;
                     }
@@ -106,13 +205,13 @@ namespace AbuAdelERP.Api.Controllers
                             WarehouseId = dto.WarehouseId,
                             ItemId = dto.ItemId,
                             Quantity = dto.Quantity,
+                            AvailableQuantity = dto.Quantity,
                             ReservedQuantity = 0,
                             LastUpdatedAt = now
                         });
                         createdCount++;
                     }
 
-                    // إثبات حركة جرد / رصيد افتتاحي في كارت الصنف
                     _context.StockMovements.Add(new StockMovement
                     {
                         CompanyId = 1,
@@ -140,21 +239,27 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
-        // 3. جلب بطاقة حركة الصنف (Item Ledger)
+        // ==============================================================
+        // 4. جلب بطاقة حركة الصنف (Item Ledger)
+        // ==============================================================
         [HttpGet("ledger/{itemId}")]
         public async Task<IActionResult> GetItemLedger(long itemId)
         {
             try
             {
                 var movements = await _context.StockMovements
+                    .Include(m => m.Warehouse)
                     .Where(m => m.ItemId == itemId)
                     .OrderByDescending(m => m.MovementAt)
+                    .Take(150)
                     .Select(m => new StockMovementDto
                     {
                         Id = m.Id,
                         MovementDate = m.MovementAt,
                         MovementType = m.MovementType,
+                        WarehouseName = m.Warehouse != null ? m.Warehouse.WarehouseName : "المستودع",
                         Quantity = m.Quantity,
+                        UnitCost = m.UnitCost,
                         ReferenceType = m.ReferenceType,
                         ReferenceId = m.ReferenceId,
                         Notes = m.Notes
@@ -168,6 +273,30 @@ namespace AbuAdelERP.Api.Controllers
                 return BadRequest($"خطأ أثناء جلب حركة الصنف: {ex.Message}");
             }
         }
+
+        private static string ExtractValue(string text, string key, string separator)
+        {
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(key)) return string.Empty;
+            int startIdx = text.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+            if (startIdx == -1) return string.Empty;
+            startIdx += key.Length;
+            if (startIdx >= text.Length) return string.Empty;
+            int endIdx = text.IndexOf(separator, startIdx, StringComparison.OrdinalIgnoreCase);
+            if (endIdx == -1) endIdx = text.Length;
+            return text.Substring(startIdx, endIdx - startIdx).Trim();
+        }
+    }
+
+    public class InventoryDashboardSummaryDto
+    {
+        public decimal TotalInventoryValue { get; set; }
+        public decimal RawMaterialsValue { get; set; }
+        public decimal WipValue { get; set; }
+        public decimal FinishedGoodsValue { get; set; }
+        public int TotalStockRecords { get; set; }
+        public int LowStockCount { get; set; }
+        public int OutOfStockCount { get; set; }
+        public int ExpiringLotsCount { get; set; }
     }
 
     public class StockBalanceDetailedDto
@@ -183,6 +312,8 @@ namespace AbuAdelERP.Api.Controllers
         public decimal Quantity { get; set; }
         public decimal ReservedQuantity { get; set; }
         public decimal AvailableQuantity { get; set; }
+        public decimal EstimatedUnitCost { get; set; }
+        public decimal TotalValue { get; set; }
         public DateTime LastUpdatedAt { get; set; }
     }
 
@@ -199,8 +330,10 @@ namespace AbuAdelERP.Api.Controllers
         public long Id { get; set; }
         public DateTime MovementDate { get; set; }
         public string MovementType { get; set; } = string.Empty;
+        public string WarehouseName { get; set; } = string.Empty;
         public decimal Quantity { get; set; }
-        public string ReferenceType { get; set; } = string.Empty;
+        public decimal UnitCost { get; set; }
+        public string? ReferenceType { get; set; } = string.Empty;
         public long? ReferenceId { get; set; }
         public string? Notes { get; set; }
     }

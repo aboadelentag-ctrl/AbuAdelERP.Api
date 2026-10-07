@@ -1,31 +1,41 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AbuAdelERP.Api.Models;
 
+[Table("branches", Schema = "erp")]
 public partial class Branch
 {
+    [Column("id")]
     public long Id { get; set; }
 
-    public long CompanyId { get; set; }
+    [Column("company_id")]
+    public long CompanyId { get; set; } = 1;
 
-    public string BranchName { get; set; } = null!;
+    [Column("branch_code")]
+    public string BranchCode { get; set; } = string.Empty;
 
-    public string BranchCode { get; set; } = null!;
+    [Column("branch_name")]
+    public string BranchName { get; set; } = string.Empty;
 
-    public string? Phone { get; set; }
-
+    [Column("address")]
     public string? Address { get; set; }
 
-    public bool Active { get; set; }
+    [Column("phone")]
+    public string? Phone { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    [Column("active")]
+    public bool Active { get; set; } = true;
 
-    public DateTime UpdatedAt { get; set; }
+    [Column("created_at")]
+    public DateTime? CreatedAt { get; set; }
 
+    [Column("updated_at")]
+    public DateTime? UpdatedAt { get; set; }
+
+    // العلاقات التي يحتاجها AppDbContext
     public virtual Company Company { get; set; } = null!;
-
     public virtual ICollection<SalesOrder> SalesOrders { get; set; } = new List<SalesOrder>();
-
     public virtual ICollection<Warehouse> Warehouses { get; set; } = new List<Warehouse>();
 }

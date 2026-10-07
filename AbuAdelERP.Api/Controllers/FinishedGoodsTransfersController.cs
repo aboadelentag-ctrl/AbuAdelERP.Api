@@ -1,9 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using AbuAdelERP.Api.DTOs;
-using AbuAdelERP.Api.Services;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using AbuAdelERP.Api.DTOs;
+using AbuAdelERP.Api.Services;
 
 namespace AbuAdelERP.Api.Controllers
 {
@@ -65,7 +65,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"تعذر إنشاء إذن التحويل: {ex.Message}");
+                return BadRequest($"تعذر إنشاء إذن التحويل: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
@@ -82,7 +82,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء تدقيق ميزان التكاليف: {ex.Message}");
+                return BadRequest($"خطأ أثناء تدقيق ميزان التكاليف: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
@@ -99,12 +99,12 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء فض نزاع التكاليف: {ex.Message}");
+                return BadRequest($"خطأ أثناء فض نزاع التكاليف: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
         // ========================================================
-        // 6. المحطة 3: فحص وإفراج الجودة
+        // 6. المحطة 3: فحص وإفراج الجودة (GMP Release)
         // ========================================================
         [HttpPost("inspect-qc")]
         public async Task<IActionResult> InspectQc([FromBody] QcInspectionDto dto)
@@ -116,7 +116,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء فحص الجودة: {ex.Message}");
+                return BadRequest($"خطأ أثناء فحص الجودة: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
@@ -133,7 +133,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء إعادة إرسال المرتجع المعدل: {ex.Message}");
+                return BadRequest($"خطأ أثناء إعادة إرسال المرتجع المعدل: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
@@ -150,7 +150,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء استلام مخزن الكنترول: {ex.Message}");
+                return BadRequest($"خطأ أثناء استلام مخزن الكنترول: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
 
@@ -167,7 +167,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء فض نزاع الكنترول: {ex.Message}");
+                return BadRequest($"خطأ أثناء فض نزاع الكنترول: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
     }

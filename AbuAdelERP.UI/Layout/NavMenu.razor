@@ -65,7 +65,7 @@
         </AuthorizePermission>
 
         <!-- ==================================================== -->
-        <!-- 3. العمليات الصناعية ونظام تنفيذ التصنيع الموحد (MES) -->
+        <!-- 3. العمليات الصناعية والتصنيع الموحد (MES) -->
         <!-- ==================================================== -->
         @if (State.HasAnyPermission("Production.OperationsHub", "Production.OrdersView", "Production.Execution", "BOM.View", "Requisition.View", "BatchCosting.View", "Productivity.View"))
         {
@@ -73,7 +73,6 @@
                 ─── الإنتاج والعمليات الصناعية (MES) ───
             </div>
 
-            <!-- المركز الصناعي الموحد الذي يجمع الأوامر والتنفيذ والورديات والتكاليف والتقارير -->
             <AuthorizePermission Permission="Production.OperationsHub, Production.OrdersView, Production.Execution, Productivity.View">
                 <div class="nav-item px-2 mb-1">
                     <NavLink class="nav-link rounded-2 text-warning fw-bold border border-warning border-opacity-25 bg-dark bg-opacity-50" href="production-operations-hub">
@@ -240,7 +239,28 @@
         }
 
         <!-- ==================================================== -->
-        <!-- 6. المشتريات وإدارة الموردين والجودة -->
+        <!-- 6. المبيعات وإدارة العملاء (Sales & Distribution) -->
+        <!-- ==================================================== -->
+        <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+            ─── المبيعات والتوزيع ───
+        </div>
+
+        <div class="nav-item px-2 mb-1">
+            <NavLink class="nav-link rounded-2 text-success fw-bold" href="sales-invoices">
+                <span class="bi bi-receipt me-2" aria-hidden="true"></span>
+                <span>فواتير المبيعات 🧾</span>
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-2 mb-1">
+            <NavLink class="nav-link rounded-2" href="customers">
+                <span class="bi bi-person-lines-fill me-2" aria-hidden="true"></span>
+                <span>سجل العملاء والمنافذ 👥</span>
+            </NavLink>
+        </div>
+
+        <!-- ==================================================== -->
+        <!-- 7. المشتريات وإدارة الموردين والجودة -->
         <!-- ==================================================== -->
         @if (State.HasAnyPermission("Suppliers.View", "PurchaseOrders.View", "PurchaseInvoices.View"))
         {
@@ -295,7 +315,7 @@
         }
 
         <!-- ==================================================== -->
-        <!-- 7. منظومة النماذج ومحاضر الفحص الرقمية (Dynamic Forms) -->
+        <!-- 8. منظومة النماذج ومحاضر الفحص الرقمية (Dynamic Forms) -->
         <!-- ==================================================== -->
         @if (State.HasAnyPermission("DynamicForms.Manage", "DynamicForms.View"))
         {
@@ -332,7 +352,7 @@
         }
 
         <!-- ==================================================== -->
-        <!-- 8. الهيكل الإداري والموارد البشرية (HR) -->
+        <!-- 9. الهيكل الإداري والموارد البشرية (HR) -->
         <!-- ==================================================== -->
         @if (State.HasAnyPermission("Companies.View", "Departments.View", "Employees.View"))
         {
@@ -345,6 +365,15 @@
                     <NavLink class="nav-link rounded-2" href="companies">
                         <span class="bi bi-buildings me-2" aria-hidden="true"></span>
                         <span>إدارة الشركات والكيانات</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Companies.Manage, Companies.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="branches">
+                        <span class="bi bi-geo-alt-fill me-2 text-info" aria-hidden="true"></span>
+                        <span>إدارة الفروع 🏢</span>
                     </NavLink>
                 </div>
             </AuthorizePermission>
@@ -378,7 +407,7 @@
         }
 
         <!-- ==================================================== -->
-        <!-- 9. إدارة المستخدمين والأمان -->
+        <!-- 10. إدارة المستخدمين والأمان -->
         <!-- ==================================================== -->
         <AuthorizePermission Permission="Users.View">
             <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">

@@ -31,6 +31,9 @@ namespace AbuAdelERP.Api.Services
             _context = context;
         }
 
+        // ========================================================
+        // 1. الدورة المغلقة: سحب صالات الإنتاج ومخازنها وعمالها
+        // ========================================================
         public async Task<ProductionOperationsLookupsDto> GetInitialLookupsAsync()
         {
             var departments = await _context.Departments
@@ -62,13 +65,14 @@ namespace AbuAdelERP.Api.Services
 
             var warehouses = await _context.Warehouses
                 .AsNoTracking()
-                .Where(w => w.WarehouseName.Contains("صالة")
+                .Where(w => w.Active &&
+                           (w.WarehouseName.Contains("صالة")
                          || w.WarehouseName.Contains("تشغيل")
                          || w.WarehouseName.Contains("قسم")
                          || w.WarehouseName.Contains("شرقي")
                          || w.WarehouseName.Contains("جاتوه")
                          || w.WarehouseName.Contains("تورت")
-                         || w.WarehouseName.Contains("اسبشيال"))
+                         || w.WarehouseName.Contains("اسبشيال")))
                 .OrderBy(w => w.WarehouseName)
                 .Select(w => new ProductionWarehouseLookupDto
                 {
@@ -87,7 +91,7 @@ namespace AbuAdelERP.Api.Services
             var itemsQuery = await _context.Items
                 .AsNoTracking()
                 .Include(i => i.Department)
-                .Where(i => i.Active && (i.ItemType == "منتج تام" || i.ItemType == "نصف مصنع" || i.ItemType == "عجين"))
+                .Where(i => i.Active && (i.ItemType == "منتج تام" || i.ItemType == "نصف مصنع" || i.ItemType == "منتج وسيط" || i.ItemType == "عجين"))
                 .ToListAsync();
 
             var items = itemsQuery.Select(i => new ProductionItemLookupDto
@@ -127,6 +131,9 @@ namespace AbuAdelERP.Api.Services
             };
         }
 
+        // ========================================================
+        // 2. استعراض أوامر التشغيل المفتوحة
+        // ========================================================
         public async Task<List<ActiveProductionOrderDto>> GetActiveOrdersAsync()
         {
             var orders = await _context.ProductionOrders
@@ -134,7 +141,7 @@ namespace AbuAdelERP.Api.Services
                 .Include(o => o.Warehouse)
                 .Include(o => o.ProductionOrderDetails)
                     .ThenInclude(d => d.Item)
-                        .ThenInclude(i => i.Department)
+                        .ThenInclude(i => i!.Department)
                 .Include(o => o.ProductionOrderDetails)
                     .ThenInclude(d => d.Recipe)
                 .OrderByDescending(o => o.Id)
@@ -170,6 +177,9 @@ namespace AbuAdelERP.Api.Services
             }).ToList();
         }
 
+        // ========================================================
+        // 3. إصدار أمر تشغيل صالة جديد
+        // ========================================================
         public async Task<(bool Success, string Message, long OrderId, string OrderNumber)> CreateOrderAsync(CreateBatchOrderDto dto)
         {
             if (dto.Items == null || !dto.Items.Any())
@@ -233,6 +243,9 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
+        // ========================================================
+        // 4. استدعاء تفاصيل التنفيذ الميداني وشجرة المواد
+        // ========================================================
         public async Task<OrderExecutionFullDto?> GetOrderExecutionFullAsync(long orderId)
         {
             var order = await _context.ProductionOrders
@@ -242,7 +255,7 @@ namespace AbuAdelERP.Api.Services
                     .ThenInclude(d => d.Item)
                 .Include(o => o.ProductionOrderDetails)
                     .ThenInclude(d => d.Recipe)
-                        .ThenInclude(r => r.RecipeLines)
+                        .ThenInclude(r => r!.RecipeLines)
                             .ThenInclude(rl => rl.ComponentItem)
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
@@ -287,6 +300,9 @@ namespace AbuAdelERP.Api.Services
             };
         }
 
+        // ========================================================
+        // 5. تقفيل أمر التشغيل والترصيد المخزني وخصم الخامات بالمعيار (BOM)
+        // ========================================================
         public async Task<bool> FinalizeOrderCompleteAsync(CompleteOrderFinalizeDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -294,9 +310,15 @@ namespace AbuAdelERP.Api.Services
             {
                 var order = await _context.ProductionOrders
                     .Include(o => o.ProductionOrderDetails)
+                        .ThenInclude(d => d.Item)
+                    .Include(o => o.ProductionOrderDetails)
+                        .ThenInclude(d => d.Recipe)
+                            .ThenInclude(r => r!.RecipeLines)
                     .FirstOrDefaultAsync(o => o.Id == dto.OrderId);
 
                 if (order == null) return false;
+
+                var now = DateTime.UtcNow;
 
                 foreach (var itemDto in dto.Items)
                 {
@@ -308,6 +330,7 @@ namespace AbuAdelERP.Api.Services
                         detail.Status = "Completed";
                         detail.Notes = itemDto.BatchNumber;
 
+                        // 1. تسجيل الهالك في سجلات الجودة WasteRecords
                         if (detail.WasteQuantity > 0)
                         {
                             var waste = new WasteRecord
@@ -317,17 +340,115 @@ namespace AbuAdelERP.Api.Services
                                 ItemId = detail.ItemId,
                                 WarehouseId = order.WarehouseId,
                                 Quantity = detail.WasteQuantity,
-                                WasteDate = DateTime.UtcNow,
-                                WasteReason = itemDto.AbnormalScrapQuantity > 0 ? $"هالك غير طبيعي ({itemDto.ScrapReason})" : "هالك تشغيل طبيعي مسموح به",
+                                WasteDate = now,
+                                WasteReason = itemDto.AbnormalScrapQuantity > 0
+                                    ? $"هالك غير طبيعي ({itemDto.ScrapReason})"
+                                    : "هالك تشغيل طبيعي مسموح به",
                                 Notes = $"تشغيلة لوط: {itemDto.BatchNumber}"
                             };
                             _context.WasteRecords.Add(waste);
+                        }
+
+                        // 2. الترصيد الفعلي للمنتج المصنع في مستودع الصالة (StockBalances)
+                        if (detail.ProducedQuantity > 0)
+                        {
+                            var balance = await _context.StockBalances
+                                .FirstOrDefaultAsync(b => b.WarehouseId == order.WarehouseId && b.ItemId == detail.ItemId);
+
+                            if (balance != null)
+                            {
+                                balance.Quantity += detail.ProducedQuantity;
+                                balance.AvailableQuantity = balance.Quantity - balance.ReservedQuantity;
+                                balance.LastUpdatedAt = now;
+                            }
+                            else
+                            {
+                                _context.StockBalances.Add(new StockBalance
+                                {
+                                    CompanyId = order.CompanyId,
+                                    WarehouseId = order.WarehouseId,
+                                    ItemId = detail.ItemId,
+                                    Quantity = detail.ProducedQuantity,
+                                    AvailableQuantity = detail.ProducedQuantity,
+                                    ReservedQuantity = 0,
+                                    LastUpdatedAt = now
+                                });
+                            }
+
+                            // 3. إثبات حركة كارت الصنف الرسمية (PRODUCTION_RECEIPT)
+                            decimal unitCost = detail.Item?.BasePrice ?? 0m;
+                            _context.StockMovements.Add(new StockMovement
+                            {
+                                CompanyId = order.CompanyId,
+                                WarehouseId = order.WarehouseId,
+                                ItemId = detail.ItemId,
+                                MovementType = "PRODUCTION_RECEIPT",
+                                Quantity = detail.ProducedQuantity,
+                                UnitCost = unitCost,
+                                ReferenceType = "PRODUCTION_ORDER",
+                                ReferenceId = order.Id,
+                                Notes = $"استلام إنتاج تام/وسيط صالة التشغيل | لوط: {itemDto.BatchNumber} | أمر تشغيل رقم: {order.OrderNumber}",
+                                MovementAt = now,
+                                CreatedAt = now
+                            });
+                        }
+
+                        // 4. خصم الخامات الأولية المستهلكة آلياً بناءً على بطاقة المقادير (BOM)
+                        if (detail.ProducedQuantity > 0 && detail.Recipe != null && detail.Recipe.RecipeLines != null && detail.Recipe.RecipeLines.Any())
+                        {
+                            decimal batchMult = detail.Recipe.BatchQuantity > 0
+                                ? (detail.ProducedQuantity / detail.Recipe.BatchQuantity)
+                                : detail.ProducedQuantity;
+
+                            foreach (var rl in detail.Recipe.RecipeLines.Where(l => l.Quantity > 0))
+                            {
+                                decimal consumedQty = Math.Round(rl.Quantity * batchMult * (1m + (rl.WastePercentage / 100m)), 3);
+                                if (consumedQty <= 0) continue;
+
+                                var matBalance = await _context.StockBalances
+                                    .FirstOrDefaultAsync(b => b.WarehouseId == order.WarehouseId && b.ItemId == rl.ComponentItemId);
+
+                                if (matBalance != null)
+                                {
+                                    matBalance.Quantity -= consumedQty;
+                                    matBalance.AvailableQuantity = matBalance.Quantity - matBalance.ReservedQuantity;
+                                    matBalance.LastUpdatedAt = now;
+                                }
+                                else
+                                {
+                                    _context.StockBalances.Add(new StockBalance
+                                    {
+                                        CompanyId = order.CompanyId,
+                                        WarehouseId = order.WarehouseId,
+                                        ItemId = rl.ComponentItemId,
+                                        Quantity = -consumedQty,
+                                        AvailableQuantity = -consumedQty,
+                                        ReservedQuantity = 0,
+                                        LastUpdatedAt = now
+                                    });
+                                }
+
+                                _context.StockMovements.Add(new StockMovement
+                                {
+                                    CompanyId = order.CompanyId,
+                                    WarehouseId = order.WarehouseId,
+                                    ItemId = rl.ComponentItemId,
+                                    MovementType = "PRODUCTION_ISSUE",
+                                    Quantity = -consumedQty,
+                                    UnitCost = 0m,
+                                    ReferenceType = "PRODUCTION_ORDER",
+                                    ReferenceId = order.Id,
+                                    Notes = $"صرف واستهلاك خامات بالمعيار لأمر تشغيل: [{order.OrderNumber}] | لوط: {detail.Notes}",
+                                    MovementAt = now,
+                                    CreatedAt = now
+                                });
+                            }
                         }
                     }
                 }
 
                 order.Status = "COMPLETED";
-                order.UpdatedAt = DateTime.UtcNow;
+                order.UpdatedAt = now;
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -340,6 +461,9 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
+        // ========================================================
+        // 6. ترصيد إنتاجية الوردية وحفظ الحضور وساعات العمل
+        // ========================================================
         public async Task<string> SubmitShiftProductivityAsync(ShiftProductivityDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -435,6 +559,9 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
+        // ========================================================
+        // 7. مركز التقارير والـ KPIs
+        // ========================================================
         public async Task<List<DepartmentKpiDto>> GetDepartmentKPIsAsync(DateTime startDate, DateTime endDate, long? departmentId)
         {
             var startUtc = DateTime.SpecifyKind(startDate.Date, DateTimeKind.Utc);
@@ -541,12 +668,19 @@ namespace AbuAdelERP.Api.Services
             };
         }
 
+        // ========================================================
+        // 8. احتساب تكلفة الوجبة وتفجير معايير الـ BOM
+        // ========================================================
         public async Task<BatchCostCalculationResultDto?> CalculateBatchCostAsync(BatchCostCalculationRequestDto req)
         {
             var order = await _context.ProductionOrders
                 .AsNoTracking()
                 .Include(o => o.ProductionOrderDetails)
                     .ThenInclude(d => d.Item)
+                .Include(o => o.ProductionOrderDetails)
+                    .ThenInclude(d => d.Recipe)
+                        .ThenInclude(r => r!.RecipeLines)
+                            .ThenInclude(rl => rl.ComponentItem)
                 .FirstOrDefaultAsync(o => o.Id == req.ProductionOrderId);
 
             if (order == null) return null;
@@ -563,9 +697,28 @@ namespace AbuAdelERP.Api.Services
                 ? logs.Sum(l => l.LaborCost)
                 : (totalHours * req.LaborCostPerHour);
 
-            decimal totalMaterialsCost = req.ActualRawMaterialsCost > 0
-                ? req.ActualRawMaterialsCost
-                : order.ProductionOrderDetails.Sum(d => (d.ProducedQuantity > 0 ? d.ProducedQuantity : d.PlannedQuantity) * (d.Item != null ? d.Item.BasePrice : 0));
+            decimal totalMaterialsCost = 0m;
+            if (req.ActualRawMaterialsCost > 0)
+            {
+                totalMaterialsCost = req.ActualRawMaterialsCost;
+            }
+            else
+            {
+                foreach (var d in order.ProductionOrderDetails)
+                {
+                    decimal producedOrPlanned = d.ProducedQuantity > 0 ? d.ProducedQuantity : d.PlannedQuantity;
+                    if (d.Recipe != null && d.Recipe.RecipeLines != null && d.Recipe.RecipeLines.Any())
+                    {
+                        decimal mult = d.Recipe.BatchQuantity > 0 ? (producedOrPlanned / d.Recipe.BatchQuantity) : producedOrPlanned;
+                        decimal recipeCost = d.Recipe.RecipeLines.Sum(rl => rl.Quantity * mult * (rl.ComponentItem != null ? rl.ComponentItem.BasePrice : 0m));
+                        totalMaterialsCost += recipeCost;
+                    }
+                    else
+                    {
+                        totalMaterialsCost += producedOrPlanned * (d.Item != null ? d.Item.BasePrice : 0m);
+                    }
+                }
+            }
 
             decimal totalProducedQty = order.ProductionOrderDetails.Sum(d => d.ProducedQuantity > 0 ? d.ProducedQuantity : d.PlannedQuantity);
             decimal totalBatchCost = totalMaterialsCost + totalLaborCost + req.OverheadCost;

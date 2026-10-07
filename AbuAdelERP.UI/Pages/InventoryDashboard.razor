@@ -1,76 +1,199 @@
 ﻿@page "/inventory-dashboard"
-@inject HttpClient Http
 @using System.Net.Http.Json
+@using System.Text
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
 
-<div class="container-fluid mt-4" dir="rtl">
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
-        <div>
-            <h3 class="text-primary m-0 mb-1">📦 أرصدة المخازن وبطاقة الصنف</h3>
-            <span class="text-muted">مراقبة حية للمخزون وتتبع حركات الأصناف (Item Ledger)</span>
+<PageTitle>لوحة قيادة ورقابة المخزون التنفيذية - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid py-4" dir="rtl">
+    <!-- Header -->
+    <div class="card shadow-sm border-0 mb-4 bg-dark text-white rounded-3">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-warning">📊 لوحة قيادة ورقابة المخزون التنفيذية</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">Live Inventory Control</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    التقييم المالي اللحظي للأرصدة، رادار الصلاحية (FEFO)، مراقبة النواقص، وتدقيق المسار التراكمي لكافة المستودعات.
+                </small>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                @if (isViewingLedger)
+                {
+                    <button class="btn btn-outline-light btn-sm fw-bold shadow-sm" @onclick="BackToBalances">
+                        ⬅️ عودة لجدول الأرصدة
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportBalancesToCsv" disabled="@(!FilteredBalances.Any() || isLoading)">
+                        <i class="bi bi-file-earmark-excel me-1"></i> تصدير الأرصدة (Excel)
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm fw-bold shadow-sm" @onclick="LoadAllData" disabled="@isLoading">
+                        🔄 تحديث الرقابة اللحظية
+                    </button>
+                }
+            </div>
         </div>
-        @if (isViewingLedger)
-        {
-            <button class="btn btn-outline-secondary fw-bold shadow-sm" @onclick="BackToBalances">
-                ⬅️ عودة لقائمة الأرصدة
-            </button>
-        }
-        else
-        {
-            <button class="btn btn-outline-primary fw-bold shadow-sm" @onclick="LoadBalances">
-                🔄 تحديث الأرصدة
-            </button>
-        }
     </div>
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger fw-bold shadow-sm">❌ @errorMessage</div>
+        <div class="alert alert-danger fw-bold shadow-sm alert-dismissible fade show mb-4" role="alert">
+            ❌ @errorMessage
+            <button type="button" class="btn-close" @onclick="ClearError"></button>
+        </div>
     }
 
+    <!-- بطاقات المؤشرات المالية والرقابية العليا -->
     @if (!isViewingLedger)
     {
-        <!-- الشاشة الرئيسية: الأرصدة الحالية -->
-        <div class="card shadow-sm border-0 border-top border-primary border-4">
-            <div class="card-header bg-white py-3">
-                <h6 class="text-primary m-0 fw-bold">الأرصدة الحالية بالمخازن</h6>
+        <div class="row g-3 mb-4">
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 bg-white border-start border-4 border-primary p-3">
+                    <span class="text-muted small fw-bold d-block">إجمالي القيمة المالية للمخزون</span>
+                    <h3 class="fw-bold text-primary mb-0 font-monospace mt-1">@summary.TotalInventoryValue.ToString("N0") <span class="fs-6 fw-normal text-muted">ج.م</span></h3>
+                    <small class="text-muted mt-1 d-block">موزع على كافة مخازن وفروع المصنع</small>
+                </div>
             </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 bg-white border-start border-4 border-success p-3">
+                    <span class="text-muted small fw-bold d-block">قيمة مخزون الخامات الأولية</span>
+                    <h4 class="fw-bold text-success mb-0 font-monospace mt-1">@summary.RawMaterialsValue.ToString("N0") <span class="fs-6 fw-normal text-muted">ج.م</span></h4>
+                    <small class="text-muted mt-1 d-block">المستودعات المركزية ومخازن الخامات</small>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 bg-white border-start border-4 border-info p-3">
+                    <span class="text-muted small fw-bold d-block">قيمة المنتج التام والجاهز للبيع</span>
+                    <h4 class="fw-bold text-info mb-0 font-monospace mt-1">@summary.FinishedGoodsValue.ToString("N0") <span class="fs-6 fw-normal text-muted">ج.م</span></h4>
+                    <small class="text-muted mt-1 d-block">مخازن الكنترول ومعارض الفروع</small>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 bg-white border-start border-4 border-warning p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="text-muted small fw-bold d-block">رادار الصلاحية والنواقص</span>
+                            <div class="d-flex gap-2 align-items-center mt-1">
+                                <span class="badge bg-danger fs-6">@summary.LowStockCount نواقص</span>
+                                <span class="badge bg-warning text-dark fs-6">@summary.ExpiringLotsCount لوطات مهددة</span>
+                            </div>
+                        </div>
+                        <div class="bg-warning bg-opacity-10 text-warning p-3 rounded-circle">
+                            <i class="bi bi-shield-exclamation fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- فلاتر الجدول والبحث السريع -->
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
+            <div class="card-body p-3">
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-5">
+                        <input type="text" class="form-control form-control-sm" placeholder="ابحث باسم الصنف أو الكود أو المستودع..."
+                               @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select form-select-sm fw-bold" @bind="selectedTypeFilter">
+                            <option value="">-- كافة التصنيفات (خامات، وسيط، تام) --</option>
+                            <option value="خامات">خامات ومستلزمات 🧂</option>
+                            <option value="نصف مصنع">نصف مصنع ووسيط 🥣</option>
+                            <option value="منتج تام">منتج تام وجاهز للبيع 🍰</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <select class="form-select form-select-sm" @bind="selectedStatusFilter">
+                            <option value="">-- كافة الحالات --</option>
+                            <option value="AVAILABLE">متوفر بمخزون كافٍ ✓</option>
+                            <option value="LOW">قارب على النفاد ⚠️</option>
+                            <option value="OUT">نفد رصيده بالكامل ❌</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex gap-1">
+                        <button class="btn btn-outline-primary btn-sm flex-fill fw-bold" @onclick="GoToBalances">
+                            🏢 كشف المستودعات
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- جدول الأرصدة التنفيذي -->
+        <div class="card shadow-sm border-0 rounded-3">
             <div class="card-body p-0 table-responsive">
                 @if (isLoading)
                 {
-                    <div class="p-5 text-center"><h5 class="text-muted">⏳ جاري تحميل الأرصدة...</h5></div>
+                    <div class="p-5 text-center">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <h6 class="text-muted mt-2">جاري احتساب وتقييم أرصدة المخازن...</h6>
+                    </div>
                 }
-                else if (balances == null || !balances.Any())
+                else if (!FilteredBalances.Any())
                 {
-                    <div class="p-5 text-center fw-bold text-muted">لا توجد أرصدة مسجلة في المخازن حالياً.</div>
+                    <div class="p-5 text-center fw-bold text-muted">لا توجد أرصدة مطابقة لشروط الفلترة المحددة.</div>
                 }
                 else
                 {
-                    <table class="table table-hover mb-0 text-center align-middle">
-                        <thead class="table-light">
+                    <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                        <thead class="table-dark">
                             <tr>
                                 <th>كود الصنف</th>
-                                <th>اسم الصنف / الخامة</th>
-                                <th>الرصيد الحالي</th>
-                                <th>تاريخ آخر حركة</th>
-                                <th>إجراءات الإدارة</th>
+                                <th class="text-start ps-3">اسم الصنف</th>
+                                <th>النوع</th>
+                                <th>المستودع</th>
+                                <th>الرصيد الفعلي</th>
+                                <th>المحجوز</th>
+                                <th>الرصيد المتاح</th>
+                                <th>متوسط التكلفة</th>
+                                <th>القيمة الإجمالية (ج.م)</th>
+                                <th>الحالة</th>
+                                <th>الإجراء</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var balance in balances)
+                            @foreach (var b in FilteredBalances)
                             {
                                 <tr>
-                                    <td class="text-muted fw-bold">@balance.ItemId</td>
-                                    <td class="fw-bold text-primary">@balance.ItemName</td>
+                                    <td class="font-monospace text-muted fw-bold">@b.ItemCode</td>
+                                    <td class="text-start ps-3 fw-bold text-dark">@b.ItemName</td>
                                     <td>
-                                        <span class="badge @(balance.Quantity < 0 ? "bg-danger" : balance.Quantity == 0 ? "bg-secondary" : "bg-success") fs-6 px-3 py-2 rounded-pill shadow-sm">
-                                            @balance.Quantity
-                                        </span>
+                                        <span class="badge bg-light text-dark border">@b.ItemType</span>
                                     </td>
-                                    <td class="small text-muted">@balance.LastUpdatedAt.ToString("yyyy-MM-dd hh:mm tt")</td>
+                                    <td class="fw-bold">@b.WarehouseName</td>
+                                    <td class="fw-bold font-monospace">@b.Quantity.ToString("N1") @b.Unit</td>
+                                    <td class="text-warning font-monospace">@(b.ReservedQuantity > 0 ? b.ReservedQuantity.ToString("N1") : "-")</td>
+                                    <td class="fw-bold text-success font-monospace fs-6">@b.AvailableQuantity.ToString("N1") @b.Unit</td>
+                                    <td class="font-monospace text-muted">@b.EstimatedUnitCost.ToString("N2")</td>
+                                    <td class="font-monospace fw-bold text-primary">@b.TotalValue.ToString("N2")</td>
                                     <td>
-                                        <button class="btn btn-sm btn-dark fw-bold px-3" @onclick="() => ViewLedger(balance.ItemId, balance.ItemName)">
-                                            🔍 كشف حركة الصنف
-                                        </button>
+                                        @if (b.AvailableQuantity <= 0)
+                                        {
+                                            <span class="badge bg-danger">نفد الرصيد ❌</span>
+                                        }
+                                        else if (b.AvailableQuantity <= 10)
+                                        {
+                                            <span class="badge bg-warning text-dark">قارب على النفاد ⚠️</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-success">متوفر بمخزون آمن ✓</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="d-flex justify-content-center gap-1">
+                                            <button class="btn btn-sm btn-dark py-0 px-2 fw-bold" title="كشف حركة سريع" @onclick="() => ViewLedger(b.ItemId, b.ItemName)">
+                                                🔍 حركة
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-info py-0 px-2 fw-bold" title="كارت الصنف واللوطات الكامل" @onclick="() => NavigateToStockCard(b.ItemId, b.WarehouseId)">
+                                                📊 كارت
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -82,42 +205,52 @@
     }
     else
     {
-        <!-- الشاشة الفرعية: بطاقة حركة الصنف (Item Ledger) -->
+        <!-- الشاشة الفرعية: كشف حركة الصنف المباشر -->
         <div class="card shadow-sm border-0 border-top border-dark border-4">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                <h6 class="text-dark m-0 fw-bold">📋 كشف حركة تفصيلي للصنف: <span class="text-primary">@selectedItemName</span></h6>
+                <h6 class="text-dark m-0 fw-bold">📋 كشف حركة تفصيلي لحظي للصنف: <span class="text-primary">@selectedItemName</span></h6>
+                <button class="btn btn-sm btn-secondary fw-bold" @onclick="BackToBalances">⬅️ عودة للأرصدة</button>
             </div>
             <div class="card-body p-0 table-responsive">
                 @if (isLoadingLedger)
                 {
-                    <div class="p-5 text-center"><h5 class="text-muted">⏳ جاري استخراج الحركات...</h5></div>
+                    <div class="p-5 text-center"><div class="spinner-border text-primary"></div><p class="text-muted mt-2">جاري استخراج كشف الحركات المخزنية...</p></div>
                 }
                 else if (movements == null || !movements.Any())
                 {
-                    <div class="p-5 text-center fw-bold text-muted">لم يتم تسجيل أي حركات لهذا الصنف.</div>
+                    <div class="p-5 text-center fw-bold text-muted">لم يتم تسجيل أي حركات مخزنية لهذا الصنف.</div>
                 }
                 else
                 {
-                    <table class="table table-bordered table-hover mb-0 text-center align-middle">
+                    <table class="table table-bordered table-hover mb-0 text-center align-middle small">
                         <thead class="table-dark">
                             <tr>
                                 <th>التاريخ والوقت</th>
                                 <th>نوع الحركة</th>
-                                <th>المستند المرجعي</th>
+                                <th>المستودع</th>
                                 <th>الكمية (وارد / منصرف)</th>
-                                <th>البيان / ملاحظات</th>
+                                <th>التكلفة</th>
+                                <th>المستند المرجعي</th>
+                                <th class="text-start ps-3" style="width: 30%;">البيان / ملاحظات التدقيق</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var mov in movements)
                             {
                                 <tr>
-                                    <td class="small fw-bold">@mov.MovementDate.ToString("yyyy-MM-dd hh:mm tt")</td>
+                                    <td class="font-monospace text-muted">@mov.MovementDate.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td>
-                                        <span class="badge bg-secondary">@TranslateMovementType(mov.MovementType)</span>
+                                        <span class="badge @GetBadgeForMovement(mov.MovementType)">@TranslateMovementType(mov.MovementType)</span>
                                     </td>
-                                    <td class="text-primary fw-bold">
-                                        @if (mov.ReferenceId.HasValue)
+                                    <td class="fw-bold">@mov.WarehouseName</td>
+                                    <td dir="ltr">
+                                        <span class="fw-bold fs-6 font-monospace @(mov.Quantity > 0 ? "text-success" : "text-danger")">
+                                            @(mov.Quantity > 0 ? $"+{mov.Quantity:N1}" : $"{mov.Quantity:N1}")
+                                        </span>
+                                    </td>
+                                    <td class="font-monospace">@mov.UnitCost.ToString("N2")</td>
+                                    <td class="text-primary font-monospace fw-bold">
+                                        @if (mov.ReferenceId.HasValue && mov.ReferenceId.Value > 0)
                                         {
                                             @($"{TranslateReferenceType(mov.ReferenceType)} #{mov.ReferenceId}")
                                         }
@@ -126,12 +259,7 @@
                                             <span class="text-muted">--</span>
                                         }
                                     </td>
-                                    <td dir="ltr">
-                                        <span class="fw-bold fs-6 @(mov.Quantity > 0 ? "text-success" : "text-danger")">
-                                            @(mov.Quantity > 0 ? $"+{mov.Quantity}" : $"{mov.Quantity}")
-                                        </span>
-                                    </td>
-                                    <td class="small text-start">@mov.Notes</td>
+                                    <td class="text-start ps-3 small text-muted">@mov.Notes</td>
                                 </tr>
                             }
                         </tbody>
@@ -143,8 +271,9 @@
 </div>
 
 @code {
-    private List<StockBalanceDto> balances = new();
+    private List<StockBalanceDetailedDto> balances = new();
     private List<StockMovementDto> movements = new();
+    private InventoryDashboardSummaryDto summary = new();
 
     private bool isLoading = false;
     private bool isLoadingLedger = false;
@@ -152,31 +281,50 @@
 
     private string errorMessage = "";
     private string selectedItemName = "";
+    private string searchTerm = "";
+    private string selectedTypeFilter = "";
+    private string selectedStatusFilter = "";
 
-    // استخدام مسار نسبي ليعمل على أي بورت ديناميكياً
     private string apiUrl = "api/Inventory";
+
+    private IEnumerable<StockBalanceDetailedDto> FilteredBalances => balances.Where(b =>
+        (string.IsNullOrWhiteSpace(searchTerm) || b.ItemName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || b.ItemCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || b.WarehouseName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrWhiteSpace(selectedTypeFilter) || b.ItemType.Contains(selectedTypeFilter)) &&
+        (string.IsNullOrWhiteSpace(selectedStatusFilter) ||
+         (selectedStatusFilter == "AVAILABLE" && b.AvailableQuantity > 10) ||
+         (selectedStatusFilter == "LOW" && b.AvailableQuantity > 0 && b.AvailableQuantity <= 10) ||
+         (selectedStatusFilter == "OUT" && b.AvailableQuantity <= 0))
+    );
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadBalances();
+        await LoadAllData();
     }
 
-    private async Task LoadBalances()
+    private async Task LoadAllData()
     {
         isLoading = true;
         errorMessage = "";
         try
         {
-            balances = await Http.GetFromJsonAsync<List<StockBalanceDto>>($"{apiUrl}/balances") ?? new();
+            summary = await Http.GetFromJsonAsync<InventoryDashboardSummaryDto>($"{apiUrl}/dashboard-summary") ?? new();
+            balances = await Http.GetFromJsonAsync<List<StockBalanceDetailedDto>>($"{apiUrl}/balances") ?? new();
         }
         catch (Exception ex)
         {
-            errorMessage = $"خطأ في جلب الأرصدة: {ex.Message}";
+            errorMessage = $"خطأ في جلب بيانات لوحة القيادة: {ex.Message}";
         }
         finally
         {
             isLoading = false;
         }
+    }
+
+    private void ClearError() => errorMessage = string.Empty;
+
+    private void GoToBalances()
+    {
+        Navigation.NavigateTo("/stock-balances");
     }
 
     private async Task ViewLedger(long itemId, string itemName)
@@ -207,29 +355,102 @@
         selectedItemName = "";
     }
 
+    private void NavigateToStockCard(long itemId, long warehouseId)
+    {
+        Navigation.NavigateTo($"/stock-card?itemId={itemId}&warehouseId={warehouseId}");
+    }
+
+    private async Task ExportBalancesToCsv()
+    {
+        var list = FilteredBalances.ToList();
+        if (!list.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_الصنف,اسم_الصنف,التصنيف,المستودع,الرصيد_الفعلي,المحجوز,الرصيد_المتاح,الوحدة,التكلفة_التقديرية,القيمة_الإجمالية,الحالة");
+
+            foreach (var b in list)
+            {
+                string status = b.AvailableQuantity <= 0 ? "نفد الرصيد" : (b.AvailableQuantity <= 10 ? "حد الطلب" : "متوفر");
+                sb.AppendLine($"\"{b.ItemCode}\",\"{b.ItemName}\",\"{b.ItemType}\",\"{b.WarehouseName}\",{b.Quantity:F2},{b.ReservedQuantity:F2},{b.AvailableQuantity:F2},\"{b.Unit}\",{b.EstimatedUnitCost:F2},{b.TotalValue:F2},\"{status}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"تقرير_رقابة_المخزون_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل التصدير: {ex.Message}";
+        }
+    }
+
     private string TranslateMovementType(string type) => type switch
     {
-        "PRODUCTION_IN" => "إضافة إنتاج تام",
-        "PRODUCTION_OUT" => "صرف خامات",
-        "MANUAL_IN" => "إضافة يدوية",
-        "MANUAL_OUT" => "تسوية عجز",
+        "PURCHASE_RECEIPT" => "توريد مشتريات (خامات)",
+        "PRODUCTION_ISSUE" => "صرف خامات تشغيل",
+        "PRODUCTION_RECEIPT" or "PRODUCTION_IN" => "استلام تشغيل (تام/وسيط)",
+        "FG_TRANSFER_OUT" => "خروج تحويل تام",
+        "FG_TRANSFER_IN" => "استلام تحويل بالكنترول",
+        "QC_SAMPLE" => "سحب عينة جودة",
+        "QC_SCRAP" => "إهلاك جودة غير مطابق",
+        "FG_TRANSIT_DEFICIT" => "تسوية عجز استلام",
+        "STOCK_ADJUSTMENT" => "تسوية جردية / استيراد",
+        "SALES_ISSUE" => "صرف مبيعات",
         _ => type
     };
 
-    private string TranslateReferenceType(string refType) => refType switch
+    private string GetBadgeForMovement(string type) => type switch
     {
-        "PRODUCTION_ORDER" => "أمر تشغيل",
-        "PURCHASE_INVOICE" => "فاتورة مشتريات",
-        _ => refType
+        "PURCHASE_RECEIPT" => "bg-success",
+        "PRODUCTION_ISSUE" => "bg-secondary",
+        "PRODUCTION_RECEIPT" or "PRODUCTION_IN" => "bg-primary",
+        "FG_TRANSFER_IN" => "bg-info text-dark",
+        "FG_TRANSFER_OUT" => "bg-warning text-dark",
+        "QC_SAMPLE" => "bg-info",
+        "QC_SCRAP" or "FG_TRANSIT_DEFICIT" => "bg-danger",
+        _ => "bg-dark"
     };
 
-    public class StockBalanceDto
+    private string TranslateReferenceType(string? refType) => refType switch
+    {
+        "PRODUCTION_ORDER" => "أمر تشغيل",
+        "MATERIAL_REQUISITION" => "إذن صرف خامات",
+        "FG_TRANSFER" => "إذن تحويل تام",
+        "PURCHASE_ORDER" or "PURCHASE_INVOICE" => "أمر شراء",
+        "EXCEL_IMPORT" => "استيراد إكسيل",
+        _ => refType ?? "--"
+    };
+
+    public class InventoryDashboardSummaryDto
+    {
+        public decimal TotalInventoryValue { get; set; }
+        public decimal RawMaterialsValue { get; set; }
+        public decimal WipValue { get; set; }
+        public decimal FinishedGoodsValue { get; set; }
+        public int TotalStockRecords { get; set; }
+        public int LowStockCount { get; set; }
+        public int OutOfStockCount { get; set; }
+        public int ExpiringLotsCount { get; set; }
+    }
+
+    public class StockBalanceDetailedDto
     {
         public long Id { get; set; }
         public long ItemId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string Unit { get; set; } = "كجم";
         public long WarehouseId { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
         public decimal Quantity { get; set; }
+        public decimal ReservedQuantity { get; set; }
+        public decimal AvailableQuantity { get; set; }
+        public decimal EstimatedUnitCost { get; set; }
+        public decimal TotalValue { get; set; }
         public DateTime LastUpdatedAt { get; set; }
     }
 
@@ -238,8 +459,10 @@
         public long Id { get; set; }
         public DateTime MovementDate { get; set; }
         public string MovementType { get; set; } = string.Empty;
+        public string WarehouseName { get; set; } = string.Empty;
         public decimal Quantity { get; set; }
-        public string ReferenceType { get; set; } = string.Empty;
+        public decimal UnitCost { get; set; }
+        public string? ReferenceType { get; set; } = string.Empty;
         public long? ReferenceId { get; set; }
         public string? Notes { get; set; }
     }

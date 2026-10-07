@@ -28,5 +28,6 @@ builder.Services.AddAuthorizationCore();
 
 // 4. تسجيل خدمة إدارة حالة المستخدم وصلاحيات الأزرار (AppState)
 builder.Services.AddScoped<AppState>();
+builder.Services.AddScoped<ISalesClientService, SalesClientService>();
 
 await builder.Build().RunAsync();

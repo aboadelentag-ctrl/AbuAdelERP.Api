@@ -60,7 +60,7 @@ namespace AbuAdelERP.Api.Services
                     Active = r.Active,
                     Notes = r.Notes,
                     LinesCount = r.RecipeLines.Count(l => l.Quantity > 0),
-                    TotalEstimatedCost = totalCost
+                    TotalEstimatedCost = Math.Round(totalCost, 2)
                 };
             }).ToList();
         }
@@ -127,7 +127,7 @@ namespace AbuAdelERP.Api.Services
                 Active = r.Active,
                 Notes = r.Notes,
                 LinesCount = linesDto.Count,
-                TotalEstimatedCost = totalCost,
+                TotalEstimatedCost = Math.Round(totalCost, 2),
                 Lines = linesDto
             };
         }
@@ -351,32 +351,58 @@ namespace AbuAdelERP.Api.Services
             }
         }
 
+        // محرك تكلفة الخامات والمكونات الوسيطة مع دعم الـ Multi-Level BOM والـ Fallback
         private async Task<Dictionary<long, decimal>> GetLatestComponentCostsAsync(List<long>? componentIds = null)
         {
+            var costsMap = new Dictionary<long, decimal>();
+
             try
             {
                 var query = _context.StockMovements
                     .AsNoTracking()
-                    .Where(m => m.MovementType == "PURCHASE_RECEIPT");
+                    .Where(m => (m.MovementType == "PURCHASE_RECEIPT" ||
+                                 m.MovementType == "PRODUCTION_RECEIPT" ||
+                                 m.MovementType == "INITIAL_STOCK") && m.UnitCost > 0);
 
                 if (componentIds != null && componentIds.Any())
                 {
                     query = query.Where(m => componentIds.Contains(m.ItemId));
                 }
 
-                var receipts = await query
+                var movements = await query
                     .OrderByDescending(m => m.Id)
                     .Select(m => new { m.ItemId, m.UnitCost })
-                    .Take(500)
+                    .Take(1000)
                     .ToListAsync();
 
-                return receipts
-                    .GroupBy(m => m.ItemId)
-                    .ToDictionary(g => g.Key, g => g.First().UnitCost);
+                foreach (var m in movements)
+                {
+                    if (!costsMap.ContainsKey(m.ItemId))
+                    {
+                        costsMap[m.ItemId] = m.UnitCost;
+                    }
+                }
+
+                var itemsQuery = _context.Items.AsNoTracking().Where(i => i.BasePrice > 0);
+                if (componentIds != null && componentIds.Any())
+                {
+                    itemsQuery = itemsQuery.Where(i => componentIds.Contains(i.Id));
+                }
+
+                var basePrices = await itemsQuery.Select(i => new { i.Id, i.BasePrice }).ToListAsync();
+                foreach (var b in basePrices)
+                {
+                    if (!costsMap.ContainsKey(b.Id) || costsMap[b.Id] <= 0)
+                    {
+                        costsMap[b.Id] = b.BasePrice;
+                    }
+                }
+
+                return costsMap;
             }
             catch
             {
-                return new Dictionary<long, decimal>();
+                return costsMap;
             }
         }
     }

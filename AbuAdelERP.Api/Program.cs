@@ -48,6 +48,8 @@ builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IVendorQcService, VendorQcService>();
 builder.Services.AddScoped<IQualityService, QualityService>();
 builder.Services.AddScoped<IMaterialRequisitionService, MaterialRequisitionService>();
+builder.Services.AddScoped<ISupplierPriceService, SupplierPriceService>();
+builder.Services.AddScoped<IMaterialReceiptService, MaterialReceiptService>();
 
 // قطاع المالية والتكاليف والمبيعات (Finance, Costing & Sales)
 builder.Services.AddScoped<IAccountService, AccountService>();

@@ -1,6 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using AbuAdelERP.Api.Models;
+﻿using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using AbuAdelERP.Api.DTOs;
+using AbuAdelERP.Api.Services;
 
 namespace AbuAdelERP.Api.Controllers
 {
@@ -8,68 +11,69 @@ namespace AbuAdelERP.Api.Controllers
     [ApiController]
     public class CrateClientTransactionsController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly ICrateService _crateService;
 
-        public CrateClientTransactionsController(AppDbContext context)
+        public CrateClientTransactionsController(ICrateService crateService)
         {
-            _context = context;
+            _crateService = crateService;
         }
 
-        // جلب رصيد المصنع الفعلي لعرضه في الشاشة
+        // ========================================================
+        // 1. رصيد المصنع الفعلي من الصناديق
+        // ========================================================
         [HttpGet("factory-balance")]
         public async Task<ActionResult<int>> GetFactoryBalance()
         {
-            var factoryCrate = await _context.Crates.FirstOrDefaultAsync();
-            return factoryCrate != null ? factoryCrate.TotalFactoryBalance : 0;
+            try
+            {
+                var balance = await _crateService.GetFactoryBalanceAsync();
+                return Ok(balance);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ أثناء جلب رصيد المصنع: {ex.Message}");
+            }
         }
 
-        [HttpGet("client/{clientId}")]
-        public async Task<ActionResult<IEnumerable<CrateClientTransaction>>> GetClientTransactions(int clientId)
+        // ========================================================
+        // 2. كشف حركات عهدة العميل
+        // ========================================================
+        [HttpGet("client/{clientId:int}")]
+        public async Task<ActionResult<List<CrateClientTransactionViewDto>>> GetClientTransactions(int clientId)
         {
-            return await _context.CrateClientTransactions
-                .Where(t => t.CrateClientId == clientId)
-                .OrderByDescending(t => t.TransactionDate)
-                .ToListAsync();
+            try
+            {
+                var transactions = await _crateService.GetClientTransactionsAsync(clientId);
+                return Ok(transactions);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ أثناء جلب حركات العميل: {ex.Message}");
+            }
         }
 
+        // ========================================================
+        // 3. قيد حركة عهدة مع العميل (منصرف / مستلم)
+        // ========================================================
         [HttpPost]
-        public async Task<ActionResult<CrateClientTransaction>> PostTransaction(CrateClientTransaction transaction)
+        public async Task<ActionResult<CrateClientTransactionViewDto>> PostTransaction([FromBody] CreateCrateClientTransactionDto dto)
         {
-            transaction.TransactionDate = DateTime.Now;
-            _context.CrateClientTransactions.Add(transaction);
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
 
-            var client = await _context.CrateClients.FindAsync(transaction.CrateClientId);
-
-            // --- نظام القيد المزدوج (الربط مع مخزن المصنع) ---
-            var factoryCrate = await _context.Crates.FirstOrDefaultAsync();
-
-            if (factoryCrate == null)
+            try
             {
-                factoryCrate = new Crate { CrateName = "إسبات بلاستيك (رصيد المصنع)", TotalFactoryBalance = 1000 };
-                _context.Crates.Add(factoryCrate);
-                await _context.SaveChangesAsync();
+                var result = await _crateService.AddClientTransactionAsync(dto);
+                return Ok(result);
             }
-
-            if (client != null)
+            catch (InvalidOperationException ex)
             {
-                if (transaction.TransactionType == "منصرف للعميل")
-                {
-                    client.CrateBalance += transaction.Quantity;
-                    factoryCrate.TotalFactoryBalance -= transaction.Quantity;
-                }
-                else if (transaction.TransactionType == "مستلم من العميل")
-                {
-                    client.CrateBalance -= transaction.Quantity;
-                    factoryCrate.TotalFactoryBalance += transaction.Quantity;
-                }
-
-                _context.Entry(client).State = EntityState.Modified;
-                _context.Entry(factoryCrate).State = EntityState.Modified;
+                return BadRequest(ex.Message);
             }
-
-            await _context.SaveChangesAsync();
-
-            return Ok(transaction);
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ أثناء تسجيل حركة العهدة: {ex.Message}");
+            }
         }
     }
 }

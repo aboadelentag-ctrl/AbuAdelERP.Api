@@ -1,14 +1,15 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using AbuAdelERP.Api.Models;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Collections.Generic;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using AbuAdelERP.Api.Models;
 
 namespace AbuAdelERP.Api.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
+    [Route("api/[controller]")]
     public class StockBalancesController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -18,58 +19,172 @@ namespace AbuAdelERP.Api.Controllers
             _context = context;
         }
 
-        // جلب الأرصدة مع دعم تجميع الشجرة (Roll-up) لو تم اختيار مخزن رئيسي
+        // ==============================================================
+        // 1. جلب الأرصدة اللحظية مع الفلاتر المتقدمة (الفرع، المستودع، النواقص)
+        // ==============================================================
         [HttpGet]
-        public async Task<IActionResult> GetStockBalances([FromQuery] long? warehouseId, [FromQuery] long? itemId)
+        public async Task<IActionResult> GetBalances(
+            [FromQuery] long? branchId = null,
+            [FromQuery] long? warehouseId = null,
+            [FromQuery] long? categoryId = null,
+            [FromQuery] string? search = null,
+            [FromQuery] bool lowStockOnly = false)
         {
-            var query = _context.StockBalances
-                .Include(s => s.Item)
-                .Include(s => s.Warehouse)
-                .AsQueryable();
-
-            if (warehouseId.HasValue && warehouseId.Value > 0)
+            try
             {
-                // جلب المخزن المختار + أي مخازن فرعية تابعة له تحت نفس الشجرة
-                var warehouseIds = new List<long> { warehouseId.Value };
-                var subIds = await _context.Warehouses
-                    .Where(w => w.ParentWarehouseId == warehouseId.Value)
-                    .Select(w => w.Id)
+                var query = _context.StockBalances
+                    .Include(s => s.Item)
+                        .ThenInclude(i => i.ItemCategory)
+                    .Include(s => s.Warehouse)
+                        .ThenInclude(w => w.Branch)
+                    .AsNoTracking();
+
+                if (branchId.HasValue && branchId.Value > 0)
+                {
+                    query = query.Where(s => s.Warehouse.BranchId == branchId.Value);
+                }
+
+                if (warehouseId.HasValue && warehouseId.Value > 0)
+                {
+                    query = query.Where(s => s.WarehouseId == warehouseId.Value);
+                }
+
+                if (categoryId.HasValue && categoryId.Value > 0)
+                {
+                    query = query.Where(s => s.Item.CategoryId == categoryId.Value);
+                }
+
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var term = search.Trim().ToLower();
+                    query = query.Where(s => s.Item.ItemName.ToLower().Contains(term)
+                                          || s.Item.ItemCode.ToLower().Contains(term)
+                                          || (s.Item.Barcode != null && s.Item.Barcode.ToLower().Contains(term)));
+                }
+
+                if (lowStockOnly)
+                {
+                    query = query.Where(s => s.Item.ReorderLevel > 0 && s.Quantity <= s.Item.ReorderLevel);
+                }
+
+                var balances = await query
+                    .OrderBy(s => s.Warehouse.WarehouseName)
+                    .ThenBy(s => s.Item.ItemName)
+                    .Select(s => new StockBalanceViewDto
+                    {
+                        Id = s.Id,
+                        WarehouseId = s.WarehouseId,
+                        WarehouseCode = s.Warehouse.WarehouseCode,
+                        WarehouseName = s.Warehouse.WarehouseName,
+                        BranchId = s.Warehouse.BranchId,
+                        BranchName = s.Warehouse.Branch != null ? s.Warehouse.Branch.BranchName : "الفرع الرئيسي",
+                        ItemId = s.ItemId,
+                        ItemCode = s.Item.ItemCode,
+                        ItemName = s.Item.ItemName,
+                        CategoryName = s.Item.ItemCategory != null ? s.Item.ItemCategory.CategoryName : "عام",
+                        Unit = s.Item.Unit ?? "قطعة",
+                        Quantity = s.Quantity,
+                        ReservedQuantity = s.ReservedQuantity,
+                        AvailableQuantity = s.Quantity - s.ReservedQuantity,
+                        ReorderLevel = s.Item.ReorderLevel,
+                        SafetyStock = s.Item.SafetyStock,
+                        BasePrice = s.Item.BasePrice,
+                        TotalStockValue = s.Quantity * s.Item.BasePrice,
+                        LastUpdatedAt = s.LastUpdatedAt,
+                        Status = s.Quantity <= 0 ? "نفد الرصيد"
+                               : (s.Item.ReorderLevel > 0 && s.Quantity <= s.Item.ReorderLevel) ? "حد الطلب"
+                               : "متوفر"
+                    })
                     .ToListAsync();
 
-                warehouseIds.AddRange(subIds);
-                query = query.Where(s => warehouseIds.Contains(s.WarehouseId));
+                return Ok(balances);
             }
-
-            if (itemId.HasValue && itemId.Value > 0)
+            catch (Exception ex)
             {
-                query = query.Where(s => s.ItemId == itemId.Value);
+                return StatusCode(500, $"خطأ في استرجاع الأرصدة المخزنية: {ex.GetBaseException().Message}");
             }
+        }
 
-            // تجميع النتيجة لعرض الصنف مع إجمالي الكميات لو شملت أكثر من مخزن فرعي
-            var result = await query
-                .GroupBy(s => new { s.ItemId, s.Item.ItemCode, s.Item.ItemName })
-                .Select(g => new StockBalanceViewDto
+        // ==============================================================
+        // 2. مؤشرات ملخص المخزون (Inventory KPI Dashboard)
+        // ==============================================================
+        [HttpGet("kpis")]
+        public async Task<IActionResult> GetStockKpis([FromQuery] long? branchId = null, [FromQuery] long? warehouseId = null)
+        {
+            try
+            {
+                var query = _context.StockBalances
+                    .Include(s => s.Item)
+                    .Include(s => s.Warehouse)
+                    .AsNoTracking();
+
+                if (branchId.HasValue && branchId.Value > 0)
+                    query = query.Where(s => s.Warehouse.BranchId == branchId.Value);
+
+                if (warehouseId.HasValue && warehouseId.Value > 0)
+                    query = query.Where(s => s.WarehouseId == warehouseId.Value);
+
+                var items = await query.Select(s => new
                 {
-                    ItemId = g.Key.ItemId,
-                    ItemCode = g.Key.ItemCode,
-                    ItemName = g.Key.ItemName,
-                    TotalQuantity = g.Sum(s => s.Quantity),
-                    TotalReserved = g.Sum(s => s.ReservedQuantity),
-                    TotalAvailable = g.Sum(s => s.AvailableQuantity ?? (s.Quantity - s.ReservedQuantity))
-                })
-                .ToListAsync();
+                    s.Quantity,
+                    Available = s.Quantity - s.ReservedQuantity,
+                    Price = s.Item.BasePrice,
+                    Reorder = s.Item.ReorderLevel
+                }).ToListAsync();
 
-            return Ok(result);
+                var kpi = new StockKpiSummaryDto
+                {
+                    TotalItemsCount = items.Count,
+                    TotalStockQuantity = items.Sum(i => i.Quantity),
+                    TotalAvailableQuantity = items.Sum(i => i.Available),
+                    EstimatedStockValue = items.Sum(i => i.Quantity * i.Price),
+                    LowStockCount = items.Count(i => i.Reorder > 0 && i.Quantity <= i.Reorder && i.Quantity > 0),
+                    OutOfStockCount = items.Count(i => i.Quantity <= 0)
+                };
+
+                return Ok(kpi);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في حساب المؤشرات: {ex.GetBaseException().Message}");
+            }
         }
     }
 
+    // ==============================================================
+    // DTOs الخاصة بالأرصدة
+    // ==============================================================
     public class StockBalanceViewDto
     {
+        public long Id { get; set; }
+        public long WarehouseId { get; set; }
+        public string WarehouseCode { get; set; } = string.Empty;
+        public string WarehouseName { get; set; } = string.Empty;
+        public long? BranchId { get; set; }
+        public string BranchName { get; set; } = string.Empty;
         public long ItemId { get; set; }
         public string ItemCode { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
-        public decimal TotalQuantity { get; set; }
-        public decimal TotalReserved { get; set; }
-        public decimal TotalAvailable { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public decimal Quantity { get; set; }
+        public decimal ReservedQuantity { get; set; }
+        public decimal AvailableQuantity { get; set; }
+        public decimal ReorderLevel { get; set; }
+        public decimal SafetyStock { get; set; }
+        public decimal BasePrice { get; set; }
+        public decimal TotalStockValue { get; set; }
+        public DateTime? LastUpdatedAt { get; set; }
+        public string Status { get; set; } = "متوفر";
+    }
+
+    public class StockKpiSummaryDto
+    {
+        public int TotalItemsCount { get; set; }
+        public decimal TotalStockQuantity { get; set; }
+        public decimal TotalAvailableQuantity { get; set; }
+        public decimal EstimatedStockValue { get; set; }
+        public int LowStockCount { get; set; }
+        public int OutOfStockCount { get; set; }
     }
 }

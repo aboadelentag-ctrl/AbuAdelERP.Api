@@ -1,9 +1,14 @@
-﻿using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using AbuAdelERP.Api.DTOs;
 
-namespace AbuAdelERP.Api.Services;
-
-public interface ISalesService
+namespace AbuAdelERP.Api.Services
 {
-    Task<object> CreateInvoiceAsync(SalesInvoiceCreateDto dto);
+    public interface ISalesService
+    {
+        Task<SalesLookupsDto> GetLookupsAsync();
+        Task<List<SalesInvoiceViewDto>> GetAllInvoicesAsync();
+        Task<SalesInvoiceViewDto?> GetInvoiceByIdAsync(long id);
+        Task<SalesInvoiceResultDto> CreateInvoiceAsync(SalesInvoiceCreateDto dto);
+    }
 }
