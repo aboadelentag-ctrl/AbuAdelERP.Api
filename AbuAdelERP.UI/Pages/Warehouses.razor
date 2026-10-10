@@ -1,11 +1,16 @@
 ﻿@page "/warehouses"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
+@using System.Text
 @using AbuAdelERP.UI.DTOs
 @inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>إدارة المستودعات ومراكز التخزين - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid py-4" dir="rtl">
     <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-2">
         <div>
             <h3 class="fw-bold text-primary mb-1">
                 <i class="bi bi-house-door me-2"></i>إدارة المستودعات ومراكز التخزين
@@ -13,7 +18,13 @@
             <p class="text-muted small mb-0">هيكلة المستودعات والشجرة الهرمية وربطها بالفروع ومنافذ الإنتاج</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-primary px-4 shadow-sm" @onclick="OpenCreateModal">
+            @if (warehouses.Any())
+            {
+                <button class="btn btn-outline-success px-3 shadow-sm btn-sm fw-bold" @onclick="ExportToCsv">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير (Excel)
+                </button>
+            }
+            <button class="btn btn-primary px-3 shadow-sm btn-sm fw-bold" @onclick="OpenCreateModal">
                 <i class="bi bi-plus-circle me-1"></i> إضافة مستودع جديد
             </button>
         </div>
@@ -41,7 +52,7 @@
             <div class="row g-3 align-items-center">
                 <div class="col-md-4">
                     <label class="form-label small fw-bold text-muted mb-1">فلترة حسب الفرع:</label>
-                    <select class="form-select form-select-sm" @bind="selectedBranchId" @bind:after="LoadWarehouses">
+                    <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedBranchId" @bind:after="LoadWarehouses">
                         <option value="0">كافة الفروع والمراكز الرئيسية</option>
                         @foreach (var b in branches)
                         {
@@ -83,7 +94,7 @@
             else
             {
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0 text-center">
+                    <table class="table table-hover align-middle mb-0 text-center small">
                         <thead class="table-light text-secondary">
                             <tr>
                                 <th>كود المستودع</th>
@@ -135,11 +146,11 @@
                                         </span>
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => OpenEditModal(w)" title="تعديل">
-                                            <i class="bi bi-pencil-square"></i>
+                                        <button class="btn btn-sm btn-outline-primary me-1 py-0 px-2 fw-bold" @onclick="() => OpenEditModal(w)" title="تعديل">
+                                            <i class="bi bi-pencil-square"></i> تعديل
                                         </button>
-                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteWarehouse(w.Id)" title="حذف">
-                                            <i class="bi bi-trash"></i>
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" @onclick="() => DeleteWarehouse(w)" title="حذف">
+                                            <i class="bi bi-trash"></i> حذف
                                         </button>
                                     </td>
                                 </tr>
@@ -159,7 +170,7 @@
         <div class="modal-dialog modal-lg modal-dialog-centered" dir="rtl">
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title fw-bold">
+                    <h5 class="modal-title fw-bold fs-6">
                         <i class="bi @(currentWarehouse.Id > 0 ? "bi-pencil-square" : "bi-plus-circle") me-2"></i>
                         @(currentWarehouse.Id > 0 ? "تعديل بيانات المستودع" : "تسجيل مستودع جديد")
                     </h5>
@@ -173,8 +184,8 @@
 
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">الفرع التابع له <span class="text-danger">*</span></label>
-                            <select class="form-select" @bind="currentWarehouse.BranchId">
+                            <label class="form-label fw-bold small text-dark">الفرع التابع له <span class="text-danger">*</span></label>
+                            <select class="form-select form-select-sm fw-bold border-primary" @bind="currentWarehouse.BranchId">
                                 @foreach (var b in branches)
                                 {
                                     <option value="@b.Id">@b.BranchName (@b.BranchCode)</option>
@@ -182,17 +193,17 @@
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">كود المستودع <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control font-monospace" placeholder="مثال: WH-RAW-01" @bind="currentWarehouse.WarehouseCode" />
+                            <label class="form-label fw-bold small text-dark">كود المستودع <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm font-monospace fw-bold border-primary" placeholder="مثال: WH-RAW-01" @bind="currentWarehouse.WarehouseCode" />
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">اسم المستودع <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" placeholder="مثال: مستودع خامات المعمل الرئيسي" @bind="currentWarehouse.WarehouseName" />
+                            <label class="form-label fw-bold small text-dark">اسم المستودع <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm fw-bold border-primary" placeholder="مثال: مستودع خامات المعمل الرئيسي" @bind="currentWarehouse.WarehouseName" />
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">نوع المستودع</label>
-                            <select class="form-select" @bind="currentWarehouse.WarehouseType">
+                            <label class="form-label fw-bold small text-dark">نوع المستودع</label>
+                            <select class="form-select form-select-sm" @bind="currentWarehouse.WarehouseType">
                                 <option value="خامات">مستودع خامات وتعبئة</option>
                                 <option value="منتج تام">مستودع منتج تام (حلويات/مخبوزات)</option>
                                 <option value="معرض">مستودع بيع ومعارض</option>
@@ -202,8 +213,8 @@
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">المستودع الأب (الشجرة الهرمية)</label>
-                            <select class="form-select" @bind="currentWarehouse.ParentWarehouseId">
+                            <label class="form-label fw-bold small text-dark">المستودع الأب (الشجرة الهرمية)</label>
+                            <select class="form-select form-select-sm" @bind="currentWarehouse.ParentWarehouseId">
                                 <option value="">-- مستودع رئيسي مستقل (بدون أب) --</option>
                                 @foreach (var p in warehouses.Where(w => w.Id != currentWarehouse.Id))
                                 {
@@ -211,22 +222,22 @@
                                 }
                             </select>
                         </div>
-                        <div class="col-md-6 d-flex align-items-center pt-4">
-                            <div class="form-check form-switch fs-5">
+                        <div class="col-md-6 d-flex align-items-center pt-3">
+                            <div class="form-check form-switch fs-6">
                                 <input class="form-check-input" type="checkbox" id="activeSwitch" @bind="currentWarehouse.Active" />
-                                <label class="form-check-label fs-6 fw-bold ms-2" for="activeSwitch">المستودع نشط ويعمل</label>
+                                <label class="form-check-label small fw-bold ms-2" for="activeSwitch">المستودع نشط ويعمل</label>
                             </div>
                         </div>
 
                         <div class="col-12">
-                            <label class="form-label fw-bold">الوصف والموقع الجغرافي</label>
-                            <textarea class="form-control" rows="2" placeholder="الموقع داخل المصنع أو الفرع، وأي تفاصيل تشغيلية..." @bind="currentWarehouse.Description"></textarea>
+                            <label class="form-label fw-bold small text-dark">الوصف والموقع الجغرافي</label>
+                            <textarea class="form-control form-control-sm" rows="2" placeholder="الموقع داخل المصنع أو الفرع، وأي تفاصيل تشغيلية..." @bind="currentWarehouse.Description"></textarea>
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-secondary px-4" @onclick="CloseModal">إلغاء</button>
-                    <button type="button" class="btn btn-success px-4" @onclick="SaveWarehouse" disabled="@isSaving">
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="CloseModal">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="SaveWarehouse" disabled="@isSaving">
                         @if (isSaving)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
@@ -274,16 +285,7 @@
     {
         try
         {
-            var lookups = await Http.GetFromJsonAsync<SalesLookupsDto>("api/sales/lookups");
-            if (lookups?.Branches != null)
-            {
-                branches = lookups.Branches.Select(b => new BranchLookupDto
-                {
-                    Id = b.Id,
-                    BranchCode = b.BranchCode,
-                    BranchName = b.BranchName
-                }).ToList();
-            }
+            branches = await Http.GetFromJsonAsync<List<BranchLookupDto>>("api/warehouses/branches") ?? new();
         }
         catch
         {
@@ -387,15 +389,18 @@
         }
     }
 
-    private async Task DeleteWarehouse(long id)
+    private async Task DeleteWarehouse(WarehouseDto w)
     {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف المستودع [{w.WarehouseName}]؟");
+        if (!confirmed) return;
+
         errorMessage = null;
         try
         {
-            var response = await Http.DeleteAsync($"api/warehouses/{id}");
+            var response = await Http.DeleteAsync($"api/warehouses/{w.Id}");
             if (response.IsSuccessStatusCode)
             {
-                statusMessage = "تم حذف المستودع بنجاح.";
+                statusMessage = "تمت معالجة حذف المستودع بنجاح.";
                 await LoadWarehouses();
             }
             else
@@ -406,6 +411,32 @@
         catch (Exception ex)
         {
             errorMessage = $"فشل الحذف: {ex.Message}";
+        }
+    }
+
+    private async Task ExportToCsv()
+    {
+        var list = FilteredWarehouses.ToList();
+        if (!list.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_المستودع,اسم_المستودع,الفرع,نوع_المستودع,المستودع_الأب,الوصف,الحالة");
+
+            foreach (var w in list)
+            {
+                sb.AppendLine($"\"{w.WarehouseCode}\",\"{w.WarehouseName}\",\"{w.BranchName}\",\"{w.WarehouseType}\",\"{w.ParentWarehouseName}\",\"{w.Description}\",\"{(w.Active ? "نشط" : "معطل")}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"دليل_المستودعات_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تصدير البيانات: {ex.Message}";
         }
     }
 

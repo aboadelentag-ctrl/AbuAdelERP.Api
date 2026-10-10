@@ -1,0 +1,624 @@
+﻿@page "/expenses-payables"
+@page "/finance/payables"
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>حسابات الموردين ومصروفات التشغيل والخدمات - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+    <!-- رأس الشاشة التنفيذي -->
+    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom flex-wrap gap-2">
+        <div>
+            <h4 class="text-primary m-0 mb-1 fw-bold">🏭 استحقاقات الموردين ومصروفات التشغيل والخدمات</h4>
+            <span class="text-muted small">إدارة فواتير موردي الخامات، الغاز، الكهرباء، المياه، أجور العاملين، وإيجارات الفروع</span>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary btn-sm fw-bold shadow-sm px-3" @onclick="LoadDataAsync">
+                <i class="bi bi-arrow-clockwise me-1"></i> تحديث
+            </button>
+            <button class="btn btn-primary btn-sm fw-bold shadow-sm px-3" @onclick="OpenAddModal">
+                ➕ تسجيل استحقاق / فاتورة جديدة
+            </button>
+        </div>
+    </div>
+
+    <!-- رسائل النظام -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") py-2 small fw-bold alert-dismissible fade show shadow-sm" role="alert">
+            @statusMessage
+            <button type="button" class="btn-close py-2" @onclick='() => statusMessage = ""'></button>
+        </div>
+    }
+
+    <!-- بطاقات المؤشرات اللحظية للالتزامات التشغيلية (OPEX KPIs) -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-danger border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">مستحقات موردي الخامات (AP)</small>
+                <h4 class="mb-0 fw-bold text-danger mt-1 font-monospace">@suppliersDue.ToString("N0") ج.م</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">فواتير الغاز والكهرباء والمياه</small>
+                <h4 class="mb-0 fw-bold text-dark mt-1 font-monospace">@utilitiesDue.ToString("N0") ج.م</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-info border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">أجور ورواتب العمال والورديات</small>
+                <h4 class="mb-0 fw-bold text-info mt-1 font-monospace">@payrollDue.ToString("N0") ج.م</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-primary border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">إيجارات الفروع والمعارض</small>
+                <h4 class="mb-0 fw-bold text-primary mt-1 font-monospace">@rentDue.ToString("N0") ج.م</h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط البحث والتصفية -->
+    <div class="card shadow-sm border-0 mb-3 bg-white">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-4">
+                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="ابحث برقم الفاتورة، البند، أو اسم المورد..." @bind="searchTerm" @bind:event="oninput" />
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedCategoryFilter">
+                        <option value="">-- كافة بنود الالتزامات --</option>
+                        <option value="SUPPLIER_PURCHASE">موردو الخامات والتعبئة (AP)</option>
+                        <option value="UTILITY_GAS">غاز الأفران والصالات (Town Gas)</option>
+                        <option value="UTILITY_ELEC">كهرباء الثلاجات والإنارة</option>
+                        <option value="UTILITY_WATER">فواتير المياه والصرف</option>
+                        <option value="PAYROLL">مسيرات أجور ورواتب العمال</option>
+                        <option value="RENT">إيجارات المعارض ومقرات الفروع</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm fw-bold" @bind="selectedStatusFilter">
+                        <option value="">-- كافة حالات السداد --</option>
+                        <option value="UNPAID">مستحقة بالكامل (غير مسددة)</option>
+                        <option value="PARTIAL">مسددة جزئياً</option>
+                        <option value="PAID">مسددة بالكامل ✓</option>
+                    </select>
+                </div>
+                <div class="col-md-2 text-md-end text-muted small">
+                    المعروض: <strong class="text-primary font-monospace">@FilteredBills.Count()</strong> مطالبة
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول عرض الالتزامات والمصروفات -->
+    <div class="card shadow-sm border-0 rounded-3 mb-4">
+        <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 fw-bold small">📋 جدول استحقاقات الموردين وفواتير الطاقة والأجور</h6>
+            <span class="badge bg-secondary font-monospace">مربوط بدليل الموردين الفعلي ✓</span>
+        </div>
+        <div class="card-body p-0 table-responsive">
+            <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 120px;">رقم المطالبة</th>
+                        <th>البند والتصنيف</th>
+                        <th class="text-start ps-3">بيان الفاتورة / المستحق</th>
+                        <th class="text-start ps-3">الجهة المستحقة (المورد / الشركة / العمال)</th>
+                        <th>مركز التكلفة المحمّل عليه</th>
+                        <th>إجمالي المبلغ</th>
+                        <th>المسدد</th>
+                        <th>المتبقي</th>
+                        <th>الحالة</th>
+                        <th style="width: 110px;">الإجراء</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!FilteredBills.Any())
+                    {
+                        <tr><td colspan="10" class="text-muted py-4 fw-bold">لا توجد مطالبات أو فواتير مطابقة للبحث.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var bill in FilteredBills)
+                        {
+                            <tr>
+                                <td class="font-monospace fw-bold text-primary">@bill.BillNumber</td>
+                                <td>
+                                    <span class="badge @GetCategoryBadge(bill.Category)">
+                                        @GetCategoryLabel(bill.Category)
+                                    </span>
+                                </td>
+                                <td class="text-start ps-3 fw-bold text-dark">@bill.Title</td>
+                                <td class="text-start ps-3 fw-bold text-primary">@bill.PartyName</td>
+                                <td><span class="badge bg-light text-dark border font-monospace">@bill.CostCenterName</span></td>
+                                <td class="font-monospace fw-bold text-dark">@bill.TotalAmount.ToString("N0") ج.م</td>
+                                <td class="font-monospace text-success">@bill.PaidAmount.ToString("N0") ج.م</td>
+                                <td class="font-monospace fw-bold @(bill.RemainingAmount > 0 ? "text-danger" : "text-muted")">
+                                    @bill.RemainingAmount.ToString("N0") ج.م
+                                </td>
+                                <td>
+                                    <span class="badge @GetStatusBadge(bill.Status) px-2 py-1">
+                                        @GetStatusLabel(bill.Status)
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (bill.RemainingAmount > 0)
+                                    {
+                                        <button class="btn btn-sm btn-outline-success py-0 px-2 fw-bold" @onclick="() => OpenPayModal(bill)">
+                                            💵 سداد
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-success small fw-bold">مكتمل ✓</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- مودال: تسجيل استحقاق جديد مربوط ديناميكياً بالموردين والفروع -->
+@if (isAddModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);" dir="rtl">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">➕ إثبات استحقاق مالي / فاتورة تشغيل جديدة</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isAddModalOpen = false"></button>
+                </div>
+                <div class="modal-body bg-light p-3">
+                    <div class="card p-3 border-0 shadow-sm bg-white mb-3">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">نوع الالتزام / الفاتورة *</label>
+                                <select class="form-select form-select-sm fw-bold border-primary" @bind="newBill.Category" @bind:after="OnCategoryChanged">
+                                    <option value="SUPPLIER_PURCHASE">موردو الخامات والتعبئة (سمن، سكر، دقيق)</option>
+                                    <option value="UTILITY_GAS">فاتورة غاز الأفران والصالات (Town Gas)</option>
+                                    <option value="UTILITY_ELEC">فاتورة كهرباء الثلاجات والإنارة</option>
+                                    <option value="UTILITY_WATER">فاتورة المياه والصرف</option>
+                                    <option value="PAYROLL">مسير أجور ورواتب عمال الورديات</option>
+                                    <option value="RENT">إيجار معرض أو مقر فرع</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">مركز التكلفة المحمّل عليه *</label>
+                                <select class="form-select form-select-sm fw-bold border-secondary" @bind="newBill.CostCenterName">
+                                    <option value="المستودع الرئيسي للخامات (WH-MAIN)">المستودع الرئيسي للخامات (WH-MAIN)</option>
+                                    <option value="صالة الإنتاج الشرقي (CC-EAST)">صالة الإنتاج الشرقي (CC-EAST)</option>
+                                    <option value="صالة الغربي والتبريد (CC-WEST)">صالة الغربي والتبريد (CC-WEST)</option>
+                                    <option value="فرع المبيعات الخارجية والتوزيع (BR-DIST)">فرع المبيعات الخارجية والتوزيع (BR-DIST)</option>
+                                    <option value="المعرض الرئيسي (المصنع)">المعرض الرئيسي (المصنع)</option>
+                                    <option value="فرع وسط البلد (BR-02)">فرع وسط البلد (BR-02)</option>
+                                </select>
+                            </div>
+
+                            <!-- تحديد الجهة المستحقة: اختيار مورد فعلي عند اختيار فئة الموردين -->
+                            @if (newBill.Category == "SUPPLIER_PURCHASE")
+                            {
+                                <div class="col-md-12">
+                                    <label class="form-label small fw-bold text-danger">اختيار المورد المعتمد من قاعدة البيانات *</label>
+                                    <select class="form-select form-select-sm fw-bold border-danger" @bind="selectedSupplierId" @bind:after="OnSupplierSelected">
+                                        <option value="0">-- اختر المورد المسجل في النظام --</option>
+                                        @foreach (var supp in suppliersLookupList)
+                                        {
+                                            <option value="@supp.Id">[@supp.SupplierCode] @supp.SupplierName (@supp.Phone)</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            else if (newBill.Category == "RENT")
+                            {
+                                <div class="col-md-12">
+                                    <label class="form-label small fw-bold text-primary">الفرع أو المعرض المستحق عنه الإيجار *</label>
+                                    <select class="form-select form-select-sm fw-bold border-primary" @bind="newBill.CostCenterName" @bind:after="OnRentBranchSelected">
+                                        <option value="فرع وسط البلد (BR-02)">فرع وسط البلد (BR-02)</option>
+                                        <option value="المعرض الرئيسي (المصنع)">المعرض الرئيسي (المصنع)</option>
+                                        <option value="فرع المبيعات الخارجية والتوزيع (BR-DIST)">فرع المبيعات الخارجية والتوزيع (BR-DIST)</option>
+                                    </select>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="col-md-12">
+                                    <label class="form-label small fw-bold">الجهة الخدمية المستحقة *</label>
+                                    <input type="text" class="form-control form-control-sm fw-bold bg-white" @bind="newBill.PartyName" />
+                                </div>
+                            }
+
+                            <div class="col-md-8">
+                                <label class="form-label small fw-bold">بيان وعنوان الفاتورة *</label>
+                                <input type="text" class="form-control form-control-sm fw-bold" @bind="newBill.Title" placeholder="مثال: توريد 2 طن سمن طبيعي" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold">إجمالي المبلغ (ج.م) *</label>
+                                <input type="number" class="form-control form-control-sm font-monospace fw-bold text-primary" @bind="newBill.TotalAmount" placeholder="0.00" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">تاريخ الاستحقاق الأقصى</label>
+                                <input type="date" class="form-control form-control-sm font-monospace" @bind="newBill.DueDate" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">ملاحظات وشروط إضافية</label>
+                                <input type="text" class="form-control form-control-sm" @bind="newBill.Notes" placeholder="أرقام أوامر الشراء أو العدادات..." />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- معاينة القيد المزدوج الآلي للاستحقاق -->
+                    <div class="card p-3 border-0 shadow-sm bg-white border-start border-4 border-info">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <h6 class="fw-bold text-info small m-0">⚖️ القيد المحاسبي المتولد آلياً لإثبات الاستحقاق:</h6>
+                            <span class="badge bg-success">متزن 100%</span>
+                        </div>
+                        <table class="table table-sm table-bordered text-center align-middle small mb-0 font-monospace">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>طرف القيد</th>
+                                    <th>كود الحساب</th>
+                                    <th>اسم الحساب المحاسبي</th>
+                                    <th>مدين (Debit)</th>
+                                    <th>دائن (Credit)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="fw-bold text-danger">من حـ/ (مدين)</td>
+                                    <td>@newBill.DebitAccountCode</td>
+                                    <td>@newBill.DebitAccountName</td>
+                                    <td class="fw-bold text-danger">@newBill.TotalAmount.ToString("N0")</td>
+                                    <td>0</td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold text-primary">إلى حـ/ (دائن)</td>
+                                    <td>@newBill.CreditAccountCode</td>
+                                    <td>@newBill.CreditAccountName (@(!string.IsNullOrEmpty(newBill.PartyName) ? newBill.PartyName : "المورد"))</td>
+                                    <td>0</td>
+                                    <td class="fw-bold text-primary">@newBill.TotalAmount.ToString("N0")</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm px-3" @onclick="() => isAddModalOpen = false">إلغاء</button>
+                    <button class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="SaveNewBillAsync">💾 اعتماد وتثبيت الاستحقاق</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- مودال: سداد دفعة من الخزينة -->
+@if (isPayModalOpen && activeBillToPay != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);" dir="rtl">
+        <div class="modal-dialog modal-md modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-success text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">💵 سداد نقدية من الخزينة: @activeBillToPay.Title</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isPayModalOpen = false"></button>
+                </div>
+                <div class="modal-body bg-light p-3">
+                    <div class="card p-3 border-0 shadow-sm bg-white mb-3">
+                        <div class="mb-2"><strong>إجمالي الفاتورة:</strong> <span class="font-monospace">@activeBillToPay.TotalAmount.ToString("N0") ج.م</span></div>
+                        <div class="mb-2"><strong>المسدد سابقاً:</strong> <span class="font-monospace text-success">@activeBillToPay.PaidAmount.ToString("N0") ج.م</span></div>
+                        <div class="mb-3"><strong>المتبقي المطلوب:</strong> <span class="font-monospace text-danger fw-bold fs-6">@activeBillToPay.RemainingAmount.ToString("N0") ج.م</span></div>
+
+                        <label class="form-label small fw-bold">المبلغ المطلوب سداده الآن (ج.م) *</label>
+                        <input type="number" class="form-control font-monospace fw-bold text-success fs-5 mb-2" @bind="paymentAmountInput" />
+
+                        <label class="form-label small fw-bold">الخزينة المنصرف منها السداد</label>
+                        <select class="form-select form-select-sm fw-bold">
+                            <option>1211 - الخزينة الرئيسية (المصنع)</option>
+                            <option>1212 - خزينة فرع التوزيع الخارجي</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm px-3" @onclick="() => isPayModalOpen = false">إلغاء</button>
+                    <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="ConfirmPaymentAsync">
+                        💾 تأكيد السداد وإصدار سند الصرف
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ExpensePayableDto> billsList = new();
+    private List<SupplierLookupItem> suppliersLookupList = new();
+    private long selectedSupplierId = 0;
+
+    private string searchTerm = "";
+    private string selectedCategoryFilter = "";
+    private string selectedStatusFilter = "";
+
+    private decimal utilitiesDue = 0;
+    private decimal suppliersDue = 0;
+    private decimal payrollDue = 0;
+    private decimal rentDue = 0;
+
+    private bool isAddModalOpen = false;
+    private ExpensePayableDto newBill = new();
+
+    private bool isPayModalOpen = false;
+    private ExpensePayableDto? activeBillToPay;
+    private decimal paymentAmountInput = 0;
+
+    private string statusMessage = "";
+    private bool isSuccess = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSuppliersLookup();
+        await LoadDataAsync();
+    }
+
+    private async Task LoadSuppliersLookup()
+    {
+        try
+        {
+            suppliersLookupList = await Http.GetFromJsonAsync<List<SupplierLookupItem>>("api/ExpensesPayables/suppliers-lookup") ?? new();
+        }
+        catch { }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            billsList = await Http.GetFromJsonAsync<List<ExpensePayableDto>>("api/ExpensesPayables") ?? new();
+            CalculateSummary();
+        }
+        catch { }
+    }
+
+    private void CalculateSummary()
+    {
+        utilitiesDue = billsList.Where(b => b.Category.StartsWith("UTILITY")).Sum(b => b.TotalAmount - b.PaidAmount);
+        suppliersDue = billsList.Where(b => b.Category == "SUPPLIER_PURCHASE").Sum(b => b.TotalAmount - b.PaidAmount);
+        payrollDue = billsList.Where(b => b.Category == "PAYROLL").Sum(b => b.TotalAmount - b.PaidAmount);
+        rentDue = billsList.Where(b => b.Category == "RENT").Sum(b => b.TotalAmount - b.PaidAmount);
+    }
+
+    private IEnumerable<ExpensePayableDto> FilteredBills => billsList.Where(b =>
+        (string.IsNullOrEmpty(selectedCategoryFilter) || b.Category == selectedCategoryFilter) &&
+        (string.IsNullOrEmpty(selectedStatusFilter) || b.Status == selectedStatusFilter) &&
+        (string.IsNullOrWhiteSpace(searchTerm) ||
+         b.BillNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+         b.Title.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+         b.PartyName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+    );
+
+    private void OpenAddModal()
+    {
+        selectedSupplierId = 0;
+        newBill = new ExpensePayableDto
+        {
+            Category = "SUPPLIER_PURCHASE",
+            CostCenterName = "المستودع الرئيسي للخامات (WH-MAIN)",
+            DebitAccountCode = "1231",
+            DebitAccountName = "مخزن المواد الخام والتعبئة",
+            CreditAccountCode = "211",
+            CreditAccountName = "موردو الخامات والتعبئة",
+            Title = "فاتورة توريد خامات إنتاج",
+            PartyName = "يرجى اختيار المورد من القائمة",
+            TotalAmount = 0,
+            DueDate = DateTime.Today.AddDays(7)
+        };
+        isAddModalOpen = true;
+    }
+
+    private void OnSupplierSelected()
+    {
+        var supp = suppliersLookupList.FirstOrDefault(s => s.Id == selectedSupplierId);
+        if (supp != null)
+        {
+            newBill.SupplierId = supp.Id;
+            newBill.PartyName = supp.SupplierName;
+            newBill.Title = $"توريد خامات من [{supp.SupplierName}]";
+        }
+    }
+
+    private void OnRentBranchSelected()
+    {
+        newBill.PartyName = $"مالك عقار {newBill.CostCenterName}";
+        newBill.Title = $"إيجار مقر {newBill.CostCenterName}";
+    }
+
+    private void OnCategoryChanged()
+    {
+        switch (newBill.Category)
+        {
+            case "UTILITY_GAS":
+                newBill.Title = "فاتورة غاز أفران الصالات";
+                newBill.PartyName = "شركة تاون جاس (الغاز الطبيعي)";
+                newBill.CostCenterName = "صالة الإنتاج الشرقي (CC-EAST)";
+                newBill.DebitAccountCode = "53";
+                newBill.DebitAccountName = "مصاريف غاز وكهرباء الصالات";
+                newBill.CreditAccountCode = "213";
+                newBill.CreditAccountName = "مصروفات خدمية مستحقة";
+                break;
+            case "UTILITY_ELEC":
+                newBill.Title = "فاتورة كهرباء ثلاجات التبريد";
+                newBill.PartyName = "شركة توزيع الكهرباء";
+                newBill.CostCenterName = "صالة الغربي والتبريد (CC-WEST)";
+                newBill.DebitAccountCode = "53";
+                newBill.DebitAccountName = "مصاريف غاز وكهرباء الصالات";
+                newBill.CreditAccountCode = "213";
+                newBill.CreditAccountName = "مصروفات خدمية مستحقة";
+                break;
+            case "UTILITY_WATER":
+                newBill.Title = "فاتورة مياه الصالات والمصنع";
+                newBill.PartyName = "شركة مياه الشرب والصرف";
+                newBill.CostCenterName = "المركز الرئيسي (المصنع)";
+                newBill.DebitAccountCode = "53";
+                newBill.DebitAccountName = "مصاريف مياه وتشغيل";
+                newBill.CreditAccountCode = "213";
+                newBill.CreditAccountName = "مصروفات خدمية مستحقة";
+                break;
+            case "PAYROLL":
+                newBill.Title = "مسير أجور ورواتب ورديات التشغيل";
+                newBill.PartyName = "عمال وشيفات صالات التصنيع";
+                newBill.CostCenterName = "إجمالي صالات التصنيع (CC-FACTORY)";
+                newBill.DebitAccountCode = "52";
+                newBill.DebitAccountName = "أجور عمال الصالات المباشرة";
+                newBill.CreditAccountCode = "213";
+                newBill.CreditAccountName = "أجور ومرتبات مستحقة";
+                break;
+            case "RENT":
+                OnRentBranchSelected();
+                newBill.DebitAccountCode = "55";
+                newBill.DebitAccountName = "مصروفات إيجارات المعارض";
+                newBill.CreditAccountCode = "213";
+                newBill.CreditAccountName = "إيجارات ومصروفات مستحقة";
+                break;
+            default:
+                newBill.Title = "فاتورة توريد خامات إنتاج";
+                newBill.CostCenterName = "المستودع الرئيسي للخامات (WH-MAIN)";
+                newBill.DebitAccountCode = "1231";
+                newBill.DebitAccountName = "مخزن المواد الخام والتعبئة";
+                newBill.CreditAccountCode = "211";
+                newBill.CreditAccountName = "موردو الخامات والتعبئة";
+                break;
+        }
+    }
+
+    private async Task SaveNewBillAsync()
+    {
+        if (newBill.Category == "SUPPLIER_PURCHASE" && (newBill.SupplierId == null || newBill.SupplierId == 0))
+        {
+            statusMessage = "⚠️ يرجى اختيار المورد المعتمد من القائمة.";
+            isSuccess = false;
+            return;
+        }
+
+        if (newBill.TotalAmount <= 0 || string.IsNullOrWhiteSpace(newBill.Title))
+        {
+            statusMessage = "⚠️ يرجى إدخال عنوان ومبلغ الفاتورة بشكل صحيح.";
+            isSuccess = false;
+            return;
+        }
+
+        try
+        {
+            var res = await Http.PostAsJsonAsync("api/ExpensesPayables", newBill);
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "✅ تم تسجيل استحقاق الفاتورة وربطها بسجل المورد بنجاح!";
+                isSuccess = true;
+                isAddModalOpen = false;
+                await LoadDataAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private void OpenPayModal(ExpensePayableDto bill)
+    {
+        activeBillToPay = bill;
+        paymentAmountInput = bill.RemainingAmount;
+        isPayModalOpen = true;
+    }
+
+    private async Task ConfirmPaymentAsync()
+    {
+        if (activeBillToPay == null || paymentAmountInput <= 0) return;
+
+        try
+        {
+            var res = await Http.PostAsJsonAsync($"api/ExpensesPayables/{activeBillToPay.Id}/pay", paymentAmountInput);
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "✅ تم إثبات السداد وتحديث التزام المورد بنجاح!";
+                isSuccess = true;
+                isPayModalOpen = false;
+                await LoadDataAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private string GetCategoryBadge(string cat) => cat switch
+    {
+        "UTILITY_GAS" => "bg-danger text-white",
+        "UTILITY_ELEC" => "bg-warning text-dark",
+        "UTILITY_WATER" => "bg-info text-dark",
+        "PAYROLL" => "bg-primary text-white",
+        "RENT" => "bg-secondary text-white",
+        _ => "bg-dark text-white"
+    };
+
+    private string GetCategoryLabel(string cat) => cat switch
+    {
+        "UTILITY_GAS" => "غاز أفران 🔥",
+        "UTILITY_ELEC" => "كهرباء وتبريد ⚡",
+        "UTILITY_WATER" => "مياه 💧",
+        "PAYROLL" => "أجور عمال 👥",
+        "RENT" => "إيجارات 🏢",
+        _ => "موردو خامات 📦"
+    };
+
+    private string GetStatusBadge(string status) => status switch
+    {
+        "PAID" => "bg-success",
+        "PARTIAL" => "bg-warning text-dark",
+        _ => "bg-danger"
+    };
+
+    private string GetStatusLabel(string status) => status switch
+    {
+        "PAID" => "مسدد بالكامل ✓",
+        "PARTIAL" => "مسدد جزئياً",
+        _ => "مستحق (غير مسدد)"
+    };
+
+    public class ExpensePayableDto
+    {
+        public long Id { get; set; }
+        public string BillNumber { get; set; } = string.Empty;
+        public string Category { get; set; } = "SUPPLIER_PURCHASE";
+        public long? SupplierId { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string PartyName { get; set; } = string.Empty;
+        public string CostCenterName { get; set; } = string.Empty;
+        public string DebitAccountCode { get; set; } = string.Empty;
+        public string DebitAccountName { get; set; } = string.Empty;
+        public string CreditAccountCode { get; set; } = string.Empty;
+        public string CreditAccountName { get; set; } = string.Empty;
+        public DateTime IssueDate { get; set; } = DateTime.Today;
+        public DateTime DueDate { get; set; } = DateTime.Today.AddDays(7);
+        public decimal TotalAmount { get; set; }
+        public decimal PaidAmount { get; set; }
+        public decimal RemainingAmount => TotalAmount - PaidAmount;
+        public string Status { get; set; } = "UNPAID";
+        public string? Notes { get; set; }
+    }
+
+    public class SupplierLookupItem
+    {
+        public long Id { get; set; }
+        public string SupplierCode { get; set; } = string.Empty;
+        public string SupplierName { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+    }
+}

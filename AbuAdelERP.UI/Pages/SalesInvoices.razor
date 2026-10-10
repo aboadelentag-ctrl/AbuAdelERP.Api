@@ -1,146 +1,215 @@
 ﻿@page "/sales-invoices"
+@page "/SalesInvoices"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using AbuAdelERP.UI.DTOs
 @using AbuAdelERP.UI.Services
 @inject ISalesClientService SalesService
+@inject IBranchContextService BranchContext
+@inject NavigationManager Navigation
+@inject HttpClient Http
 @inject IJSRuntime JS
+@inject AppState State
 
-<PageTitle>إدارة فواتير المبيعات والفروع - حلواني أبو عادل</PageTitle>
+<PageTitle>إدارة فواتير المبيعات - منصة كيان السحابية</PageTitle>
 
-<div class="container-fluid py-4" dir="rtl">
-    <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-2">
-        <div>
-            <h3 class="fw-bold text-primary mb-1">
-                <i class="bi bi-receipt me-2"></i>إدارة فواتير المبيعات والفروع
-            </h3>
-            <p class="text-muted small mb-0">إصدار وترحيل فواتير بيع المنتجات التامة حسب الفروع ومتابعة الأثر المخزني والمالي</p>
-        </div>
-        <button class="btn btn-primary px-4 shadow-sm fw-bold" @onclick="OpenCreateModal">
-            <i class="bi bi-plus-circle me-1"></i> فاتورة مبيعات جديدة
-        </button>
-    </div>
+<div class="kayan-invoices-viewport" dir="rtl">
 
-    <!-- رسائل التنبيه والنجاح -->
-    @if (!string.IsNullOrEmpty(successMessage))
-    {
-        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
-            <i class="bi bi-check-circle-fill me-2"></i>@successMessage
-            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
-        </div>
-    }
+    <!-- 1. الشريط التنفيذي الموحد -->
+    <header class="kayan-executive-topbar shadow-sm">
+        <div class="d-flex align-items-center gap-3">
+            <div class="brand-tag-box" @onclick="@(() => Navigation.NavigateTo("/workspace"))" title="العودة لمساحة العمل">
+                <span class="brand-tag">KAYAN</span>
+                <span class="brand-sub">ENTERPRISE</span>
+            </div>
 
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
-            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
-        </div>
-    }
+            <span class="tenant-badge">
+                <span class="pulse-dot"></span>
+                <span>@(!string.IsNullOrEmpty(State.TenantName) ? State.TenantName : "مجموعة حلواني أبو عادل")</span>
+            </span>
 
-    <!-- جدول استعراض الفواتير الصادرة -->
-    <div class="card shadow-sm border-0 rounded-3 mb-4">
-        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 fw-bold text-dark">سجل الفواتير الصادرة (@invoices.Count فاتورة)</h5>
-            <button class="btn btn-sm btn-outline-secondary" @onclick="LoadInvoices" disabled="@isLoading">
-                <i class="bi bi-arrow-clockwise me-1"></i> تحديث
+            <button class="topbar-btn" @onclick="@(() => Navigation.NavigateTo("/workspace"))">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+                    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                </svg>
+                <span>مساحة العمل</span>
             </button>
         </div>
-        <div class="card-body p-0">
-            @if (isLoading)
-            {
-                <div class="text-center py-5">
-                    <div class="spinner-border text-primary" role="status"></div>
-                    <p class="text-muted mt-2 mb-0">جاري تحميل بيانات الفواتير...</p>
+
+        <div class="d-flex align-items-center gap-3">
+            <div class="text-end">
+                <div class="user-name-title">
+                    👤 @(!string.IsNullOrEmpty(State.FullName) ? State.FullName : "أحمد عبدالعزيز (زيزو)")
                 </div>
-            }
-            else if (invoices == null || !invoices.Any())
-            {
-                <div class="text-center py-5 text-muted">
-                    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                    لا توجد فواتير مبيعات مسجلة حتى الآن.
+                <div class="d-flex gap-1 justify-content-end align-items-center mt-1">
+                    <span class="badge bg-secondary" style="font-size: 10px;">@State.DepartmentName</span>
+                    <span class="badge bg-primary" style="font-size: 10px;">@State.Role</span>
                 </div>
-            }
-            else
-            {
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0 text-center small">
-                        <thead class="table-light text-secondary">
-                            <tr>
-                                <th>#</th>
-                                <th>رقم الفاتورة</th>
-                                <th>تاريخ الإصدار</th>
-                                <th>الفرع</th>
-                                <th>العميل / المنفذ</th>
-                                <th>عدد البنود</th>
-                                <th>إجمالي الفاتورة</th>
-                                <th>الإجراءات</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var inv in invoices)
-                            {
-                                <tr>
-                                    <td>@inv.Id</td>
-                                    <td class="fw-bold font-monospace text-primary">@inv.InvoiceNumber</td>
-                                    <td class="font-monospace text-muted">@inv.InvoiceDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
-                                    <td>
-                                        <span class="badge bg-info text-dark">
-                                            <i class="bi bi-geo-alt me-1"></i>@inv.BranchName
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-light text-dark border px-2 py-1 fw-bold">
-                                            @inv.CustomerName
-                                        </span>
-                                    </td>
-                                    <td><span class="badge bg-secondary font-monospace">@inv.ItemsCount أصناف</span></td>
-                                    <td class="fw-bold text-success fs-6 font-monospace">@inv.TotalAmount.ToString("N2") ج.م</td>
-                                    <td>
-                                        <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold" @onclick="() => selectedInvoice = inv">
-                                            <i class="bi bi-eye"></i> معاينة وطباعة
-                                        </button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
+            </div>
+
+            <button class="logout-red-btn" @onclick="HandleLogout">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                <span>تسجيل الخروج</span>
+            </button>
         </div>
-    </div>
+    </header>
+
+    <!-- 2. جسم صفحة الفواتير -->
+    <main class="container-fluid py-4 px-4">
+
+        @if (BranchContext.HasActiveBranch || BranchId.HasValue)
+        {
+            <div class="branch-lock-banner d-flex justify-content-between align-items-center shadow-sm py-2 px-3 mb-4 rounded-3">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="badge bg-primary px-2 py-1 fs-6">سياق التشغيل المعزول</span>
+                    <span class="fw-bold fs-5 text-white">📍 @ActiveBranchDisplayName</span>
+                    <span class="badge bg-success bg-opacity-25 text-success border border-success">
+                        الخزينة ومستودع الصرف مقفلان على هذا الفرع حصراً ✓
+                    </span>
+                </div>
+                <div>
+                    <span class="text-muted small fw-bold">نظام الرقابة المالية الصارم</span>
+                </div>
+            </div>
+        }
+
+        <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-2">
+            <div>
+                <h3 class="fw-bold text-dark mb-1">
+                    <i class="bi bi-receipt me-2 text-primary"></i>إدارة فواتير المبيعات والترحيل المالي
+                </h3>
+                <p class="text-muted small mb-0">إصدار الفواتير مع الترحيل التلقائي للمخزون وشجرة الحسابات ومديونيات التجار</p>
+            </div>
+            <button class="btn btn-primary px-4 shadow-sm fw-bold" @onclick="OpenCreateModal">
+                <i class="bi bi-plus-circle me-1"></i> فاتورة مبيعات جديدة
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert alert-success alert-dismissible fade show shadow-sm fw-bold py-2" role="alert">
+                <i class="bi bi-check-circle-fill me-2"></i>@successMessage
+                <button type="button" class="btn-close py-2" @onclick="() => successMessage = null"></button>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm fw-bold py-2" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+                <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
+            </div>
+        }
+
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold text-dark">
+                    سجل الفواتير الصادرة (@FilteredInvoices.Count() فاتورة)
+                    <span class="badge bg-primary ms-2">خاصة بـ @ActiveBranchDisplayName</span>
+                </h5>
+                <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick="LoadInvoices" disabled="@isLoading">
+                    <i class="bi bi-arrow-clockwise me-1"></i> تحديث
+                </button>
+            </div>
+            <div class="card-body p-0">
+                @if (isLoading)
+                {
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-2 mb-0">جاري تحميل بيانات الفواتير والقيود...</p>
+                    </div>
+                }
+                else if (!FilteredInvoices.Any())
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                        لا توجد فواتير مبيعات مسجلة لهذا الفرع حتى الآن.
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 text-center small">
+                            <thead class="table-light text-secondary">
+                                <tr>
+                                    <th>#</th>
+                                    <th>رقم الفاتورة</th>
+                                    <th>تاريخ الإصدار</th>
+                                    <th>الفرع</th>
+                                    <th>العميل / المنفذ</th>
+                                    <th>عدد البنود</th>
+                                    <th>إجمالي الفاتورة</th>
+                                    <th>الأثر المالي والمخزني</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var inv in FilteredInvoices)
+                                {
+                                    <tr>
+                                        <td>@inv.Id</td>
+                                        <td class="fw-bold font-monospace text-primary">@inv.InvoiceNumber</td>
+                                        <td class="font-monospace text-muted">@inv.InvoiceDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                                        <td><span class="badge bg-info text-dark">@inv.BranchName</span></td>
+                                        <td><span class="badge bg-light text-dark border px-2 py-1 fw-bold">@inv.CustomerName</span></td>
+                                        <td><span class="badge bg-secondary font-monospace">@inv.ItemsCount أصناف</span></td>
+                                        <td class="fw-bold text-success fs-6 font-monospace">@inv.TotalAmount.ToString("N2") ج.م</td>
+                                        <td><span class="badge bg-success bg-opacity-10 text-success border border-success px-2 py-1">مرحل مالياً ومخزنياً ✓</span></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-dark fw-bold px-2 py-1 shadow-sm"
+                                                    @onclick="() => OpenPrintPreview(inv)" title="معاينة وطباعة الفاتورة">
+                                                <i class="bi bi-printer me-1"></i> طباعة / معاينة
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </main>
 </div>
 
 <!-- ========================================== -->
-<!-- 1. نافذة: إنشاء فاتورة مبيعات جديدة         -->
+<!-- نافذة 1: إصدار فاتورة مبيعات جديدة         -->
 <!-- ========================================== -->
 @if (showCreateModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" dir="rtl">
             <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-primary text-white py-2 px-3">
+                <div class="modal-header bg-dark text-white py-2 px-3">
                     <h6 class="modal-title fw-bold">
-                        <i class="bi bi-plus-circle me-2"></i>إصدار فاتورة مبيعات وترحيل الأثر المخزني
+                        <i class="bi bi-plus-circle me-2 text-primary"></i>إصدار فاتورة مبيعات وترحيل الأثر المخزني والمالي
                     </h6>
                     <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="CloseCreateModal"></button>
                 </div>
-                <div class="modal-body p-4">
-                    <!-- البيانات الأساسية مع الفرع -->
-                    <div class="row g-3 mb-4 p-3 bg-light rounded-3 border">
-                        <div class="col-md-4">
-                            <label class="form-label small fw-bold">فرع الإصدار <span class="text-danger">*</span></label>
-                            <select class="form-select form-select-sm fw-bold border-primary" value="@newInvoice.BranchId" @onchange="OnBranchChanged">
-                                @if (lookups?.Branches != null)
-                                {
-                                    @foreach (var b in lookups.Branches)
-                                    {
-                                        <option value="@b.Id">@b.BranchName (@b.BranchCode)</option>
-                                    }
-                                }
-                            </select>
+                <div class="modal-body p-4 bg-light">
+                    <div class="row g-3 mb-3 p-3 bg-white rounded-3 border shadow-sm">
+                        <!-- الفرع -->
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">فرع الإصدار (مقفل)</label>
+                            <input type="text" class="form-control form-control-sm fw-bold bg-light border-primary"
+                                   value="@ActiveBranchDisplayName" readonly />
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-bold">العميل / الجهة المستلمة <span class="text-danger">*</span></label>
+
+                        <!-- العميل -->
+                        <div class="col-md-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label small fw-bold mb-0">العميل / التاجر المستلم <span class="text-danger">*</span></label>
+                                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold"
+                                        @onclick="OpenQuickCustomerModal" title="إضافة عميل جديد فوراً">
+                                    <i class="bi bi-plus-lg"></i> + عميل جديد
+                                </button>
+                            </div>
                             <select class="form-select form-select-sm fw-bold border-primary" @bind="newInvoice.CustomerId">
                                 <option value="0">-- اختر العميل --</option>
                                 @if (lookups?.Customers != null)
@@ -152,108 +221,156 @@
                                 }
                             </select>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-bold">مستودع صرف المنتج التام</label>
-                            <select class="form-select form-select-sm fw-bold border-primary" @bind="newInvoice.WarehouseId">
-                                <option value="0">-- تلقائي (مستودع الفرع الرئيسي) --</option>
-                                @if (AvailableWarehouses != null)
-                                {
-                                    @foreach (var w in AvailableWarehouses)
-                                    {
-                                        <option value="@w.Id">@w.WarehouseName (@w.WarehouseCode)</option>
-                                    }
-                                }
+
+                        <!-- طريقة السداد -->
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">طريقة السداد والأثر المالي <span class="text-danger">*</span></label>
+                            <select class="form-select form-select-sm fw-bold border-success" @bind="selectedPaymentMethod">
+                                <option value="CASH">💵 نقدي (خزينة الفرع)</option>
+                                <option value="CREDIT">📋 آجل (حساب التاجر)</option>
                             </select>
+                        </div>
+
+                        <!-- مستودع الصرف -->
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">مستودع الصرف (مقفل ومحدد آلياً)</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-light text-muted border-secondary">
+                                    <i class="bi bi-lock-fill text-warning"></i>
+                                </span>
+                                <input type="text" class="form-control form-control-sm fw-bold bg-light border-secondary text-dark"
+                                       value="@ActiveWarehouseDisplayName" readonly />
+                            </div>
                         </div>
                     </div>
 
-                    <!-- جدول سطور الفاتورة -->
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="fw-bold mb-0 text-dark">بنود ومنتجات الفاتورة</h6>
-                        <button type="button" class="btn btn-sm btn-outline-success fw-bold" @onclick="AddLine">
-                            <i class="bi bi-plus-lg me-1"></i> إضافة صنف
-                        </button>
+                    <!-- جدول الأصناف -->
+                    <div class="card p-3 border-0 shadow-sm bg-white mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="fw-bold mb-0 text-dark">📦 بنود الفاتورة:</h6>
+                            <button type="button" class="btn btn-sm btn-outline-success fw-bold" @onclick="AddLine">
+                                <i class="bi bi-plus-lg me-1"></i> إضافة صنف
+                            </button>
+                        </div>
+
+                        <div class="table-responsive border rounded-3">
+                            <table class="table table-bordered align-middle mb-0 text-center small">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 45%;">المنتج التام</th>
+                                        <th style="width: 15%;">الكمية المباعة</th>
+                                        <th style="width: 20%;">سعر الوحدة (ج.م) [مقفل من كارت الصنف]</th>
+                                        <th style="width: 15%;">الإجمالي</th>
+                                        <th style="width: 5%;">حذف</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (!newInvoice.InvoiceLines.Any())
+                                    {
+                                        <tr>
+                                            <td colspan="5" class="py-4 text-muted">لم يتم إضافة أصناف بعد.</td>
+                                        </tr>
+                                    }
+                                    else
+                                    {
+                                        @for (int i = 0; i < newInvoice.InvoiceLines.Count; i++)
+                                        {
+                                            var index = i;
+                                            var line = newInvoice.InvoiceLines[index];
+                                            <tr>
+                                                <td>
+                                                    <select class="form-select form-select-sm text-end fw-bold"
+                                                            value="@line.ItemId"
+                                                            @onchange="(e) => OnItemSelected(index, e)">
+                                                        <option value="0">-- اختر المنتج --</option>
+                                                        @if (lookups?.FinishedItems != null)
+                                                        {
+                                                            @foreach (var item in lookups.FinishedItems)
+                                                            {
+                                                                <option value="@item.Id">@item.ItemName (@item.ItemCode)</option>
+                                                            }
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input type="number" step="1" class="form-control form-control-sm text-center fw-bold" min="1"
+                                                           @bind="line.Quantity" @bind:event="oninput" />
+                                                </td>
+                                                <td>
+                                                    <div class="input-group input-group-sm">
+                                                        <input type="text" class="form-control form-control-sm text-center fw-bold text-success font-monospace bg-light border-0"
+                                                               value="@line.UnitPrice.ToString("N2")" readonly />
+                                                        <span class="input-group-text bg-light text-muted border-0 py-0 px-2" title="السعر معتمد ومقفل من بطاقة الصنف">
+                                                            <i class="bi bi-lock-fill text-secondary"></i>
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td class="fw-bold text-primary font-monospace fs-6">
+                                                    @((line.Quantity * line.UnitPrice).ToString("N2"))
+                                                </td>
+                                                <td>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => RemoveLine(index)">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                                <tfoot class="table-light">
+                                    <tr>
+                                        <td colspan="3" class="text-end fw-bold fs-6">إجمالي الفاتورة:</td>
+                                        <td colspan="2" class="text-center fw-bold text-success fs-5 font-monospace">
+                                            @CurrentInvoiceTotal.ToString("N2") ج.م
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
                     </div>
 
-                    <div class="table-responsive border rounded-3 mb-3">
-                        <table class="table table-bordered align-middle mb-0 text-center small">
+                    <!-- معاينة القيد المحاسبي -->
+                    <div class="card p-3 border-0 shadow-sm bg-white border-start border-4 border-info">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="fw-bold text-info small m-0">⚖️ معاينة القيد المحاسبي الآلي بالأستاذ العام:</h6>
+                            <span class="badge bg-success">متزن 100% ✓</span>
+                        </div>
+                        <table class="table table-sm table-bordered text-center align-middle small mb-0 font-monospace">
                             <thead class="table-light">
                                 <tr>
-                                    <th style="width: 45%;">المنتج التام</th>
-                                    <th style="width: 15%;">الكمية</th>
-                                    <th style="width: 20%;">سعر الوحدة (ج.م)</th>
-                                    <th style="width: 15%;">الإجمالي</th>
-                                    <th style="width: 5%;">حذف</th>
+                                    <th>طرف القيد</th>
+                                    <th>كود الحساب</th>
+                                    <th>اسم الحساب</th>
+                                    <th>مدين</th>
+                                    <th>دائن</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @if (!newInvoice.InvoiceLines.Any())
-                                {
-                                    <tr>
-                                        <td colspan="5" class="py-4 text-muted">
-                                            لم يتم إضافة أي منتج بعد. اضغط على "إضافة صنف" للبدء.
-                                        </td>
-                                    </tr>
-                                }
-                                else
-                                {
-                                    @for (int i = 0; i < newInvoice.InvoiceLines.Count; i++)
-                                    {
-                                        var index = i;
-                                        var line = newInvoice.InvoiceLines[index];
-                                        <tr>
-                                            <td>
-                                                <select class="form-select form-select-sm text-end"
-                                                        value="@line.ItemId"
-                                                        @onchange="(e) => OnItemSelected(index, e)">
-                                                    <option value="0">-- اختر المنتج التام --</option>
-                                                    @if (lookups?.FinishedItems != null)
-                                                    {
-                                                        @foreach (var item in lookups.FinishedItems)
-                                                        {
-                                                            <option value="@item.Id">@item.ItemName (@item.ItemCode)</option>
-                                                        }
-                                                    }
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <input type="number" step="0.5" class="form-control form-control-sm text-center fw-bold" min="0.1"
-                                                       @bind="line.Quantity" @bind:event="oninput" />
-                                            </td>
-                                            <td>
-                                                <input type="number" step="0.5" class="form-control form-control-sm text-center fw-bold text-success font-monospace" min="0.01"
-                                                       @bind="line.UnitPrice" @bind:event="oninput" />
-                                            </td>
-                                            <td class="fw-bold text-primary font-monospace">
-                                                @((line.Quantity * line.UnitPrice).ToString("N2"))
-                                            </td>
-                                            <td>
-                                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => RemoveLine(index)">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    }
-                                }
-                            </tbody>
-                            <tfoot class="table-light">
                                 <tr>
-                                    <td colspan="3" class="text-end fw-bold fs-6">إجمالي الفاتورة النهائي:</td>
-                                    <td colspan="2" class="text-center fw-bold text-success fs-5 font-monospace">
-                                        @(newInvoice.InvoiceLines.Sum(l => l.Quantity * l.UnitPrice).ToString("N2")) ج.م
-                                    </td>
+                                    <td class="fw-bold text-success">من حـ/ (مدين)</td>
+                                    <td>@(selectedPaymentMethod == "CASH" ? "1212" : "1221")</td>
+                                    <td>@(selectedPaymentMethod == "CASH" ? $"خزينة [{ActiveBranchDisplayName}]" : $"ذمم العملاء [{CurrentCustomerName}]")</td>
+                                    <td class="fw-bold text-success">@CurrentInvoiceTotal.ToString("N2")</td>
+                                    <td>0.00</td>
                                 </tr>
-                            </tfoot>
+                                <tr>
+                                    <td class="fw-bold text-primary">إلى حـ/ (دائن)</td>
+                                    <td>41</td>
+                                    <td>إيرادات مبيعات التوزيع والطلبيات</td>
+                                    <td>0.00</td>
+                                    <td class="fw-bold text-primary">@CurrentInvoiceTotal.ToString("N2")</td>
+                                </tr>
+                            </tbody>
                         </table>
                     </div>
                 </div>
-                <div class="modal-footer bg-light py-2">
+                <div class="modal-footer bg-white py-2 d-flex justify-content-between">
                     <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="CloseCreateModal">إلغاء</button>
-                    <button type="button" class="btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SubmitInvoice" disabled="@isSubmitting">
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SubmitInvoice" disabled="@isSubmitting">
                         @if (isSubmitting)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
-                            <span>جاري الترحيل...</span>
+                            <span>جاري الترحيل المالي والمخزني...</span>
                         }
                         else
                         {
@@ -268,109 +385,196 @@
 }
 
 <!-- ========================================== -->
-<!-- 2. نافذة: معاينة وطباعة الفاتورة           -->
+<!-- نافذة 2: معاينة وطباعة الفاتورة (POS / A4) -->
 <!-- ========================================== -->
-@if (selectedInvoice != null)
+@if (showPrintModal && selectedInvoiceForPrint != null)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg modal-dialog-centered" dir="rtl">
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65); z-index: 1070;">
+        <div class="modal-dialog modal-dialog-centered @(printFormat == "POS" ? "modal-sm" : "modal-lg")" dir="rtl">
             <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-dark text-white py-2 px-3 d-print-none">
-                    <h6 class="modal-title fw-bold">
-                        <i class="bi bi-receipt me-2"></i>فاتورة مبيعات: @selectedInvoice.InvoiceNumber
-                    </h6>
-                    <div>
-                        <button class="btn btn-outline-light btn-sm me-2 fw-bold" @onclick="PrintInvoice">
-                            <i class="bi bi-printer me-1"></i> طباعة الفاتورة
-                        </button>
-                        <button type="button" class="btn-close btn-close-white" @onclick="() => selectedInvoice = null"></button>
+                <div class="modal-header bg-dark text-white py-2 px-3 no-print">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-printer-fill text-warning"></i>
+                        <span class="fw-bold small">طباعة فاتورة: @selectedInvoiceForPrint.InvoiceNumber</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 ms-0 me-auto">
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn @(printFormat == "POS" ? "btn-primary" : "btn-outline-light") py-0 px-2" @onclick='() => printFormat = "POS"'>
+                                إيصال كاشير (80mm)
+                            </button>
+                            <button type="button" class="btn @(printFormat == "A4" ? "btn-primary" : "btn-outline-light") py-0 px-2" @onclick='() => printFormat = "A4"'>
+                                رسمي (A4)
+                            </button>
+                        </div>
+                        <button type="button" class="btn-close btn-close-white ms-2" @onclick="() => showPrintModal = false"></button>
                     </div>
                 </div>
 
-                <div class="modal-body p-4 printable-area">
-                    <div class="row pb-3 mb-3 border-bottom align-items-center">
-                        <div class="col-7">
-                            <h3 class="fw-bold text-primary mb-1">حلواني أبو عادل</h3>
-                            <div class="text-muted small">نظام تخطيط وإدارة الموارد والإنتاج الصناعي (AbuAdel ERP)</div>
-                            <div class="text-muted small">س.ت: 104523 | ب.ض: 420-911-300</div>
-                        </div>
-                        <div class="col-5 text-start">
-                            <div class="badge bg-primary fs-6 mb-1 d-print-none">فاتورة مبيعات معتمدة</div>
-                            <div class="fw-bold fs-5 text-dark font-monospace">رقم: @selectedInvoice.InvoiceNumber</div>
-                            <div class="text-muted small font-monospace">التاريخ: @selectedInvoice.InvoiceDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</div>
-                        </div>
-                    </div>
+                <!-- مساحة الفاتورة القابلة للطباعة -->
+                <div class="modal-body p-3 bg-white" id="invoice-printable-area">
+                    @if (printFormat == "POS")
+                    {
+                        <!-- قالب إيصال الكاشير الحراري (POS Thermal Receipt) -->
+                        <div class="pos-receipt text-center font-monospace">
+                            <div class="fw-bold fs-5">حلواني أبو عادل</div>
+                            <div class="small text-muted">KAYAN ENTERPRISE ERP</div>
+                            <div class="small fw-bold border-bottom pb-2 mb-2">فرع: @selectedInvoiceForPrint.BranchName</div>
 
-                    <div class="row g-2 mb-4 p-3 bg-light rounded-2 border small">
-                        <div class="col-4">
-                            <span class="text-muted">الفرع:</span>
-                            <span class="fw-bold text-dark me-1">@selectedInvoice.BranchName</span>
-                        </div>
-                        <div class="col-4">
-                            <span class="text-muted">العميل:</span>
-                            <span class="fw-bold text-dark me-1">@selectedInvoice.CustomerName</span>
-                        </div>
-                        <div class="col-4 text-start">
-                            <span class="text-muted">حالة السند:</span>
-                            <span class="badge bg-success me-1">مرحل ومخصوم مخزنياً</span>
-                        </div>
-                    </div>
+                            <div class="text-start small mb-2">
+                                <div><strong>رقم الفاتورة:</strong> @selectedInvoiceForPrint.InvoiceNumber</div>
+                                <div><strong>التاريخ:</strong> @selectedInvoiceForPrint.InvoiceDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</div>
+                                <div><strong>العميل:</strong> @selectedInvoiceForPrint.CustomerName</div>
+                            </div>
 
-                    <div class="table-responsive mb-3">
-                        <table class="table table-bordered text-center align-middle mb-0 small">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 8%;">م</th>
-                                    <th style="width: 20%;">كود الصنف</th>
-                                    <th>اسم الصنف المباع</th>
-                                    <th style="width: 15%;">الكمية</th>
-                                    <th style="width: 17%;">سعر الوحدة</th>
-                                    <th style="width: 17%;">الإجمالي</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @for (int i = 0; i < selectedInvoice.Lines.Count; i++)
-                                {
-                                    var line = selectedInvoice.Lines[i];
-                                    <tr>
-                                        <td>@(i + 1)</td>
-                                        <td class="text-muted font-monospace">@line.ItemCode</td>
-                                        <td class="fw-bold text-start ps-3">@line.ItemName</td>
-                                        <td class="font-monospace">@line.Quantity @line.Unit</td>
-                                        <td class="font-monospace">@line.UnitPrice.ToString("N2")</td>
-                                        <td class="fw-bold text-dark font-monospace">@line.LineTotal.ToString("N2") ج.م</td>
+                            <table class="table table-sm table-borderless text-end small mb-2 border-top border-bottom">
+                                <thead>
+                                    <tr class="border-bottom">
+                                        <th>الصنف</th>
+                                        <th class="text-center">الكمية</th>
+                                        <th class="text-start">الإجمالي</th>
                                     </tr>
-                                }
-                            </tbody>
-                            <tfoot class="table-light">
-                                <tr>
-                                    <td colspan="5" class="text-start fw-bold fs-6 ps-3">الإجمالي النهائي المستحق:</td>
-                                    <td class="fw-bold text-success fs-5 font-monospace">@selectedInvoice.TotalAmount.ToString("N2") ج.م</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedInvoiceForPrint.Lines)
+                                    {
+                                        <tr>
+                                            <td class="text-truncate" style="max-width: 140px;">@line.ItemName</td>
+                                            <td class="text-center">@line.Quantity</td>
+                                            <td class="text-start fw-bold">@line.LineTotal.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
 
-                    <div class="row mt-5 pt-4 text-center border-top">
-                        <div class="col-4">
-                            <div class="fw-bold text-muted small mb-4">مسؤول مبيعات الفرع</div>
-                            <div>...........................</div>
+                            <div class="d-flex justify-content-between fw-bold fs-6 border-bottom pb-2 mb-2">
+                                <span>الإجمالي النهائي:</span>
+                                <span>@selectedInvoiceForPrint.TotalAmount.ToString("N2") ج.م</span>
+                            </div>
+
+                            <div class="small text-muted mb-2">فاتورة مبيعات إلكترونية معتمدة ✓</div>
+                            <div class="small text-muted">شكراً لزيارتكم!</div>
                         </div>
-                        <div class="col-4">
-                            <div class="fw-bold text-muted small mb-4">أمين مستودع المنتج التام</div>
-                            <div>...........................</div>
+                    }
+                    else
+                    {
+                        <!-- قالب الفاتورة الرسمية (A4) -->
+                        <div class="p-3 border rounded-3 font-monospace">
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
+                                <div>
+                                    <h4 class="fw-bold text-primary mb-0">مجموعة حلواني أبو عادل</h4>
+                                    <span class="text-muted small">سجل تجاري: 482910 | بطاقة ضريبية: 712-345-998</span>
+                                    <div class="fw-bold text-dark mt-1">فرع الإصدار: @selectedInvoiceForPrint.BranchName</div>
+                                </div>
+                                <div class="text-end">
+                                    <h5 class="fw-bold text-dark mb-1">فاتورة مبيعات ضريبية</h5>
+                                    <span class="badge bg-dark font-monospace fs-6">@selectedInvoiceForPrint.InvoiceNumber</span>
+                                </div>
+                            </div>
+
+                            <div class="row g-2 mb-3 small">
+                                <div class="col-6"><strong>تاريخ الفاتورة:</strong> @selectedInvoiceForPrint.InvoiceDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss")</div>
+                                <div class="col-6"><strong>العميل / التاجر:</strong> @selectedInvoiceForPrint.CustomerName</div>
+                                <div class="col-6"><strong>حالة الترحيل:</strong> مرحل مالياً ومخزنياً بالأستاذ العام ✓</div>
+                                <div class="col-6"><strong>المستودع المنصرف منه:</strong> @ActiveWarehouseDisplayName</div>
+                            </div>
+
+                            <table class="table table-bordered table-sm text-center align-middle mb-3 small">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>كود الصنف</th>
+                                        <th>اسم المنتج التام</th>
+                                        <th>الكمية المباعة</th>
+                                        <th>سعر الوحدة</th>
+                                        <th>الإجمالي (ج.م)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (int i = 0; i < selectedInvoiceForPrint.Lines.Count; i++)
+                                    {
+                                        var line = selectedInvoiceForPrint.Lines[i];
+                                        <tr>
+                                            <td>@(i + 1)</td>
+                                            <td>@line.ItemCode</td>
+                                            <td class="text-end fw-bold">@line.ItemName</td>
+                                            <td>@line.Quantity @line.Unit</td>
+                                            <td>@line.UnitPrice.ToString("N2")</td>
+                                            <td class="fw-bold text-primary">@line.LineTotal.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr class="table-light fw-bold fs-6">
+                                        <td colspan="5" class="text-end">الإجمالي الصافي للفاتورة:</td>
+                                        <td class="text-success font-monospace">@selectedInvoiceForPrint.TotalAmount.ToString("N2") ج.م</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+
+                            <div class="d-flex justify-content-between align-items-center border-top pt-3 text-muted small">
+                                <div>المستلم: ................................</div>
+                                <div>المحاسب المسؤول: @(!string.IsNullOrEmpty(State.FullName) ? State.FullName : "أحمد عبدالعزيز")</div>
+                                <div>الختم والاعتماد: ................................</div>
+                            </div>
                         </div>
-                        <div class="col-4">
-                            <div class="fw-bold text-muted small mb-4">توقيع المستلم / العميل</div>
-                            <div>...........................</div>
-                        </div>
-                    </div>
+                    }
                 </div>
 
-                <div class="modal-footer d-print-none bg-light py-2">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => selectedInvoice = null">إغلاق</button>
-                    <button class="btn btn-primary btn-sm px-4 fw-bold" @onclick="PrintInvoice">
-                        <i class="bi bi-printer me-1"></i> طباعة الفاتورة
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between no-print">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => showPrintModal = false">إغلاق</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="TriggerBrowserPrint">
+                        <i class="bi bi-printer me-1"></i> طباعة الفاتورة الآن
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================== -->
+<!-- نافذة 3: إضافة عميل جديد سريع (+)          -->
+<!-- ========================================== -->
+@if (showQuickCustomerModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6); z-index: 1080;">
+        <div class="modal-dialog modal-dialog-centered" dir="rtl">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">
+                        <i class="bi bi-person-plus-fill me-2"></i>إضافة عميل / تاجر جديد للنظام
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showQuickCustomerModal = false"></button>
+                </div>
+                <div class="modal-body p-3">
+                    @if (!string.IsNullOrEmpty(quickCustomerError))
+                    {
+                        <div class="alert alert-danger py-1 small fw-bold mb-2">@quickCustomerError</div>
+                    }
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">اسم العميل / المنفذ <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" placeholder="مثال: هايبر ماركت البركة" @bind="newCustomerName" />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">كود العميل (تلقائي)</label>
+                        <input type="text" class="form-control form-control-sm bg-light" @bind="newCustomerCode" readonly />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">رقم الهاتف / الموبايل</label>
+                        <input type="text" class="form-control form-control-sm" placeholder="01xxxxxxxxx" @bind="newCustomerPhone" />
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => showQuickCustomerModal = false">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm fw-bold" @onclick="SaveQuickCustomer" disabled="@isSavingCustomer">
+                        @if (isSavingCustomer)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري الحفظ...</span>
+                        }
+                        else
+                        {
+                            <span>حفظ وتعيين العميل فوراً</span>
+                        }
                     </button>
                 </div>
             </div>
@@ -379,35 +583,157 @@
 }
 
 <style>
+    .kayan-invoices-viewport {
+        min-height: 100vh;
+        width: 100vw;
+        background-color: #F8FAFC;
+        overflow-x: hidden;
+    }
+
+    .kayan-executive-topbar {
+        background: #0F172A;
+        color: #FFFFFF;
+        padding: 0.75rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+    }
+
+    .brand-tag-box {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: #1E293B;
+        border: 1px solid #334155;
+        padding: 0.35rem 0.75rem;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .brand-tag {
+        background: #4F46E5;
+        color: #FFF;
+        font-weight: 800;
+        font-size: 0.75rem;
+        padding: 0.1rem 0.45rem;
+        border-radius: 4px;
+    }
+
+    .brand-sub {
+        font-weight: 700;
+        font-size: 0.8rem;
+        color: #E2E8F0;
+    }
+
+    .tenant-badge {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: rgba(220, 38, 38, 0.15);
+        color: #FCA5A5;
+        border: 1px solid rgba(220, 38, 38, 0.3);
+        padding: 0.35rem 0.75rem;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .pulse-dot {
+        width: 7px;
+        height: 7px;
+        background: #EF4444;
+        border-radius: 50%;
+        box-shadow: 0 0 6px #EF4444;
+    }
+
+    .topbar-btn {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #E2E8F0;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.8rem;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+        .topbar-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #FFFFFF;
+        }
+
+    .user-name-title {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #FFFFFF;
+    }
+
+    .logout-red-btn {
+        background: #DC2626;
+        border: none;
+        color: #FFF;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.45rem 0.9rem;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .branch-lock-banner {
+        background: #111827;
+        color: #F9FAFB;
+    }
+
+    .pos-receipt {
+        max-width: 300px;
+        margin: 0 auto;
+        padding: 10px;
+        background: #FFF;
+    }
+
+    /* تهيئة أمر الطباعة لعزل الفاتورة فقط وإخفاء بقية عناصر الشاشة */
     @@media print {
         body * {
             visibility: hidden;
         }
 
-        .modal, .modal-dialog, .modal-content, .modal-body, .printable-area, .printable-area * {
+        #invoice-printable-area, #invoice-printable-area * {
             visibility: visible;
         }
 
-        .printable-area {
+        #invoice-printable-area {
             position: absolute;
             left: 0;
             top: 0;
             width: 100%;
-            padding: 0 !important;
-            margin: 0 !important;
+            margin: 0;
+            padding: 10px;
         }
 
-        .d-print-none {
+        .no-print {
             display: none !important;
         }
     }
 </style>
 
 @code {
+    [SupplyParameterFromQuery(Name = "branchId")]
+    public long? BranchId { get; set; }
+
     private List<SalesInvoiceViewDto> invoices = new();
     private SalesLookupsDto? lookups;
-    private SalesInvoiceViewDto? selectedInvoice;
     private SalesInvoiceCreateDto newInvoice = new();
+    private string selectedPaymentMethod = "CASH";
 
     private bool showCreateModal = false;
     private bool isLoading = true;
@@ -415,12 +741,71 @@
     private string? successMessage;
     private string? errorMessage;
 
-    private IEnumerable<SalesWarehouseLookupDto> AvailableWarehouses =>
-        lookups?.Warehouses.Where(w => !newInvoice.BranchId.HasValue || !w.BranchId.HasValue || w.BranchId == newInvoice.BranchId)
-        ?? Enumerable.Empty<SalesWarehouseLookupDto>();
+    // حالة الطباعة والمعاينة
+    private bool showPrintModal = false;
+    private SalesInvoiceViewDto? selectedInvoiceForPrint;
+    private string printFormat = "POS"; // "POS" أو "A4"
+
+    // حالة إضافة عميل سريع
+    private bool showQuickCustomerModal = false;
+    private bool isSavingCustomer = false;
+    private string? quickCustomerError;
+    private string newCustomerName = "";
+    private string newCustomerCode = "";
+    private string newCustomerPhone = "";
+
+    private long CurrentBranchId => BranchContext.CurrentBranch?.Id ?? BranchId ?? 2;
+
+    private IEnumerable<SalesInvoiceViewDto> FilteredInvoices =>
+        invoices.Where(inv => inv.BranchId == CurrentBranchId);
+
+    private decimal CurrentInvoiceTotal => newInvoice.InvoiceLines?.Sum(l => l.Quantity * l.UnitPrice) ?? 0;
+
+    private string CurrentCustomerName
+    {
+        get
+        {
+            var c = lookups?.Customers?.FirstOrDefault(x => x.Id == newInvoice.CustomerId);
+            return c != null ? c.CustomerName : "العميل المحدد";
+        }
+    }
+
+    private string ActiveBranchDisplayName
+    {
+        get
+        {
+            if (BranchContext.HasActiveBranch && BranchContext.CurrentBranch != null)
+                return BranchContext.CurrentBranch.NameAr;
+
+            var br = lookups?.Branches?.FirstOrDefault(b => b.Id == CurrentBranchId);
+            return br != null ? br.BranchName : "فرع المبيعات";
+        }
+    }
+
+    private SalesWarehouseLookupDto? ActiveBranchWarehouse
+    {
+        get
+        {
+            if (lookups?.Warehouses == null || !lookups.Warehouses.Any())
+                return null;
+
+            var wh = lookups.Warehouses.FirstOrDefault(w => w.BranchId == CurrentBranchId);
+            if (wh != null) return wh;
+
+            wh = lookups.Warehouses.FirstOrDefault(w => w.WarehouseName.Contains(ActiveBranchDisplayName));
+            if (wh != null) return wh;
+
+            return lookups.Warehouses.FirstOrDefault();
+        }
+    }
+
+    private string ActiveWarehouseDisplayName => ActiveBranchWarehouse != null
+        ? $"{ActiveBranchWarehouse.WarehouseName} ({ActiveBranchWarehouse.WarehouseCode})"
+        : "المستودع الرئيسي للفرع (مقفل)";
 
     protected override async Task OnInitializedAsync()
     {
+        await BranchContext.LoadSavedBranchAsync();
         await LoadData();
     }
 
@@ -437,46 +822,28 @@
         }
     }
 
-    private async Task LoadInvoices()
-    {
-        invoices = await SalesService.GetAllInvoicesAsync();
-    }
-
-    private async Task LoadLookups()
-    {
-        lookups = await SalesService.GetLookupsAsync();
-    }
+    private async Task LoadInvoices() => invoices = await SalesService.GetAllInvoicesAsync();
+    private async Task LoadLookups() => lookups = await SalesService.GetLookupsAsync();
 
     private void OpenCreateModal()
     {
-        long defaultBranchId = lookups?.Branches?.FirstOrDefault()?.Id ?? 1;
-        var defaultWh = lookups?.Warehouses?.FirstOrDefault(w => w.BranchId == defaultBranchId)?.Id ?? 0;
+        var targetWh = ActiveBranchWarehouse;
 
         newInvoice = new SalesInvoiceCreateDto
         {
-            BranchId = defaultBranchId,
-            WarehouseId = defaultWh > 0 ? defaultWh : (long?)null,
+            BranchId = CurrentBranchId,
+            WarehouseId = targetWh?.Id,
             InvoiceLines = new List<SalesInvoiceLineDto>
             {
                 new SalesInvoiceLineDto { Quantity = 1, UnitPrice = 0 }
             }
         };
+        selectedPaymentMethod = "CASH";
         showCreateModal = true;
         errorMessage = null;
     }
 
-    private void OnBranchChanged(ChangeEventArgs e)
-    {
-        if (long.TryParse(e.Value?.ToString(), out var bId))
-        {
-            newInvoice.BranchId = bId;
-            var matchedWh = lookups?.Warehouses?.FirstOrDefault(w => w.BranchId == bId)?.Id ?? 0;
-            newInvoice.WarehouseId = matchedWh > 0 ? matchedWh : (long?)null;
-        }
-    }
-
     private void CloseCreateModal() => showCreateModal = false;
-
     private void AddLine() => newInvoice.InvoiceLines.Add(new SalesInvoiceLineDto { Quantity = 1, UnitPrice = 0 });
 
     private void RemoveLine(int index)
@@ -490,6 +857,84 @@
         if (long.TryParse(e.Value?.ToString(), out long itemId) && itemId > 0)
         {
             newInvoice.InvoiceLines[index].ItemId = itemId;
+            var selectedItem = lookups?.FinishedItems?.FirstOrDefault(x => x.Id == itemId);
+            if (selectedItem != null)
+            {
+                newInvoice.InvoiceLines[index].UnitPrice = selectedItem.SellingPrice;
+            }
+            else
+            {
+                newInvoice.InvoiceLines[index].UnitPrice = 0;
+            }
+        }
+    }
+
+    // فتح نافذة المعاينة والطباعة
+    private void OpenPrintPreview(SalesInvoiceViewDto inv)
+    {
+        selectedInvoiceForPrint = inv;
+        printFormat = "POS";
+        showPrintModal = true;
+    }
+
+    // استدعاء أمر الطباعة المباشر من المتصفح
+    private async Task TriggerBrowserPrint()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    private void OpenQuickCustomerModal()
+    {
+        newCustomerName = "";
+        newCustomerPhone = "";
+        newCustomerCode = $"CUST-{DateTime.Now:yyMMddHHmm}";
+        quickCustomerError = null;
+        showQuickCustomerModal = true;
+    }
+
+    private async Task SaveQuickCustomer()
+    {
+        if (string.IsNullOrWhiteSpace(newCustomerName))
+        {
+            quickCustomerError = "يرجى كتابة اسم العميل.";
+            return;
+        }
+
+        isSavingCustomer = true;
+        quickCustomerError = null;
+        try
+        {
+            var customerDto = new CustomerItemDto
+            {
+                CustomerName = newCustomerName.Trim(),
+                CustomerCode = newCustomerCode,
+                Phone = newCustomerPhone.Trim(),
+                Active = true
+            };
+
+            var success = await SalesService.SaveCustomerAsync(customerDto);
+            if (success)
+            {
+                await LoadLookups();
+                var newlyAdded = lookups?.Customers?.FirstOrDefault(c => c.CustomerCode == newCustomerCode);
+                if (newlyAdded != null)
+                {
+                    newInvoice.CustomerId = newlyAdded.Id;
+                }
+                showQuickCustomerModal = false;
+            }
+            else
+            {
+                quickCustomerError = "تعذر حفظ العميل على الخادم.";
+            }
+        }
+        catch (Exception ex)
+        {
+            quickCustomerError = $"خطأ: {ex.Message}";
+        }
+        finally
+        {
+            isSavingCustomer = false;
         }
     }
 
@@ -498,8 +943,22 @@
         errorMessage = null;
         if (newInvoice.CustomerId <= 0)
         {
-            errorMessage = "يجب اختيار العميل.";
+            errorMessage = "يجب اختيار العميل أولاً.";
             return;
+        }
+
+        if (!newInvoice.WarehouseId.HasValue || newInvoice.WarehouseId.Value <= 0)
+        {
+            var targetWh = ActiveBranchWarehouse;
+            if (targetWh != null)
+            {
+                newInvoice.WarehouseId = targetWh.Id;
+            }
+            else
+            {
+                errorMessage = "تعذر تحديد المستودع المقفل للفرع في النظام.";
+                return;
+            }
         }
 
         var validLines = newInvoice.InvoiceLines
@@ -508,7 +967,7 @@
 
         if (!validLines.Any())
         {
-            errorMessage = "يجب إضافة بند واحد على الأقل مع تحديد الصنف والكمية والسعر.";
+            errorMessage = "يجب اختيار صنف معتمد بكمية وسعر أكبر من صفر.";
             return;
         }
 
@@ -516,21 +975,40 @@
         isSubmitting = true;
         try
         {
-            var result = await SalesService.CreateInvoiceAsync(newInvoice);
-            if (result.Success)
+            var payload = new
             {
-                successMessage = result.Message;
+                newInvoice.BranchId,
+                newInvoice.CustomerId,
+                newInvoice.WarehouseId,
+                newInvoice.InvoiceLines,
+                PaymentMethod = selectedPaymentMethod
+            };
+
+            var response = await Http.PostAsJsonAsync("api/Sales/create-invoice", payload);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<SalesInvoiceResultDto>();
+                successMessage = result?.Message ?? "تم إصدار وترحيل الفاتورة بنجاح!";
                 CloseCreateModal();
                 await LoadInvoices();
+
+                // فتح الفاتورة الحديثة للمعاينة والطباعة مباشرة للكاشير
+                var latestInv = invoices.FirstOrDefault(x => x.Id == result?.InvoiceId)
+                                ?? invoices.FirstOrDefault();
+                if (latestInv != null)
+                {
+                    OpenPrintPreview(latestInv);
+                }
             }
             else
             {
-                errorMessage = result.Message;
+                var errorObj = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+                errorMessage = errorObj?.Error ?? "تعذر إصدار الفاتورة.";
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"خطأ غير متوقع: {ex.Message}";
+            errorMessage = $"خطأ اتصال: {ex.Message}";
         }
         finally
         {
@@ -538,8 +1016,13 @@
         }
     }
 
-    private async Task PrintInvoice()
+    private void HandleLogout()
     {
-        await JS.InvokeVoidAsync("window.print");
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+
+    public class ErrorResponse
+    {
+        public string? Error { get; set; }
     }
 }

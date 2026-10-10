@@ -1,4 +1,5 @@
 ﻿@page "/employees"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using System.Text
 @using System.Text.Json.Serialization
@@ -104,27 +105,39 @@
                         <th>الاسم الرباعي الرسمي</th>
                         <th>القسم / الصالة</th>
                         <th>المسمى الوظيفي المعتمد</th>
-                        <th style="width: 120px;">الإجراءات</th>
+                        <th>الحالة</th>
+                        <th style="width: 180px;">الإجراءات</th>
                     </tr>
                 </thead>
                 <tbody>
                     @if (!FilteredEmployees.Any())
                     {
-                        <tr><td colspan="5" class="text-muted py-4 fw-bold">لا يوجد عاملون يطابقون شروط البحث.</td></tr>
+                        <tr><td colspan="6" class="text-muted py-4 fw-bold">لا يوجد عاملون يطابقون شروط البحث.</td></tr>
                     }
                     else
                     {
                         @foreach (var emp in FilteredEmployees)
                         {
-                            <tr>
+                            <tr class="@(emp.Active ? "" : "bg-light text-muted")">
                                 <td class="font-monospace fw-bold text-primary fs-6">@emp.DisplayCode</td>
                                 <td class="fw-bold text-start ps-3 text-dark fs-6">@emp.DisplayName</td>
                                 <td><span class="badge bg-primary px-2 py-1">@emp.DisplayDepartment</span></td>
                                 <td class="text-muted fw-bold">@emp.DisplayJobTitle</td>
                                 <td>
+                                    <span class="badge @(emp.Active ? "bg-success" : "bg-danger")">
+                                        @(emp.Active ? "نشط" : "معطل")
+                                    </span>
+                                </td>
+                                <td>
                                     <AuthorizePermission Permission="Employees.Manage, Users.View">
-                                        <button class="btn btn-sm btn-outline-primary py-1 px-3 fw-bold" @onclick="() => EditEmployee(emp)">
+                                        <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold me-1" @onclick="() => EditEmployee(emp)">
                                             تعديل
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-@(emp.Active ? "warning text-dark" : "success") py-0 px-2 fw-bold me-1" @onclick="() => ToggleEmployeeStatus(emp)">
+                                            @(emp.Active ? "إيقاف" : "تفعيل")
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" @onclick="() => DeleteEmployee(emp)">
+                                            حذف
                                         </button>
                                     </AuthorizePermission>
                                 </td>
@@ -137,7 +150,7 @@
     </div>
 </div>
 
-<!-- Modal إضافة/تعديل عامل (مربوط بقاعدة البيانات والأقسام والمسميات) -->
+<!-- Modal إضافة/تعديل عامل -->
 @if (isModalOpen)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
@@ -164,7 +177,6 @@
                             <input type="text" class="form-control fw-bold" @bind="inputFullName" placeholder="الاسم ثلاثي أو رباعي كما في مسيرات الرواتب" />
                         </div>
 
-                        <!-- القسم / الصالة مسحوب من إدارة الأقسام api/Departments -->
                         <div class="col-md-6">
                             <label class="small fw-bold text-dark mb-1">القسم / الصالة (مرتبط بالهيكل المعتمد) *</label>
                             <select class="form-select fw-bold border-primary" @bind="inputDepartmentName">
@@ -175,7 +187,6 @@
                             </select>
                         </div>
 
-                        <!-- المسمى الوظيفي مرتبط بقائمة المسميات مع دعم الإدخال الحر -->
                         <div class="col-md-6">
                             <label class="small fw-bold text-dark mb-1">المسمى الوظيفي المعتمد *</label>
                             <input type="text" class="form-control fw-bold" list="jobTitlesDatalist" @bind="inputJobTitle" placeholder="اختر من القائمة أو اكتب مسمى جديد..." />
@@ -208,13 +219,13 @@
 }
 
 @code {
-    // نموذج بيانات الموظف المرن (يقرأ كافة التسميات المحتملة من الـ API)
     public class EmployeeDto
     {
         public long Id { get; set; }
 
         [JsonPropertyName("code")] public string? Code { get; set; }
         [JsonPropertyName("employeeCode")] public string? EmployeeCode { get; set; }
+        [JsonPropertyName("workerCode")] public string? WorkerCode { get; set; }
 
         [JsonPropertyName("fullName")] public string? FullName { get; set; }
         [JsonPropertyName("employeeName")] public string? EmployeeName { get; set; }
@@ -222,15 +233,16 @@
 
         [JsonPropertyName("departmentId")] public long? DepartmentId { get; set; }
         [JsonPropertyName("departmentName")] public string? DepartmentName { get; set; }
-        [JsonPropertyName("department")] public DepartmentSimpleDto? DepartmentNav { get; set; }
 
         [JsonPropertyName("jobTitle")] public string? JobTitle { get; set; }
+        [JsonPropertyName("jobTitleName")] public string? JobTitleName { get; set; }
         [JsonPropertyName("jobTitleId")] public long? JobTitleId { get; set; }
 
-        // خصائص ذكية لضمان العرض دائماً مهما كانت تسمية الحقل في الـ JSON
+        [JsonPropertyName("active")] public bool Active { get; set; } = true;
+
         [JsonIgnore]
-        public string DisplayCode => !string.IsNullOrWhiteSpace(Code) ? Code
-            : (!string.IsNullOrWhiteSpace(EmployeeCode) ? EmployeeCode : $"EMP-{Id:D3}");
+        public string DisplayCode => !string.IsNullOrWhiteSpace(WorkerCode) ? WorkerCode
+            : (!string.IsNullOrWhiteSpace(EmployeeCode) ? EmployeeCode : (!string.IsNullOrWhiteSpace(Code) ? Code : $"EMP-{Id:D3}"));
 
         [JsonIgnore]
         public string DisplayName => !string.IsNullOrWhiteSpace(FullName) ? FullName
@@ -238,11 +250,11 @@
             : (!string.IsNullOrWhiteSpace(Name) ? Name : $"عامل #{Id}"));
 
         [JsonIgnore]
-        public string DisplayDepartment => !string.IsNullOrWhiteSpace(DepartmentName) ? DepartmentName
-            : (DepartmentNav != null && !string.IsNullOrWhiteSpace(DepartmentNav.DepartmentName) ? DepartmentNav.DepartmentName : "قسم الشرقي والمخبوزات");
+        public string DisplayDepartment => !string.IsNullOrWhiteSpace(DepartmentName) ? DepartmentName : "قسم الشرقي والمخبوزات";
 
         [JsonIgnore]
-        public string DisplayJobTitle => !string.IsNullOrWhiteSpace(JobTitle) ? JobTitle : "فني تشغيل";
+        public string DisplayJobTitle => !string.IsNullOrWhiteSpace(JobTitleName) ? JobTitleName
+            : (!string.IsNullOrWhiteSpace(JobTitle) ? JobTitle : "عامل تشغيل");
     }
 
     public class DepartmentSimpleDto
@@ -295,7 +307,7 @@
     {
         try
         {
-            var res = await Http.GetFromJsonAsync<List<DepartmentSimpleDto>>("api/Departments");
+            var res = await Http.GetFromJsonAsync<List<DepartmentSimpleDto>>("api/departments");
             if (res != null && res.Any()) dbDepartments = res;
         }
         catch { }
@@ -319,7 +331,7 @@
     {
         try
         {
-            var res = await Http.GetFromJsonAsync<List<JobTitleSimpleDto>>("api/JobTitles");
+            var res = await Http.GetFromJsonAsync<List<JobTitleSimpleDto>>("api/employees/job-titles");
             if (res != null && res.Any())
             {
                 distinctJobTitles = res.Select(j => j.DisplayTitle).Distinct().ToList();
@@ -341,7 +353,6 @@
                 "أمين مخزن خامات",
                 "أمين مستودع مركزي",
                 "مراقب جودة (ISO/GMP)",
-                "نائب مدير اداره الجوده",
                 "عامل تشغيل وتعبئة"
             };
         }
@@ -351,12 +362,10 @@
     {
         try
         {
-            var res = await Http.GetFromJsonAsync<List<EmployeeDto>>("api/Employees");
-            if (res != null && res.Any())
+            var res = await Http.GetFromJsonAsync<List<EmployeeDto>>("api/employees");
+            if (res != null)
             {
                 employeesList = res;
-
-                // تحديث قائمة المسميات الوظيفية من البيانات الفعلية
                 var jobsFromData = employeesList.Select(e => e.DisplayJobTitle).Where(j => !string.IsNullOrWhiteSpace(j));
                 distinctJobTitles = distinctJobTitles.Union(jobsFromData).Distinct().ToList();
             }
@@ -402,7 +411,7 @@
         inputCode = $"EMP-{new Random().Next(100, 999)}";
         inputFullName = "";
         inputDepartmentName = dbDepartments.FirstOrDefault()?.DisplayName ?? "قسم الشرقي والمخبوزات";
-        inputJobTitle = distinctJobTitles.FirstOrDefault() ?? "فني تشغيل";
+        inputJobTitle = distinctJobTitles.FirstOrDefault() ?? "عامل تشغيل";
         isModalOpen = true;
     }
 
@@ -435,38 +444,41 @@
 
             var payload = new
             {
-                Code = inputCode,
-                EmployeeCode = inputCode,
-                FullName = inputFullName,
-                EmployeeName = inputFullName,
-                Name = inputFullName,
+                Code = inputCode.Trim(),
+                EmployeeCode = inputCode.Trim(),
+                WorkerCode = inputCode.Trim(),
+                FullName = inputFullName.Trim(),
+                EmployeeName = inputFullName.Trim(),
+                Name = inputFullName.Trim(),
                 DepartmentId = matchedDept?.Id,
                 DepartmentName = inputDepartmentName,
-                JobTitle = inputJobTitle
+                JobTitle = inputJobTitle.Trim(),
+                JobTitleName = inputJobTitle.Trim(),
+                Active = editingEmp.Id > 0 ? editingEmp.Active : true
             };
 
             HttpResponseMessage res;
 
             if (editingEmp.Id == 0)
             {
-                res = await Http.PostAsJsonAsync("api/Employees", payload);
+                res = await Http.PostAsJsonAsync("api/employees", payload);
             }
             else
             {
-                res = await Http.PutAsJsonAsync($"api/Employees/{editingEmp.Id}", payload);
+                res = await Http.PutAsJsonAsync($"api/employees/{editingEmp.Id}", payload);
             }
 
             if (res.IsSuccessStatusCode)
             {
                 await LoadEmployees();
-                statusMessage = $"✅ تم حفظ بيانات الموظف [{inputCode}] {inputFullName} بنجاح في قاعدة البيانات!";
+                statusMessage = $"✅ تم حفظ بيانات الموظف [{inputCode}] {inputFullName} بنجاح!";
                 isSuccess = true;
                 isModalOpen = false;
             }
             else
             {
                 var errContent = await res.Content.ReadAsStringAsync();
-                modalError = $"❌ فشل الحفظ من الخادم: {errContent}";
+                modalError = $"❌ فشل الحفظ: {errContent}";
             }
         }
         catch (Exception ex)
@@ -479,17 +491,62 @@
         }
     }
 
-    // ============================================
-    // تصدير واستيراد الإكسيل (CSV بترميز UTF-8 مع BOM)
-    // ============================================
+    private async Task ToggleEmployeeStatus(EmployeeDto emp)
+    {
+        try
+        {
+            var res = await Http.PutAsync($"api/employees/{emp.Id}/toggle-status", null);
+            if (res.IsSuccessStatusCode)
+            {
+                emp.Active = !emp.Active;
+                statusMessage = $"تم تغيير حالة الموظف ({emp.DisplayName}) إلى: {(emp.Active ? "نشط" : "معطل")}";
+                isSuccess = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private async Task DeleteEmployee(EmployeeDto emp)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف أو إيقاف الموظف [{emp.DisplayName}]؟");
+        if (!confirm) return;
+
+        try
+        {
+            var res = await Http.DeleteAsync($"api/employees/{emp.Id}");
+            if (res.IsSuccessStatusCode)
+            {
+                await LoadEmployees();
+                statusMessage = "تمت معالجة حذف / إيقاف الموظف بنجاح.";
+                isSuccess = true;
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"فشل الحذف: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ في الحذف: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
     private async Task ExportEmployeesToExcel()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("الكود الوظيفي,الاسم الرباعي الرسمي,القسم والصالة,المسمى الوظيفي المعتمد");
+        sb.AppendLine("الكود الوظيفي,الاسم الرباعي الرسمي,القسم والصالة,المسمى الوظيفي المعتمد,الحالة");
 
         foreach (var emp in FilteredEmployees)
         {
-            sb.AppendLine($"\"{emp.DisplayCode}\",\"{emp.DisplayName}\",\"{emp.DisplayDepartment}\",\"{emp.DisplayJobTitle}\"");
+            var status = emp.Active ? "نشط" : "معطل";
+            sb.AppendLine($"\"{emp.DisplayCode}\",\"{emp.DisplayName}\",\"{emp.DisplayDepartment}\",\"{emp.DisplayJobTitle}\",\"{status}\"");
         }
 
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
@@ -514,7 +571,7 @@
 
         try
         {
-            using var reader = new StreamReader(file.OpenReadStream());
+            using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024), Encoding.UTF8);
             string? header = await reader.ReadLineAsync();
             int count = 0;
 
@@ -529,26 +586,29 @@
                     var code = cols[0].Trim().Replace("\"", "");
                     var name = cols[1].Trim().Replace("\"", "");
                     var dept = cols.Length > 2 ? cols[2].Trim().Replace("\"", "") : "قسم الشرقي والمخبوزات";
-                    var job = cols.Length > 3 ? cols[3].Trim().Replace("\"", "") : "فني تشغيل";
+                    var job = cols.Length > 3 ? cols[3].Trim().Replace("\"", "") : "عامل تشغيل";
 
                     var payload = new
                     {
                         Code = code,
                         EmployeeCode = code,
+                        WorkerCode = code,
                         FullName = name,
                         EmployeeName = name,
                         Name = name,
                         DepartmentName = dept,
-                        JobTitle = job
+                        JobTitle = job,
+                        JobTitleName = job,
+                        Active = true
                     };
 
-                    var res = await Http.PostAsJsonAsync("api/Employees", payload);
+                    var res = await Http.PostAsJsonAsync("api/employees", payload);
                     if (res.IsSuccessStatusCode) count++;
                 }
             }
 
             await LoadEmployees();
-            statusMessage = $"✅ تم استيراد ({count}) موظف وإضافتهم بنجاح لقاعدة البيانات!";
+            statusMessage = $"✅ تم استيراد ({count}) موظفاً وتوزيعهم بنجاح على صالاتهم ومسمياتهم!";
             isSuccess = true;
         }
         catch (Exception ex)

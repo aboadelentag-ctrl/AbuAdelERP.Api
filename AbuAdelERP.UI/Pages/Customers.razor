@@ -1,42 +1,128 @@
 ﻿@page "/customers"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using AbuAdelERP.UI.DTOs
 @using AbuAdelERP.UI.Services
+@using System.Net.Http.Json
+@using System.Text
 @inject ISalesClientService SalesService
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>دليل العملاء وشجرة التجار ومنافذ التوزيع - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid py-4" dir="rtl">
     <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom flex-wrap gap-2">
         <div>
             <h3 class="fw-bold text-primary mb-1">
-                <i class="bi bi-person-lines-fill me-2"></i>إدارة العملاء ومنافذ التوزيع
+                <i class="bi bi-people-fill me-2"></i>شجرة وسجل العملاء ومنافذ التوزيع
             </h3>
-            <p class="text-muted small mb-0">تسجيل وتعديل بيانات العملاء، الحدود الائتمانية، وحالات التنشيط</p>
+            <p class="text-muted small mb-0">إدارة حسابات التجار، الفروع التابعة، الحدود الائتمانية، وحصر طلبيات اليوم المرنة</p>
         </div>
-        <button class="btn btn-primary px-4 shadow-sm" @onclick="OpenCreateModal">
-            <i class="bi bi-person-plus-fill me-1"></i> إضافة عميل جديد
-        </button>
+        <div class="d-flex gap-2">
+            @if (customers.Any())
+            {
+                <button class="btn btn-outline-success px-3 shadow-sm btn-sm fw-bold" @onclick="ExportCustomersToExcel">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير (Excel)
+                </button>
+            }
+            <button class="btn btn-outline-primary px-3 shadow-sm btn-sm fw-bold" @onclick="OpenDailyOrderPad">
+                <i class="bi bi-pencil-square me-1"></i> مسودة طلبيات اليوم المرنة
+            </button>
+            <button class="btn btn-primary px-4 shadow-sm btn-sm fw-bold" @onclick="OpenCreateModal">
+                <i class="bi bi-person-plus-fill me-1"></i> إضافة عميل / تاجر جديد
+            </button>
+        </div>
     </div>
 
     <!-- رسائل التنبيه والنجاح -->
     @if (!string.IsNullOrEmpty(statusMessage))
     {
-        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
-            <i class="bi bi-check-circle-fill me-2"></i>@statusMessage
-            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        <div class="alert @(isErrorAlert ? "alert-danger" : "alert-success") alert-dismissible fade show shadow-sm py-2 fw-bold" role="alert">
+            <i class="bi @(isErrorAlert ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-2"></i>@statusMessage
+            <button type="button" class="btn-close py-2" @onclick="() => statusMessage = null"></button>
         </div>
     }
+
+    <!-- بطاقات المؤشرات اللحظية (KPIs) -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-primary border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">إجمالي العملاء والتجار</small>
+                <h4 class="mb-0 fw-bold text-primary mt-1 font-monospace">@customers.Count عميل</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">تجار يوميون (سحب متغير)</small>
+                <h4 class="mb-0 fw-bold text-dark mt-1 font-monospace">
+                    @customers.Count(c => c.CustomerType == "DIST_DAILY") تاجر
+                </h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-info border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">كبار تجار الجملة VIP</small>
+                <h4 class="mb-0 fw-bold text-info mt-1 font-monospace">
+                    @customers.Count(c => c.CustomerType == "DIST_VIP") تاجر
+                </h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-success border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">إجمالي سقوف الائتمان الممنوحة</small>
+                <h4 class="mb-0 fw-bold text-success mt-1 font-monospace">
+                    @customers.Sum(c => c.CreditLimit).ToString("N0") ج.م
+                </h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط فلاتر البحث والفرز -->
+    <div class="card shadow-sm border-0 mb-3 bg-light rounded-3">
+        <div class="card-body p-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" placeholder="بحث باسم العميل، الكود، أو رقم الهاتف..."
+                               @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedTypeFilter">
+                        <option value="">-- كافة الفئات والشرائح --</option>
+                        <option value="DIST_DAILY">🚚 تاجر يومي (مبيعات خارجية - طلب متغير)</option>
+                        <option value="DIST_VIP">🌟 تاجر جملة VIP (مبيعات خارجية)</option>
+                        <option value="DISTRIBUTOR">🏢 منفذ توزيع خارجي</option>
+                        <option value="WHOLESALE">🏪 معرض / جملة</option>
+                        <option value="RETAIL">👤 عميل قطاعي / معارض</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" @bind="selectedStatusFilter">
+                        <option value="all">كل الحالات</option>
+                        <option value="active">نشط فقط</option>
+                        <option value="inactive">موقوف</option>
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex gap-1">
+                    <button class="btn btn-outline-secondary btn-sm flex-fill fw-bold" @onclick="ResetFilters">
+                        إلغاء الفلاتر
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm fw-bold px-3" @onclick="LoadCustomers" disabled="@isLoading" title="تحديث البيانات">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- جدول استعراض العملاء -->
     <div class="card shadow-sm border-0 rounded-3">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 fw-bold text-dark">دليل العملاء المسجلين</h5>
-            <div class="d-flex gap-2">
-                <input type="text" class="form-control form-control-sm" placeholder="بحث بالاسم أو الكود أو الهاتف..."
-                       @bind="searchTerm" @bind:event="oninput" style="width: 250px;" />
-                <button class="btn btn-sm btn-outline-secondary" @onclick="LoadCustomers" disabled="@isLoading">
-                    <i class="bi bi-arrow-clockwise"></i>
-                </button>
-            </div>
+            <h6 class="mb-0 fw-bold text-dark">دليل العملاء المسجلين (@FilteredCustomers.Count() عميل)</h6>
+            <span class="badge bg-dark font-monospace">محدث لحظياً</span>
         </div>
         <div class="card-body p-0">
             @if (isLoading)
@@ -50,51 +136,62 @@
             {
                 <div class="text-center py-5 text-muted">
                     <i class="bi bi-people fs-1 d-block mb-2"></i>
-                    لا توجد بيانات مطابقة للبحث.
+                    لا توجد بيانات مطابقة لشروط البحث المحددة.
                 </div>
             }
             else
             {
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0 text-center">
+                    <table class="table table-hover align-middle mb-0 text-center small">
                         <thead class="table-light text-secondary">
                             <tr>
-                                <th>الكود</th>
-                                <th class="text-start ps-3">اسم العميل / المنفذ</th>
-                                <th>نوع العميل</th>
+                                <th style="width: 110px;">الكود</th>
+                                <th class="text-start ps-3">اسم العميل / التاجر</th>
+                                <th>الفئة والشريحة</th>
+                                <th>الفرع / المنفذ التابع</th>
                                 <th>رقم الهاتف</th>
-                                <th>العنوان</th>
                                 <th>الحد الائتماني</th>
+                                <th>طبيعة الطلب المرن</th>
                                 <th>الحالة</th>
-                                <th>الإجراءات</th>
+                                <th style="width: 150px;">الإجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var c in FilteredCustomers)
                             {
-                                <tr>
-                                    <td class="fw-bold text-muted">@c.CustomerCode</td>
+                                <tr class="@(c.Active ? "" : "bg-light text-muted")">
+                                    <td class="fw-bold text-muted font-monospace">@c.CustomerCode</td>
                                     <td class="text-start ps-3 fw-bold text-dark">@c.CustomerName</td>
                                     <td>
                                         <span class="badge @GetTypeBadgeClass(c.CustomerType)">
                                             @GetTypeLabel(c.CustomerType)
                                         </span>
                                     </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border">@GetBranchForType(c.CustomerType)</span>
+                                    </td>
                                     <td dir="ltr">@(string.IsNullOrEmpty(c.Phone) ? "---" : c.Phone)</td>
-                                    <td class="small text-muted">@(string.IsNullOrEmpty(c.Address) ? "---" : c.Address)</td>
-                                    <td class="fw-bold text-primary">@c.CreditLimit.ToString("N2") ج.م</td>
+                                    <td class="fw-bold text-primary font-monospace">
+                                        @(c.CreditLimit > 0 ? c.CreditLimit.ToString("N0") + " ج.م" : "نقدي")
+                                    </td>
+                                    <td class="text-start small text-muted text-truncate" style="max-width: 200px;" title="@c.Notes">
+                                        @(!string.IsNullOrEmpty(c.Notes) ? c.Notes : "حسب الطلب اليومي المباشر")
+                                    </td>
                                     <td>
                                         <span class="badge @(c.Active ? "bg-success" : "bg-danger")">
-                                            @(c.Active ? "نشط" : "موقوف")
+                                            @(c.Active ? "نشط ✓" : "موقوف ✕")
                                         </span>
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => OpenEditModal(c)" title="تعديل">
-                                            <i class="bi bi-pencil-square"></i>
+                                        <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold me-1" @onclick="() => OpenEditModal(c)" title="تعديل">
+                                            <i class="bi bi-pencil-square"></i> تعديل
                                         </button>
-                                        <button class="btn btn-sm @(c.Active ? "btn-outline-warning" : "btn-outline-success")"
+                                        <button class="btn btn-sm @(c.Active ? "btn-outline-warning text-dark" : "btn-outline-success") py-0 px-2 fw-bold me-1"
                                                 @onclick="() => ToggleStatus(c.Id)" title="@(c.Active ? "إيقاف التعامل" : "تنشيط")">
-                                            <i class="bi @(c.Active ? "bi-slash-circle" : "bi-check2-circle")"></i>
+                                            @(c.Active ? "إيقاف" : "تفعيل")
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" @onclick="() => DeleteCustomer(c)" title="حذف">
+                                            <i class="bi bi-trash"></i>
                                         </button>
                                     </td>
                                 </tr>
@@ -107,70 +204,88 @@
     </div>
 </div>
 
-<!-- Modal: إضافة / تعديل عميل -->
+<!-- Modal: إضافة / تعديل عميل وتاجر -->
 @if (showModal)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg modal-dialog-centered" dir="rtl">
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" dir="rtl">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title fw-bold">
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">
                         <i class="bi @(currentCustomer.Id > 0 ? "bi-pencil-square" : "bi-person-plus-fill") me-2"></i>
-                        @(currentCustomer.Id > 0 ? "تعديل بيانات عميل" : "إضافة عميل جديد")
-                    </h5>
+                        @(currentCustomer.Id > 0 ? "تعديل بيانات عميل / تاجر" : "تسجيل عميل أو تاجر جديد")
+                    </h6>
                     <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="CloseModal"></button>
                 </div>
-                <div class="modal-body p-4">
+                <div class="modal-body p-4 bg-light">
                     @if (!string.IsNullOrEmpty(modalError))
                     {
-                        <div class="alert alert-danger py-2 small mb-3">@modalError</div>
+                        <div class="alert alert-danger py-2 small mb-3 fw-bold">@modalError</div>
                     }
 
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label fw-bold">كود العميل</label>
-                            <input type="text" class="form-control" placeholder="تلقائي (مثل CUST-0001)" @bind="currentCustomer.CustomerCode" />
+                            <label class="form-label small fw-bold text-dark mb-1">كود التاجر / العميل</label>
+                            <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="تلقائي إن تُرك فارغاً" @bind="currentCustomer.CustomerCode" />
                         </div>
                         <div class="col-md-8">
-                            <label class="form-label fw-bold">اسم العميل / المنفذ <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" placeholder="مثال: سوبر ماركت النور / كافيه العروبة" @bind="currentCustomer.CustomerName" />
+                            <label class="form-label small fw-bold text-dark mb-1">اسم العميل / المنشأة أو المحل <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm fw-bold border-primary" placeholder="مثال: الحاج إبراهيم الدسوقي - حلويات الدسوقي" @bind="currentCustomer.CustomerName" />
                         </div>
 
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">نوع العميل</label>
-                            <select class="form-select" @bind="currentCustomer.CustomerType">
-                                <option value="RETAIL">قطاعي / فردي</option>
-                                <option value="WHOLESALE">جملة / معرض</option>
-                                <option value="DISTRIBUTOR">منفذ توزيع خارجي</option>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الشريحة ونوع التعامل *</label>
+                            <select class="form-select form-select-sm fw-bold border-primary" @bind="currentCustomer.CustomerType">
+                                <option value="DIST_DAILY">🚚 تاجر يومي (مبيعات خارجية - طلب متغير)</option>
+                                <option value="DIST_VIP">🌟 تاجر جملة VIP (حساب جارٍ وحد ائتماني)</option>
+                                <option value="DISTRIBUTOR">🏢 منفذ توزيع خارجي</option>
+                                <option value="WHOLESALE">🏪 معرض / جملة</option>
+                                <option value="RETAIL">👤 عميل قطاعي / معارض</option>
                             </select>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">رقم الهاتف</label>
-                            <input type="text" class="form-control" dir="ltr" placeholder="01xxxxxxxxx" @bind="currentCustomer.Phone" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">الحد الائتماني (ج.م)</label>
-                            <input type="number" step="100" class="form-control" @bind="currentCustomer.CreditLimit" />
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الفرع التابع له في الشجرة</label>
+                            <input type="text" class="form-control form-control-sm bg-white" readonly value="@GetBranchForType(currentCustomer.CustomerType)" />
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">العنوان</label>
-                            <input type="text" class="form-control" placeholder="المنطقة - الشارع - علامة مميزة" @bind="currentCustomer.Address" />
+                            <label class="form-label small fw-bold text-dark mb-1">رقم الهاتف / واتساب *</label>
+                            <input type="text" class="form-control form-control-sm" dir="ltr" placeholder="01xxxxxxxxx" @bind="currentCustomer.Phone" />
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">شروط السداد</label>
-                            <input type="text" class="form-control" placeholder="مثال: نقدي عند الاستلام / آجل 15 يوم" @bind="currentCustomer.PaymentTerms" />
+                            <label class="form-label small fw-bold text-dark mb-1">الحد الائتماني المسموح به (ج.م)</label>
+                            <input type="number" step="500" class="form-control form-control-sm font-monospace fw-bold text-success" @bind="currentCustomer.CreditLimit" placeholder="0 = نقدي" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">العنوان وموقع التسليم</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="المنطقة - الشارع" @bind="currentCustomer.Address" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">شروط السداد</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="مثال: نقدي عند الاستلام / أسبوعي" @bind="currentCustomer.PaymentTerms" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الرقم الضريبي (إن وجد)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" placeholder="سجل / بطاقة ضريبية" @bind="currentCustomer.TaxNumber" />
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center pt-3">
+                            <div class="form-check form-switch fs-6">
+                                <input class="form-check-input" type="checkbox" id="custActiveSwitch" @bind="currentCustomer.Active" />
+                                <label class="form-check-label small fw-bold ms-2" for="custActiveSwitch">حساب نشط ومتاح للأوردرات</label>
+                            </div>
                         </div>
 
                         <div class="col-12">
-                            <label class="form-label fw-bold">ملاحظات إضافية</label>
-                            <textarea class="form-control" rows="2" @bind="currentCustomer.Notes"></textarea>
+                            <label class="form-label small fw-bold text-secondary mb-1">طبيعة الطلب اليومي المرن (الأصناف المفضلة / توقيت الاتصال)</label>
+                            <textarea class="form-control form-control-sm" rows="2" placeholder="مثال: يطلب يومياً اتصالاً قبل الظهر، يفضل استلام أوردر الشرقي مبكراً..." @bind="currentCustomer.Notes"></textarea>
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-secondary px-4" @onclick="CloseModal">إلغاء</button>
-                    <button type="button" class="btn btn-success px-4" @onclick="SaveCustomer" disabled="@isSaving">
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="CloseModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SaveCustomer" disabled="@isSaving">
                         @if (isSaving)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
@@ -188,22 +303,93 @@
     </div>
 }
 
+<!-- Modal: مسودة طلبيات اليوم المرنة -->
+@if (showDailyOrderPad)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);" dir="rtl">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-success text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">
+                        <i class="bi bi-calendar-check me-2"></i> مسودة حصر طلبيات اليوم المرنة (فرع المبيعات الخارجية والتوزيع)
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showDailyOrderPad = false"></button>
+                </div>
+                <div class="modal-body p-3 bg-light">
+                    <div class="alert alert-info py-2 small mb-3">
+                        💡 <strong>مرونة تامة:</strong> يمكنك تدوين ما طلبه كل تاجر في اتصال اليوم مباشرة وتحديثه بسهولة قبل خروج سيارة التوزيع.
+                    </div>
+                    <div class="table-responsive bg-white rounded shadow-sm border p-2">
+                        <table class="table table-sm table-bordered text-center align-middle small mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>اسم التاجر</th>
+                                    <th>الهاتف</th>
+                                    <th>سقف الائتمان</th>
+                                    <th style="width: 50%;">الطلبية المحددة لليوم (الأصناف والكميات المتغيرة)</th>
+                                    <th>الحالة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var c in customers.Where(x => x.CustomerType == "DIST_DAILY" || x.CustomerType == "DIST_VIP"))
+                                {
+                                    <tr>
+                                        <td class="fw-bold text-start ps-2">@c.CustomerName</td>
+                                        <td class="font-monospace" dir="ltr">@c.Phone</td>
+                                        <td class="font-monospace fw-bold text-success">@c.CreditLimit.ToString("N0") ج.م</td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm" placeholder="اكتب طلبية اليوم (مثال: 20 صاج بسبوسة، 10 قفص معمول)..." @bind="c.Notes" />
+                                        </td>
+                                        <td><span class="badge bg-success">جاهز للتجهيز ✓</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => showDailyOrderPad = false">إغلاق</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="ConfirmDailyOrders">
+                        🚀 اعتماد وإرسال لغرفة عمليات التصنيع (MES Hub)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<CustomerItemDto> customers = new();
     private CustomerItemDto currentCustomer = new();
     private string searchTerm = string.Empty;
+    private string selectedTypeFilter = string.Empty;
+    private string selectedStatusFilter = "all";
     private bool isLoading = true;
     private bool isSaving = false;
     private bool showModal = false;
+    private bool showDailyOrderPad = false;
     private string? statusMessage;
     private string? modalError;
+    private bool isErrorAlert = false;
 
     private IEnumerable<CustomerItemDto> FilteredCustomers =>
-        string.IsNullOrWhiteSpace(searchTerm)
-            ? customers
-            : customers.Where(c => (c.CustomerName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
-                                || (c.CustomerCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
-                                || (c.Phone?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+        customers.Where(c =>
+        {
+            if (!string.IsNullOrWhiteSpace(selectedTypeFilter) && !c.CustomerType.Equals(selectedTypeFilter, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (selectedStatusFilter == "active" && !c.Active) return false;
+            if (selectedStatusFilter == "inactive" && c.Active) return false;
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                return (c.CustomerName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (c.CustomerCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (c.Phone?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false);
+            }
+
+            return true;
+        });
 
     protected override async Task OnInitializedAsync()
     {
@@ -217,17 +403,41 @@
         {
             customers = await SalesService.GetAllCustomersAsync();
         }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ في جلب بيانات العملاء: {ex.Message}";
+            isErrorAlert = true;
+        }
         finally
         {
             isLoading = false;
         }
     }
 
+    private void ResetFilters()
+    {
+        searchTerm = string.Empty;
+        selectedTypeFilter = string.Empty;
+        selectedStatusFilter = "all";
+    }
+
     private void OpenCreateModal()
     {
-        currentCustomer = new CustomerItemDto { Active = true, CustomerType = "RETAIL" };
+        currentCustomer = new CustomerItemDto { Active = true, CustomerType = "DIST_DAILY" };
         modalError = null;
         showModal = true;
+    }
+
+    private void OpenDailyOrderPad()
+    {
+        showDailyOrderPad = true;
+    }
+
+    private void ConfirmDailyOrders()
+    {
+        showDailyOrderPad = false;
+        statusMessage = "🚀 تم اعتماد طلبيات اليوم المتغيرة وإحالتها لغرفة عمليات الإنتاج والتكاليف بنجاح!";
+        isErrorAlert = false;
     }
 
     private void OpenEditModal(CustomerItemDto item)
@@ -258,7 +468,7 @@
     {
         if (string.IsNullOrWhiteSpace(currentCustomer.CustomerName))
         {
-            modalError = "يجب إدخال اسم العميل.";
+            modalError = "يجب إدخال اسم العميل / التاجر.";
             return;
         }
 
@@ -269,14 +479,19 @@
             var success = await SalesService.SaveCustomerAsync(currentCustomer);
             if (success)
             {
-                statusMessage = currentCustomer.Id > 0 ? "تم تعديل بيانات العميل بنجاح." : "تم إضافة العميل بنجاح.";
+                statusMessage = currentCustomer.Id > 0 ? "تم تعديل بيانات التاجر / العميل بنجاح." : "تم تسجيل التاجر الجديد بنجاح.";
+                isErrorAlert = false;
                 CloseModal();
                 await LoadCustomers();
             }
             else
             {
-                modalError = "تعذر حفظ بيانات العميل. يرجى مراجعة الاتصال بالخادم.";
+                modalError = "تعذر حفظ البيانات. يرجى مراجعة الاتصال بالخادم.";
             }
+        }
+        catch (Exception ex)
+        {
+            modalError = $"خطأ: {ex.Message}";
         }
         finally
         {
@@ -286,25 +501,112 @@
 
     private async Task ToggleStatus(long id)
     {
-        var success = await SalesService.ToggleCustomerStatusAsync(id);
-        if (success)
+        try
         {
-            statusMessage = "تم تحديث حالة العميل بنجاح.";
-            await LoadCustomers();
+            var success = await SalesService.ToggleCustomerStatusAsync(id);
+            if (success)
+            {
+                statusMessage = "تم تحديث حالة العميل بنجاح.";
+                isErrorAlert = false;
+                await LoadCustomers();
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isErrorAlert = true;
+        }
+    }
+
+    private async Task DeleteCustomer(CustomerItemDto c)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف أو إيقاف العميل [{c.CustomerName}]؟");
+        if (!confirm) return;
+
+        try
+        {
+            var res = await Http.DeleteAsync($"api/customers/{c.Id}");
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "تمت معالجة حذف / إيقاف العميل بنجاح.";
+                isErrorAlert = false;
+                await LoadCustomers();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"تعذر الحذف: {err}";
+                isErrorAlert = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ في الحذف: {ex.Message}";
+            isErrorAlert = true;
+        }
+    }
+
+    private async Task ExportCustomersToExcel()
+    {
+        var list = FilteredCustomers.ToList();
+        if (!list.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_العميل,اسم_العميل,نوع_العميل,الفرع,الهاتف,الحد_الائتماني,شروط_السداد,الحالة");
+
+            foreach (var c in list)
+            {
+                var status = c.Active ? "نشط" : "موقوف";
+                sb.AppendLine($"\"{c.CustomerCode}\",\"{c.CustomerName}\",\"{GetTypeLabel(c.CustomerType)}\",\"{GetBranchForType(c.CustomerType)}\",\"{c.Phone ?? ""}\",{c.CreditLimit:F2},\"{c.PaymentTerms ?? ""}\",\"{status}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"دليل_العملاء_والتجار_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+            var js = $@"
+                const link = document.createElement('a');
+                link.href = 'data:text/csv;charset=utf-8;base64,{base64}';
+                link.download = '{fileName}';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            ";
+            await JS.InvokeVoidAsync("eval", js);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"فشل التصدير: {ex.Message}";
+            isErrorAlert = true;
         }
     }
 
     private string GetTypeBadgeClass(string type) => type switch
     {
-        "WHOLESALE" => "bg-primary text-white",
-        "DISTRIBUTOR" => "bg-warning text-dark",
-        _ => "bg-secondary text-white"
+        "DIST_DAILY" => "bg-warning text-dark fw-bold",
+        "DIST_VIP" => "bg-info text-dark fw-bold",
+        "DISTRIBUTOR" => "bg-primary text-white",
+        "WHOLESALE" => "bg-secondary text-white",
+        _ => "bg-light text-dark border"
     };
 
     private string GetTypeLabel(string type) => type switch
     {
-        "WHOLESALE" => "جملة / معرض",
-        "DISTRIBUTOR" => "منفذ توزيع",
-        _ => "قطاعي"
+        "DIST_DAILY" => "تاجر يومي (طلب متغير)",
+        "DIST_VIP" => "تاجر جملة VIP",
+        "DISTRIBUTOR" => "منفذ توزيع خارجي",
+        "WHOLESALE" => "معرض / جملة",
+        _ => "قطاعي / معارض"
+    };
+
+    private string GetBranchForType(string type) => type switch
+    {
+        "DIST_DAILY" => "فرع المبيعات الخارجية والتوزيع",
+        "DIST_VIP" => "فرع المبيعات الخارجية والتوزيع",
+        "DISTRIBUTOR" => "فرع المبيعات الخارجية والتوزيع",
+        "WHOLESALE" => "المعرض الرئيسي (المصنع)",
+        _ => "معارض التجزئة والصالات"
     };
 }

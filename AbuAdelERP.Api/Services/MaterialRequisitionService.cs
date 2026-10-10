@@ -258,32 +258,42 @@ namespace AbuAdelERP.Api.Services
         // ========================================================
         public async Task<bool> DispatchRequisitionAsync(DispatchRequisitionDto dto)
         {
-            var req = await _context.MaterialRequisitions
-                .Include(r => r.Lines)
-                .FirstOrDefaultAsync(r => r.Id == dto.RequisitionId);
-
-            if (req == null) return false;
-
-            req.Status = "DISPATCHED";
-            req.DispatchedBy = dto.DispatchedBy;
-            req.DispatchedAt = DateTime.UtcNow;
-
-            foreach (var dl in dto.Lines)
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                var line = req.Lines.FirstOrDefault(l => l.Id == dl.LineId);
-                if (line != null)
-                {
-                    line.FromWarehouseId = dl.WarehouseId > 0 ? dl.WarehouseId : req.FromWarehouseId;
-                    line.DispatchedQty = dl.DispatchedQty;
-                    line.BatchNumber = dl.BatchNumber;
-                    line.ExpiryDate = dl.ExpiryDate.HasValue ? DateTime.SpecifyKind(dl.ExpiryDate.Value.Date, DateTimeKind.Utc) : null;
-                    line.UnitCost = dl.UnitCost;
-                    line.LineStatus = "DISPATCHED";
-                }
-            }
+                var req = await _context.MaterialRequisitions
+                    .Include(r => r.Lines)
+                    .FirstOrDefaultAsync(r => r.Id == dto.RequisitionId);
 
-            await _context.SaveChangesAsync();
-            return true;
+                if (req == null) return false;
+
+                req.Status = "DISPATCHED";
+                req.DispatchedBy = dto.DispatchedBy;
+                req.DispatchedAt = DateTime.UtcNow;
+
+                foreach (var dl in dto.Lines)
+                {
+                    var line = req.Lines.FirstOrDefault(l => l.Id == dl.LineId);
+                    if (line != null)
+                    {
+                        line.FromWarehouseId = dl.WarehouseId > 0 ? dl.WarehouseId : req.FromWarehouseId;
+                        line.DispatchedQty = dl.DispatchedQty;
+                        line.BatchNumber = dl.BatchNumber;
+                        line.ExpiryDate = dl.ExpiryDate.HasValue ? DateTime.SpecifyKind(dl.ExpiryDate.Value.Date, DateTimeKind.Utc) : null;
+                        line.UnitCost = dl.UnitCost;
+                        line.LineStatus = "DISPATCHED";
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         // ========================================================
@@ -350,7 +360,6 @@ namespace AbuAdelERP.Api.Services
 
                 if (line == null || line.Requisition == null) return false;
 
-                // الاحتفاظ بالكمية المنصرفة الأصلية وتثبيت المستلم المعتمد لضمان دقة الرقابة
                 line.ReceivedQty = dto.FinalApprovedQty;
                 line.WarehouseNotes = dto.WarehouseResolutionNotes;
                 line.LineStatus = "ACCEPTED";
@@ -513,10 +522,12 @@ namespace AbuAdelERP.Api.Services
         }
 
         // ========================================================
-        // 9. خصم الرصيد وترحيل حركة الصرف بمطابقة مادية تامة
+        // 9. خصم الرصيد وترحيل حركة الصرف بمطابقة مادية تامة (Idempotent Guard)
         // ========================================================
         private async Task FinalizeInventoryTransferAsync(MaterialRequisition req)
         {
+            if (req.Status == "COMPLETED") return; // حماية ضد التكرار والازدواجية
+
             req.Status = "COMPLETED";
             req.CompletedAt = DateTime.UtcNow;
 

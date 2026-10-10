@@ -1,4 +1,5 @@
 ﻿@page "/stock-card"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using System.Text
 @using AbuAdelERP.UI.DTOs
@@ -217,16 +218,27 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadLookups();
+        ApplyQueryParameters();
+    }
 
-        // التفعيل التلقائي عند التحويل من شاشة الأرصدة عبر Query Parameters
-        if (QueryItemId.HasValue && QueryItemId.Value > 0)
+    protected override async Task OnParametersSetAsync()
+    {
+        ApplyQueryParameters();
+        if (selectedItemId > 0 && report == null)
+        {
+            await LoadLedger();
+        }
+    }
+
+    private void ApplyQueryParameters()
+    {
+        if (QueryItemId.HasValue && QueryItemId.Value > 0 && selectedItemId != QueryItemId.Value)
         {
             selectedItemId = QueryItemId.Value;
             if (QueryWarehouseId.HasValue && QueryWarehouseId.Value > 0)
             {
                 selectedWarehouseId = QueryWarehouseId.Value;
             }
-            await LoadLedger();
         }
     }
 
@@ -294,7 +306,7 @@
             var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
             var base64 = Convert.ToBase64String(bytes);
             var fileName = $"كارت_صنف_{report.ItemCode}_{DateTime.Now:yyyyMMdd_HHmm}.csv";
-            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
         }
         catch (Exception ex)
         {
@@ -313,6 +325,7 @@
         "PRODUCTION_IN" or "PRODUCTION_RECEIPT" => "bg-primary text-white",
         "QC_SAMPLE" => "bg-info text-white",
         "QC_SCRAP" or "SCRAP" or "WASTE" => "bg-danger text-white",
+        "QC_REJECTED" => "bg-danger text-white",
         _ => "bg-light text-dark border"
     };
 
@@ -325,6 +338,7 @@
         "FG_TRANSFER_IN" => "استلام تحويل بالكنترول",
         "QC_SAMPLE" => "سحب عينات فحص الجودة",
         "QC_SCRAP" => "إهلاك جودة غير مطابق",
+        "QC_REJECTED" => "فحص جودة - مرفوض (خارج المخزون)",
         "FG_TRANSIT_DEFICIT" => "تسوية عجز نقل الكنترول",
         "SALES_ISSUE" => "صرف مبيعات / فواتير",
         "TRANSFER_OUT" => "تحويل صادر",

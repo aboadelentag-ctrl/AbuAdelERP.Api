@@ -32,7 +32,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب بيانات الحاويات المرجعية: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب بيانات الحاويات المرجعية: {ex.GetBaseException().Message}");
             }
         }
 
@@ -49,7 +49,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب أرصدة الحاويات: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب أرصدة الحاويات: {ex.GetBaseException().Message}");
             }
         }
 
@@ -66,7 +66,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب حركات الحاويات: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب حركات الحاويات: {ex.GetBaseException().Message}");
             }
         }
 
@@ -87,9 +87,13 @@ namespace AbuAdelERP.Api.Controllers
                 var result = await _crateService.DispatchCratesAsync(dto, fallbackCode, fallbackName);
                 return Ok(new { message = "تم إصدار إذن التسليم بنجاح، بانتظار تأكيد المستلم", movement = result });
             }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء صرف الحاويات: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء صرف الحاويات: {ex.GetBaseException().Message}");
             }
         }
 
@@ -112,7 +116,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء معالجة الاستلام: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء معالجة الاستلام: {ex.GetBaseException().Message}");
             }
         }
 
@@ -135,7 +139,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء تسوية النزاع: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء تسوية النزاع: {ex.GetBaseException().Message}");
             }
         }
     }

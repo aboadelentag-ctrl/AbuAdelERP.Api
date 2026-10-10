@@ -20,7 +20,48 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 1. جلب الأرصدة اللحظية مع الفلاتر المتقدمة (الفرع، المستودع، النواقص)
+        // 1. القوائم المرجعية لشاشة الأرصدة (الفروع والمستودعات النشطة)
+        // ==============================================================
+        [HttpGet("lookups")]
+        public async Task<IActionResult> GetLookups()
+        {
+            try
+            {
+                var branches = await _context.Branches
+                    .AsNoTracking()
+                    .Where(b => b.Active)
+                    .OrderBy(b => b.BranchName)
+                    .Select(b => new
+                    {
+                        b.Id,
+                        b.BranchCode,
+                        b.BranchName
+                    })
+                    .ToListAsync();
+
+                var warehouses = await _context.Warehouses
+                    .AsNoTracking()
+                    .Where(w => w.Active)
+                    .OrderBy(w => w.WarehouseName)
+                    .Select(w => new
+                    {
+                        w.Id,
+                        w.BranchId,
+                        w.WarehouseCode,
+                        w.WarehouseName
+                    })
+                    .ToListAsync();
+
+                return Ok(new { branches, warehouses });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في استرجاع القوائم المرجعية: {ex.GetBaseException().Message}");
+            }
+        }
+
+        // ==============================================================
+        // 2. جلب الأرصدة اللحظية مع الفلاتر المتقدمة (الفرع، المستودع، النواقص)
         // ==============================================================
         [HttpGet]
         public async Task<IActionResult> GetBalances(
@@ -62,9 +103,12 @@ namespace AbuAdelERP.Api.Controllers
                                           || (s.Item.Barcode != null && s.Item.Barcode.ToLower().Contains(term)));
                 }
 
+                // فلترة النواقص المحصنة: تشمل الرصيد المنتهي تماماً أو الذي كسر حد الطلب أو الأمان
                 if (lowStockOnly)
                 {
-                    query = query.Where(s => s.Item.ReorderLevel > 0 && s.Quantity <= s.Item.ReorderLevel);
+                    query = query.Where(s => s.Quantity <= 0
+                                          || (s.Item.ReorderLevel > 0 && s.Quantity <= s.Item.ReorderLevel)
+                                          || (s.Item.SafetyStock > 0 && s.Quantity <= s.Item.SafetyStock));
                 }
 
                 var balances = await query
@@ -92,6 +136,7 @@ namespace AbuAdelERP.Api.Controllers
                         TotalStockValue = s.Quantity * s.Item.BasePrice,
                         LastUpdatedAt = s.LastUpdatedAt,
                         Status = s.Quantity <= 0 ? "نفد الرصيد"
+                               : (s.Item.SafetyStock > 0 && s.Quantity <= s.Item.SafetyStock) ? "حرج (تحت حد الأمان)"
                                : (s.Item.ReorderLevel > 0 && s.Quantity <= s.Item.ReorderLevel) ? "حد الطلب"
                                : "متوفر"
                     })
@@ -106,7 +151,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 2. مؤشرات ملخص المخزون (Inventory KPI Dashboard)
+        // 3. مؤشرات ملخص المخزون (Inventory KPI Dashboard)
         // ==============================================================
         [HttpGet("kpis")]
         public async Task<IActionResult> GetStockKpis([FromQuery] long? branchId = null, [FromQuery] long? warehouseId = null)
@@ -129,7 +174,8 @@ namespace AbuAdelERP.Api.Controllers
                     s.Quantity,
                     Available = s.Quantity - s.ReservedQuantity,
                     Price = s.Item.BasePrice,
-                    Reorder = s.Item.ReorderLevel
+                    Reorder = s.Item.ReorderLevel,
+                    Safety = s.Item.SafetyStock
                 }).ToListAsync();
 
                 var kpi = new StockKpiSummaryDto
@@ -138,7 +184,7 @@ namespace AbuAdelERP.Api.Controllers
                     TotalStockQuantity = items.Sum(i => i.Quantity),
                     TotalAvailableQuantity = items.Sum(i => i.Available),
                     EstimatedStockValue = items.Sum(i => i.Quantity * i.Price),
-                    LowStockCount = items.Count(i => i.Reorder > 0 && i.Quantity <= i.Reorder && i.Quantity > 0),
+                    LowStockCount = items.Count(i => i.Quantity > 0 && ((i.Reorder > 0 && i.Quantity <= i.Reorder) || (i.Safety > 0 && i.Quantity <= i.Safety))),
                     OutOfStockCount = items.Count(i => i.Quantity <= 0)
                 };
 

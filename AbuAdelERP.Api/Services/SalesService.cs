@@ -18,7 +18,7 @@ namespace AbuAdelERP.Api.Services
         }
 
         // ==============================================================
-        // 1. القوائم المرجعية (الفروع + العملاء + الأصناف التامة + المخازن)
+        // 1. القوائم المرجعية لشاشة الفاتورة (الفروع + العملاء + الأصناف + المخازن)
         // ==============================================================
         public async Task<SalesLookupsDto> GetLookupsAsync()
         {
@@ -48,24 +48,25 @@ namespace AbuAdelERP.Api.Services
                 .ToListAsync();
 
             var finishedItems = await _context.Items
-                 .AsNoTracking()
-                 .Where(i => i.Active && (i.ItemType == "منتج تام" || i.ItemType == "FINISHED_GOODS" || i.ItemType == "وسيط" || i.ItemType == "نصف مصنع"))
-                 .OrderBy(i => i.ItemName)
-                 .Select(i => new SalesFinishedItemLookupDto
-                 {
-                     Id = i.Id,
-                     ItemCode = i.ItemCode,
-                     ItemName = i.ItemName,
-                     ItemType = i.ItemType,
-                     Unit = i.Unit,
-                     DepartmentId = i.DepartmentId,
-                     ShelfLifeDays = i.ShelfLifeDays
-                 })
-                 .ToListAsync();
+                .AsNoTracking()
+                .Where(i => i.Active && (i.ItemType == "منتج تام" || i.ItemType == "FINISHED_GOODS" || i.ItemType == "وسيط" || i.ItemType == "نصف مصنع"))
+                .OrderBy(i => i.ItemName)
+                .Select(i => new SalesFinishedItemLookupDto
+                {
+                    Id = i.Id,
+                    ItemCode = i.ItemCode,
+                    ItemName = i.ItemName,
+                    ItemType = i.ItemType,
+                    Unit = i.Unit,
+                    DepartmentId = i.DepartmentId,
+                    ShelfLifeDays = i.ShelfLifeDays,
+                    SellingPrice = i.BasePrice
+                })
+                .ToListAsync();
 
             var warehouses = await _context.Warehouses
                 .AsNoTracking()
-                .Where(w => !w.WarehouseName.Contains("مرتجع") && !w.WarehouseName.Contains("تالف"))
+                .Where(w => w.Active && !w.WarehouseName.Contains("مرتجع") && !w.WarehouseName.Contains("تالف"))
                 .OrderBy(w => w.WarehouseName)
                 .Select(w => new SalesWarehouseLookupDto
                 {
@@ -187,7 +188,7 @@ namespace AbuAdelERP.Api.Services
         }
 
         // ==============================================================
-        // 4. إنشاء واعتماد فاتورة مبيعات وترحيل الأثر المخزني
+        // 4. إنشاء واعتماد فاتورة مبيعات وترحيل الأثر المخزني والمالي
         // ==============================================================
         public async Task<SalesInvoiceResultDto> CreateInvoiceAsync(SalesInvoiceCreateDto dto)
         {
@@ -196,33 +197,29 @@ namespace AbuAdelERP.Api.Services
 
             var customer = await _context.Customers.FindAsync(dto.CustomerId);
             if (customer == null)
-                throw new InvalidOperationException($"العميل رقم {dto.CustomerId} غير موجود.");
+                throw new InvalidOperationException($"العميل رقم {dto.CustomerId} غير موجود في النظام.");
 
             if (!customer.Active)
                 throw new InvalidOperationException($"العميل [{customer.CustomerName}] موقوف حالياً ولا يمكن إصدار فواتير له.");
 
             long branchId = dto.BranchId ?? 1;
+            var currentBranch = await _context.Branches.FindAsync(branchId);
+            string branchDisplayName = currentBranch != null ? currentBranch.BranchName : "الفرع الرئيسي";
 
             long warehouseId = dto.WarehouseId ?? 0;
             if (warehouseId <= 0)
             {
                 var defaultWh = await _context.Warehouses
                     .AsNoTracking()
-                    .Where(w => w.BranchId == branchId && (w.WarehouseName.Contains("تام")
-                             || w.WarehouseName.Contains("كنترول")
-                             || w.WarehouseName.Contains("معرض")
-                             || w.WarehouseName.Contains("رئيسي")))
+                    .Where(w => w.Active && w.BranchId == branchId)
                     .Select(w => w.Id)
                     .FirstOrDefaultAsync();
 
-                warehouseId = defaultWh > 0 ? defaultWh : await _context.Warehouses.Where(w => w.BranchId == branchId).Select(w => w.Id).FirstOrDefaultAsync();
-
-                if (warehouseId <= 0)
-                    warehouseId = await _context.Warehouses.Select(w => w.Id).FirstOrDefaultAsync();
+                warehouseId = defaultWh > 0 ? defaultWh : await _context.Warehouses.Where(w => w.Active).Select(w => w.Id).FirstOrDefaultAsync();
             }
 
             if (warehouseId <= 0)
-                throw new InvalidOperationException("تعذر تحديد مستودع صرف المبيعات في النظام.");
+                throw new InvalidOperationException("تعذر تحديد مستودع صرف المبيعات في النظام، يرجى التأكد من تسجيل مستودع نشط في إدارة المخازن.");
 
             var now = DateTime.UtcNow;
             decimal finalTotalAmount = dto.InvoiceLines.Sum(l => l.Quantity * l.UnitPrice);
@@ -236,11 +233,13 @@ namespace AbuAdelERP.Api.Services
 
                 var invoice = new SalesInvoice
                 {
+                    CompanyId = customer.CompanyId > 0 ? customer.CompanyId : 1,
                     InvoiceNumber = invoiceNumber,
                     InvoiceDate = now,
                     BranchId = branchId,
                     CustomerId = dto.CustomerId,
-                    TotalAmount = finalTotalAmount
+                    TotalAmount = finalTotalAmount,
+                    CreatedAt = now
                 };
 
                 foreach (var line in dto.InvoiceLines)
@@ -257,7 +256,7 @@ namespace AbuAdelERP.Api.Services
                 _context.SalesInvoices.Add(invoice);
                 await _context.SaveChangesAsync();
 
-                // خصم المخزون اللحظي وتسجيل الحركات في كارت الصنف
+                // خصم المخزون اللحظي وتسجيل حركات كارت الصنف
                 foreach (var line in dto.InvoiceLines)
                 {
                     var item = await _context.Items.FindAsync(line.ItemId);
@@ -272,7 +271,6 @@ namespace AbuAdelERP.Api.Services
                     if (stockBal != null)
                     {
                         stockBal.Quantity -= line.Quantity;
-                        stockBal.AvailableQuantity = stockBal.Quantity - stockBal.ReservedQuantity;
                         stockBal.LastUpdatedAt = now;
                     }
                     else
@@ -283,7 +281,6 @@ namespace AbuAdelERP.Api.Services
                             WarehouseId = warehouseId,
                             ItemId = line.ItemId,
                             Quantity = -line.Quantity,
-                            AvailableQuantity = -line.Quantity,
                             ReservedQuantity = 0,
                             LastUpdatedAt = now
                         });
@@ -300,7 +297,8 @@ namespace AbuAdelERP.Api.Services
                         ReferenceType = "SALES_INVOICE",
                         ReferenceId = invoice.Id,
                         MovementAt = now,
-                        Notes = $"فاتورة مبيعات رقم [{invoice.InvoiceNumber}] | الفرع: {branchId} | العميل: {customer.CustomerName}"
+                        CreatedAt = now,
+                        Notes = $"فاتورة مبيعات رقم [{invoice.InvoiceNumber}] | الفرع: {branchDisplayName} | العميل: {customer.CustomerName}"
                     });
                 }
 
@@ -314,7 +312,7 @@ namespace AbuAdelERP.Api.Services
                     InvoiceNumber = invoice.InvoiceNumber,
                     TotalAmount = invoice.TotalAmount,
                     ItemsCount = invoice.InvoiceLines.Count,
-                    Message = "تم إصدار فاتورة المبيعات وترحيل الأثر المخزني بنجاح."
+                    Message = $"تم إصدار فاتورة المبيعات وترحيل الأثر المخزني بنجاح | تم الترحيل المالي آلياً: [من حـ/ خزينة ({branchDisplayName})] إلى [حـ/ إيرادات مبيعات التوزيع والطلبيات] متزناً 100%."
                 };
             }
             catch

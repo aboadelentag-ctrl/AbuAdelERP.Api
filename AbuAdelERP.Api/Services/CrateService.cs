@@ -121,8 +121,11 @@ namespace AbuAdelERP.Api.Services
             var container = await _context.CirculatingContainers
                 .FirstOrDefaultAsync(c => c.ContainerName == dto.ContainerName);
 
+            if (container == null)
+                throw new InvalidOperationException($"نوع الفوارغ [{dto.ContainerName}] غير مسجل بدليل الحاويات النشطة.");
+
             // التحقق من الرصيد المتاح بمخزن التعبئة في حال الصرف للفروع
-            if (dto.MovementType == "DISPATCH_BRANCH" && container != null)
+            if (dto.MovementType == "DISPATCH_BRANCH")
             {
                 if (container.InPackagingWarehouseQuantity < dto.DispatchedQuantity)
                 {
@@ -171,10 +174,12 @@ namespace AbuAdelERP.Api.Services
             var empCode = !string.IsNullOrWhiteSpace(dto.ReceivedByCode) ? dto.ReceivedByCode : fallbackEmpCode;
             var empName = !string.IsNullOrWhiteSpace(dto.ReceivedByName) ? dto.ReceivedByName : fallbackEmpName;
 
-            // تطبيق مبدأ فصل المهام الرقابي الصارم (Segregation of Duties)
-            if (!string.IsNullOrWhiteSpace(movement.DispatchedByCode) && movement.DispatchedByCode.Equals(empCode, StringComparison.OrdinalIgnoreCase))
+            // تطبيق مبدأ فصل المهام الرقابي الصارم مع السماح للمشرفين والمسؤولين بالاختبار والاعتماد
+            bool isAdminOrSuper = empCode.Contains("ADMIN", StringComparison.OrdinalIgnoreCase) || empCode.Equals("SUPERADMIN", StringComparison.OrdinalIgnoreCase);
+
+            if (!isAdminOrSuper && !string.IsNullOrWhiteSpace(movement.DispatchedByCode) && movement.DispatchedByCode.Equals(empCode, StringComparison.OrdinalIgnoreCase))
             {
-                return (false, "ممنوع رقابياً: لا يجوز للموظف المُسلِّم تأكيد الاستلام لنفسه (Segregation of Duties)!", null);
+                return (false, "ممنوع رقابياً: لا يجوز للموظف المُسلِّم تأكيد الاستلام لنفسه (Segregation of Duties)! يرجى تأكيد الاستلام بواسطة مستلم الفرع أو مدير النظام.", null);
             }
 
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -191,7 +196,6 @@ namespace AbuAdelERP.Api.Services
                 movement.ReceivedByName = empName;
                 movement.ReceiveNotes = dto.ReceiveNotes;
 
-                // احتساب الكمية السليمة الفعلية المستلمة
                 int soundReceivedQty = Math.Max(0, dto.ActualReceivedQuantity - dto.DamagedCount);
 
                 if (container != null)
@@ -271,7 +275,7 @@ namespace AbuAdelERP.Api.Services
                 movement.Status = "RESOLVED";
                 movement.ArbitrationDecision = dto.ArbitrationDecision;
                 movement.ArbitrationText = dto.ArbitrationText;
-                movement.FinancialPenalty = dto.FinancialPenalty.ToString();
+                movement.FinancialPenalty = dto.FinancialPenalty.ToString("N2");
                 movement.ArbitratedByCode = empCode;
                 movement.ArbitratedByName = empName;
 
@@ -283,14 +287,21 @@ namespace AbuAdelERP.Api.Services
                     // فك تجميد كمية العجز من رصيد النزاعات
                     container.DisputedQuantity = Math.Max(0, container.DisputedQuantity - movement.ShortageQuantity);
 
-                    // إذا كان القرار هو إهلاك/فقدان الصاجات وتغريم المتسبب مالياً، تُسقط رسمياً من إجمالي رصيد المصنع
-                    if (dto.ArbitrationDecision.Contains("غرامة") || dto.ArbitrationDecision.Contains("تحميل") || dto.ArbitrationDecision.Contains("فقد"))
+                    // معالجة كسر وتلف الصاجات: تصفير رصيد التالف المسجل وإسقاطه من إجمالي المصنع
+                    if (movement.DamagedCount > 0)
+                    {
+                        container.DamagedQuantity = Math.Max(0, container.DamagedQuantity - movement.DamagedCount);
+                        container.TotalFactoryQuantity = Math.Max(0, container.TotalFactoryQuantity - movement.DamagedCount);
+                    }
+
+                    // إذا كان القرار هو تحميل غرامة أو إثبات فقد، تسقط الصاجات المفقودة من إجمالي رصيد المصنع
+                    if (dto.ArbitrationDecision.Contains("غرامة") || dto.ArbitrationDecision.Contains("تحميل") || dto.ArbitrationDecision.Contains("فقد") || dto.ArbitrationDecision.Contains("إهلاك"))
                     {
                         container.TotalFactoryQuantity = Math.Max(0, container.TotalFactoryQuantity - movement.ShortageQuantity);
                     }
                     else if (dto.ArbitrationDecision.Contains("إعادة") || dto.ArbitrationDecision.Contains("تسليم"))
                     {
-                        // في حال العثور على الصاجات وإعادتها لمخزن التعبئة
+                        // في حال العثور على الصاجات المفقودة وإعادتها لمخزن التعبئة
                         container.InPackagingWarehouseQuantity += movement.ShortageQuantity;
                     }
                 }

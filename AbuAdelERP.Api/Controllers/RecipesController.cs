@@ -32,14 +32,14 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء جلب الوصفات: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء جلب الوصفات: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
         // 2. جلب تفاصيل بطاقة معيار خلطة محددة
         // ==============================================================
-        [HttpGet("{id}")]
+        [HttpGet("{id:long}")]
         public async Task<ActionResult<RecipeDto>> GetRecipe(long id)
         {
             try
@@ -50,7 +50,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء جلب الوصفة: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء جلب الوصفة: {ex.GetBaseException().Message}");
             }
         }
 
@@ -60,15 +60,18 @@ namespace AbuAdelERP.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> SaveRecipe([FromBody] SaveRecipeDto dto)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             try
             {
                 var success = await _recipeService.SaveRecipeAsync(dto);
                 if (!success) return BadRequest("تعذر حفظ الوصفة. تأكد من تحديد المنتج والخامات ومقاديرها.");
-                return Ok(true);
+                return Ok(new { success = true, message = "تم حفظ بطاقة معايير الخلطة بنجاح." });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في الحفظ: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ في الحفظ: {ex.GetBaseException().Message}");
             }
         }
 
@@ -95,18 +98,18 @@ namespace AbuAdelERP.Api.Controllers
         // ==============================================================
         // 5. حذف معيار خلطة
         // ==============================================================
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:long}")]
         public async Task<IActionResult> DeleteRecipe(long id)
         {
             try
             {
                 var success = await _recipeService.DeleteRecipeAsync(id);
                 if (!success) return NotFound("الوصفة غير موجودة أو تعذر حذفها.");
-                return Ok(true);
+                return Ok(new { success = true, message = "تم حذف الوصفة بنجاح." });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في الحذف: {ex.Message}");
+                return StatusCode(500, $"خطأ في الحذف: {ex.GetBaseException().Message}");
             }
         }
     }

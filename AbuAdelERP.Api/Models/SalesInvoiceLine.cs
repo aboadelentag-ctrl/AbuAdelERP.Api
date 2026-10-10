@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AbuAdelERP.Api.Models;
@@ -6,6 +7,7 @@ namespace AbuAdelERP.Api.Models;
 [Table("sales_invoice_lines", Schema = "erp")]
 public partial class SalesInvoiceLine
 {
+    [Key]
     [Column("id")]
     public long Id { get; set; }
 
@@ -24,6 +26,9 @@ public partial class SalesInvoiceLine
     [Column("line_total")]
     public decimal LineTotal { get; set; }
 
+    [ForeignKey(nameof(InvoiceId))]
     public virtual SalesInvoice? Invoice { get; set; }
+
+    [ForeignKey(nameof(ItemId))]
     public virtual Item? Item { get; set; }
 }

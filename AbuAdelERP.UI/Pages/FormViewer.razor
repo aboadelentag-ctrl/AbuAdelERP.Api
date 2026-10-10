@@ -1,30 +1,32 @@
 ﻿@page "/form-viewer"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @inject HttpClient Http
 @inject AppState State
 @using System.Text.Json
 @using System.Net.Http.Json
+@using System.IO
 
 <PageTitle>تعبئة نماذج الجودة والتفتيش - حلواني أبو عادل</PageTitle>
 
-<div class="container mt-4" dir="rtl">
+<div class="container-fluid px-4 py-3" dir="rtl">
     <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom flex-wrap gap-2">
         <div>
-            <h3 class="text-success m-0 mb-1 fw-bold">📝 تعبئة نماذج التفتيش الذكية</h3>
-            <span class="text-muted small">شاشة الإدخال الميدانية لمراقبي الجودة، مهندسي الإنتاج، وفنيي الصيانة</span>
+            <h3 class="text-success m-0 mb-1 fw-bold">📝 تعبئة نماذج التفتيش والعمليات الميدانية</h3>
+            <span class="text-muted small">شاشة الإدخال الميدانية الموحدة المربوطة حياً بقواعد بيانات المصنع</span>
         </div>
         <div>
-            <span class="badge bg-light text-dark border p-2 small">
-                👤 المفتش الموثق: <strong>@(string.IsNullOrEmpty(State.FullName) ? "مراقب الجودة" : State.FullName)</strong>
+            <span class="badge bg-light text-dark border p-2 small shadow-sm">
+                👤 المستخدم الموثق: <strong>@(string.IsNullOrEmpty(State?.FullName) ? "مراقب الجودة / النظام" : State.FullName)</strong>
             </span>
         </div>
     </div>
 
-    <!-- 1. اختيار النموذج -->
+    <!-- اختيار النموذج -->
     <div class="card shadow-sm mb-4 border-0">
         <div class="card-body bg-light rounded">
-            <label class="fw-bold mb-2 text-primary">اختر نموذج الفحص المطلوب تعبئته:</label>
+            <label class="fw-bold mb-2 text-primary">اختر النموذج المطلوب تعبئته:</label>
             <select class="form-select border-primary fw-bold" @onchange="OnFormSelected">
-                <option value="">-- اضغط هنا لاختيار نموذج --</option>
+                <option value="">-- اضغط هنا لاختيار النموذج --</option>
                 @if (activeForms != null)
                 {
                     @foreach (var form in activeForms)
@@ -36,147 +38,340 @@
         </div>
     </div>
 
-    <!-- 2. محرك الرسم الآلي (Dynamic Renderer) -->
-    @if (selectedForm != null && formFields != null)
+    @if (!string.IsNullOrEmpty(statusMessage))
     {
-        <div class="card shadow border-0 border-top border-success border-4">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                <h4 class="text-success m-0 fw-bold">@selectedForm.FormName</h4>
-                <span class="badge bg-success font-monospace">@selectedForm.FormCode</span>
-            </div>
-            <div class="card-body bg-white p-4">
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") fw-bold shadow-sm alert-dismissible fade show" role="alert">
+            @statusMessage
+            <button type="button" class="btn-close" @onclick='() => statusMessage = ""'></button>
+        </div>
+    }
 
-                @if (!string.IsNullOrEmpty(successMessage))
+    <!-- رندرة النموذج الديناميكي -->
+    @if (selectedForm != null)
+    {
+        <div class="card shadow border-0 border-top border-success border-4 mb-5">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h4 class="text-success m-0 fw-bold">@selectedForm.FormName</h4>
+                <span class="badge bg-success font-monospace px-3 py-2">@selectedForm.FormCode</span>
+            </div>
+
+            <div class="card-body bg-white p-4">
+                @if (schema != null && schema.Blocks != null && schema.Blocks.Any())
                 {
-                    <div class="alert @(successMessage.Contains("نجاح") ? "alert-success" : "alert-danger") fw-bold shadow-sm">
-                        @successMessage
-                    </div>
+                    @foreach (var block in schema.Blocks)
+                    {
+                        <!-- 1. كتلة النصوص والتوجيهات -->
+                        @if (block.BlockType == "instruction" && !string.IsNullOrWhiteSpace(block.InstructionText))
+                        {
+                            <div class="alert alert-secondary border-0 border-start border-primary border-4 shadow-sm mb-4">
+                                <h6 class="fw-bold text-primary mb-2">📌 @block.Title</h6>
+                                <p class="mb-0 text-dark small" style="white-space: pre-line; line-height: 1.8;">@block.InstructionText</p>
+                            </div>
+                        }
+
+                        <!-- 2. كتلة حقول البيانات الأساسية المربوطة بالـ ERP الحية -->
+                        @if (block.BlockType == "fields" && block.Fields != null && block.Fields.Any())
+                        {
+                            <div class="card bg-light border-0 p-3 mb-4 rounded-3 shadow-sm">
+                                <h6 class="fw-bold text-secondary mb-3 border-bottom pb-2">📋 @block.Title</h6>
+                                <div class="row g-3">
+                                    @foreach (var field in block.Fields)
+                                    {
+                                        int colWidth = field.FieldType == "textarea" ? 12 : 6;
+                                        <div class="@($"col-md-{colWidth}")">
+                                            <label class="form-label small fw-bold text-dark">
+                                                @field.Label
+                                                @if (field.IsRequired) { <span class="text-danger">*</span> }
+                                            </label>
+
+                                            @switch (field.FieldType)
+                                            {
+                                                case "erp_select":
+                                                    <select class="form-select form-select-sm border-primary fw-bold" 
+                                                            value="@GetAnswer(field.Key)" 
+                                                            @onchange="@(e => SetAnswer(field.Key, e.Value?.ToString()))">
+                                                        <option value="">-- اختر @field.Label --</option>
+                                                        @if (erpOptions.TryGetValue(field.ErpSource ?? "", out var optionsList) && optionsList.Any())
+                                                        {
+                                                            @foreach (var opt in optionsList)
+                                                            {
+                                                                <option value="@opt">@opt</option>
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            <option value="" disabled>جاري تحميل البيانات الحية...</option>
+                                                        }
+                                                    </select>
+                                                    break;
+
+                                                case "manual_select":
+                                                    <select class="form-select form-select-sm border-primary fw-bold" 
+                                                            value="@GetAnswer(field.Key)" 
+                                                            @onchange="@(e => SetAnswer(field.Key, e.Value?.ToString()))">
+                                                        <option value="">-- اختر --</option>
+                                                        @foreach (var opt in field.ManualOptions)
+                                                        {
+                                                            <option value="@opt">@opt</option>
+                                                        }
+                                                    </select>
+                                                    break;
+
+                                                case "textarea":
+                                                    <textarea class="form-control form-control-sm border-primary" 
+                                                              rows="2" 
+                                                              placeholder="سجل التفاصيل والملاحظات..." 
+                                                              value="@GetAnswer(field.Key)" 
+                                                              @onchange="@(e => SetAnswer(field.Key, e.Value?.ToString()))"></textarea>
+                                                    break;
+
+                                                case "date":
+                                                    <input type="date" class="form-control form-control-sm border-primary font-monospace" 
+                                                           value="@GetAnswer(field.Key)" 
+                                                           @onchange="@(e => SetAnswer(field.Key, e.Value?.ToString()))" />
+                                                    break;
+
+                                                case "number":
+                                                    <input type="number" step="0.01" class="form-control form-control-sm border-primary font-monospace" 
+                                                           value="@GetAnswer(field.Key)" 
+                                                           @onchange="@(e => SetAnswer(field.Key, e.Value?.ToString()))" />
+                                                    break;
+
+                                                default:
+                                                    <input type="text" class="form-control form-control-sm border-primary" 
+                                                           placeholder="أدخل البيانات..." 
+                                                           value="@GetAnswer(field.Key)" 
+                                                           @onchange="@(e => SetAnswer(field.Key, e.Value?.ToString()))" />
+                                                    break;
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        <!-- 3. كتلة جدول الفحص والتفتيش -->
+                        @if (block.BlockType == "table" && block.Rows != null && block.Rows.Any())
+                        {
+                            <div class="card shadow-sm border-0 mb-4 rounded-3 overflow-hidden">
+                                <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
+                                    <h6 class="m-0 fw-bold">📋 @block.Title</h6>
+                                    <span class="badge bg-light text-dark">عدد البنود: @block.Rows.Count</span>
+                                </div>
+                                <div class="card-body p-0 table-responsive">
+                                    <table class="table table-bordered table-hover align-middle mb-0 text-center small">
+                                        <thead class="table-light">
+                                            <tr class="text-secondary">
+                                                <th style="width: 50px;">م</th>
+                                                <th class="text-start ps-3">البند المطلوب فحصه والتأكد منه</th>
+                                                @foreach (var col in block.Columns)
+                                                {
+                                                    <th>@col.Title</th>
+                                                }
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @for (int i = 0; i < block.Rows.Count; i++)
+                                            {
+                                                var row = block.Rows[i];
+                                                int displayIndex = i + 1;
+                                                string rowKey = string.IsNullOrEmpty(row.Id) ? $"row_{i}" : row.Id;
+
+                                                <tr>
+                                                    <td class="text-muted fw-bold">@displayIndex</td>
+                                                    <td class="text-start fw-bold text-dark ps-3">@row.Label</td>
+
+                                                    @foreach (var col in block.Columns)
+                                                    {
+                                                        string cellKey = $"{rowKey}_{col.Key}";
+                                                        <td>
+                                                            @if (col.ColumnType == "radio")
+                                                            {
+                                                                string curVal = GetAnswer(cellKey);
+                                                                <div class="btn-group btn-group-sm w-100" role="group">
+                                                                    <button type="button" 
+                                                                            class="btn @(curVal == "مطابق" ? "btn-success" : "btn-outline-success") fw-bold py-1"
+                                                                            @onclick='() => SetAnswer(cellKey, "مطابق")'>
+                                                                        ✓ مطابق
+                                                                    </button>
+                                                                    <button type="button" 
+                                                                            class="btn @(curVal == "غير مطابق" ? "btn-danger" : "btn-outline-danger") fw-bold py-1"
+                                                                            @onclick='() => SetAnswer(cellKey, "غير مطابق")'>
+                                                                        ✕ غير مطابق
+                                                                    </button>
+                                                                </div>
+                                                            }
+                                                            else if (col.ColumnType == "checkbox")
+                                                            {
+                                                                bool isChk = GetAnswer(cellKey) == "true";
+                                                                <div class="form-check d-flex justify-content-center m-0">
+                                                                    <input type="checkbox" class="form-check-input" 
+                                                                           style="transform: scale(1.3); cursor: pointer;"
+                                                                           checked="@isChk"
+                                                                           @onchange="@(e => SetAnswer(cellKey, (e.Value is bool b && b) ? "true" : "false"))" />
+                                                                </div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <input type="text" class="form-control form-control-sm" 
+                                                                       placeholder="سجل هنا..." 
+                                                                       value="@GetAnswer(cellKey)" 
+                                                                       @onchange="@(e => SetAnswer(cellKey, e.Value?.ToString()))" />
+                                                            }
+                                                        </td>
+                                                    }
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- 4. كتلة مسار الاعتمادات الإدارية -->
+                        @if (block.BlockType == "approval" && block.ApprovalStages != null && block.ApprovalStages.Any())
+                        {
+                            <div class="card border border-warning shadow-sm mb-4 rounded-3 overflow-hidden">
+                                <div class="card-header bg-warning bg-opacity-10 text-dark py-2 border-bottom border-warning">
+                                    <h6 class="m-0 fw-bold text-dark">⚖️ @block.Title</h6>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="row g-3">
+                                        @foreach (var stage in block.ApprovalStages)
+                                        {
+                                            string decisionKey = $"{stage.StageId}_decision";
+                                            string notesKey = $"{stage.StageId}_notes";
+                                            string signKey = $"{stage.StageId}_sign";
+                                            string currentDecision = GetAnswer(decisionKey);
+
+                                            <div class="col-md-4">
+                                                <div class="border rounded p-3 bg-white h-100 shadow-sm d-flex flex-column justify-content-between">
+                                                    <div>
+                                                        <h6 class="fw-bold text-primary mb-1">@stage.RoleTitle</h6>
+                                                        @if (!string.IsNullOrEmpty(stage.Condition))
+                                                        {
+                                                            <div class="badge bg-light text-muted border text-wrap mb-2 text-start small w-100">
+                                                                @stage.Condition
+                                                            </div>
+                                                        }
+
+                                                        <div class="btn-group btn-group-sm w-100 my-2" role="group">
+                                                            @foreach (var opt in stage.DecisionOptions)
+                                                            {
+                                                                bool isAgree = opt.Contains("أوافق") && !opt.Contains("لا");
+                                                                bool isSelected = currentDecision == opt;
+                                                                <button type="button" 
+                                                                        class="btn @(isSelected ? (isAgree ? "btn-success" : "btn-danger") : (isAgree ? "btn-outline-success" : "btn-outline-danger")) fw-bold py-1"
+                                                                        @onclick='() => SetAnswer(decisionKey, opt)'>
+                                                                    @opt
+                                                                </button>
+                                                            }
+                                                        </div>
+
+                                                        @if (stage.HasNotes)
+                                                        {
+                                                            <div class="mt-2">
+                                                                <label class="form-label small text-muted mb-1">ملاحظات القرار:</label>
+                                                                <input type="text" class="form-control form-control-sm" 
+                                                                       placeholder="سجل ملاحظات القرار..." 
+                                                                       value="@GetAnswer(notesKey)" 
+                                                                       @onchange="@(e => SetAnswer(notesKey, e.Value?.ToString()))" />
+                                                            </div>
+                                                        }
+                                                    </div>
+
+                                                    @if (stage.HasSignature)
+                                                    {
+                                                        <div class="mt-3 pt-2 border-top">
+                                                            <label class="form-label small text-muted mb-1">التوقيع والاعتماد:</label>
+                                                            <input type="text" class="form-control form-control-sm border-secondary fw-bold" 
+                                                                   placeholder="اسم المعتمد / توقيع إلكتروني..." 
+                                                                   value="@GetAnswer(signKey)" 
+                                                                   @onchange="@(e => SetAnswer(signKey, e.Value?.ToString()))" />
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
                 }
 
-                <div class="row">
-                    @foreach (var field in formFields)
-                    {
-                        <div class="col-md-6 mb-4">
-                            <label class="form-label fw-bold text-secondary">@field.Label</label>
+                <!-- 5. قسم المرفقات والوسائط التوثيقية في نهاية التقرير -->
+                <div class="card border border-info border-opacity-25 bg-white p-3 mb-4 rounded-3 shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                        <h6 class="fw-bold text-primary m-0">📎 المرفقات والوسائط التوثيقية للمحضر</h6>
+                        <span class="text-muted small">إرفاق صور، فيديو، أو تسجيل صوتي لإثبات وتوثيق الحالة ميدانياً</span>
+                    </div>
 
-                            @if (field.Type == "text")
-                            {
-                                <input type="text" class="form-control border-info" @bind="answers[field.Label]" />
-                            }
-                            else if (field.Type == "number")
-                            {
-                                <input type="number" step="0.01" class="form-control border-info font-monospace fw-bold"
-                                       value="@answers[field.Label]"
-                                       @onchange="@(e => answers[field.Label] = e.Value?.ToString() ?? "")" />
-                            }
-                            else if (field.Type == "date")
-                            {
-                                <input type="date" class="form-control border-info font-monospace"
-                                       value="@answers[field.Label]"
-                                       @onchange="@(e => answers[field.Label] = e.Value?.ToString() ?? "")" />
-                            }
-                            else if (field.Type == "checkbox")
-                            {
-                                <div class="form-check mt-2">
-                                    <input type="checkbox" class="form-check-input border-info" style="transform: scale(1.4); margin-right: -1.5rem; margin-left: 1rem;"
-                                           checked="@(answers[field.Label] == "true")"
-                                           @onchange="@(e => answers[field.Label] = e.Value?.ToString()?.ToLower() ?? "false")" />
-                                    <label class="form-check-label fw-bold text-dark">مطابق / نعم / تم الإنجاز</label>
-                                </div>
-                            }
-                            else if (field.Type == "departments")
-                            {
-                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
-                                    <option value="">-- اختر القسم --</option>
-                                    <option value="الشرقي">قسم الشرقي</option>
-                                    <option value="المخبوزات">قسم المخبوزات</option>
-                                    <option value="الجاتوه والتورت">قسم الجاتوه والتورت</option>
-                                    <option value="الإسفنجي">قسم الإسفنجي</option>
-                                    <option value="النواشف">قسم النواشف</option>
-                                </select>
-                            }
-                            else if (field.Type == "branches")
-                            {
-                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
-                                    <option value="">-- اختر الفرع --</option>
-                                    <option value="فرع مصدق - الدقي">فرع مصدق - الدقي</option>
-                                    <option value="فرع المهندسين">فرع المهندسين</option>
-                                    <option value="فرع أكتوبر">فرع أكتوبر</option>
-                                    <option value="معرض المصنع المركزي">معرض المصنع المركزي</option>
-                                </select>
-                            }
-                            else if (field.Type == "warehouses")
-                            {
-                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
-                                    <option value="">-- اختر المخزن --</option>
-                                    <option value="مخزن الخامات الرئيسي">مخزن الخامات الرئيسي</option>
-                                    <option value="مخزن التعبئة والتغليف">مخزن التعبئة والتغليف</option>
-                                    <option value="مخزن المنتج التام المركزي">مخزن المنتج التام المركزي</option>
-                                    <option value="مخزن صالة الشرقي">مخزن صالة الشرقي</option>
-                                </select>
-                            }
-                            else if (field.Type == "items")
-                            {
-                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
-                                    <option value="">-- اختر الصنف التام --</option>
-                                    <option value="بسبوسة سادة">بسبوسة سادة</option>
-                                    <option value="كنافة أساور بالمكسرات">كنافة أساور بالمكسرات</option>
-                                    <option value="تورتة بلاك فورست">تورتة بلاك فورست</option>
-                                    <option value="جاتوه سواريه">جاتوه سواريه</option>
-                                </select>
-                            }
-                            else if (field.Type == "materials")
-                            {
-                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
-                                    <option value="">-- اختر الخامة / مواد التعبئة --</option>
-                                    <option value="دقيق فاخر 72%">دقيق فاخر 72%</option>
-                                    <option value="سمن بلدي طبيعي">سمن بلدي طبيعي</option>
-                                    <option value="سكر أبيض ناعم">سكر أبيض ناعم</option>
-                                    <option value="فستق حلبي مجروش">فستق حلبي مجروش</option>
-                                    <option value="علبة تورتة فاخرة">علبة تورتة فاخرة</option>
-                                </select>
-                            }
-                            else if (field.Type == "equipment")
-                            {
-                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
-                                    <option value="">-- اختر الآلة / المعدة --</option>
-                                    <option value="عجانة مركزية 120 كجم">عجانة مركزية 120 كجم</option>
-                                    <option value="فرن دوار رقم 1">فرن دوار رقم 1</option>
-                                    <option value="فرن دوار رقم 2">فرن دوار رقم 2</option>
-                                    <option value="غرفة تبريد وتجميد 1">غرفة تبريد وتجميد 1</option>
-                                    <option value="ماكينة تغليف وشرنكة">ماكينة تغليف وشرنكة</option>
-                                </select>
-                            }
-                            else if (field.Type == "employees")
-                            {
-                                <input type="text" class="form-control border-warning" @bind="answers[field.Label]" placeholder="اسم المسؤول أو الفني المعني..." />
-                            }
-                            else if (field.Type == "job_roles")
-                            {
-                                <select class="form-select border-warning fw-bold" @bind="answers[field.Label]">
-                                    <option value="">-- اختر المسمى الوظيفي --</option>
-                                    <option value="مهندس توكيد جودة">مهندس توكيد جودة</option>
-                                    <option value="شيف صالة إنتاج">شيف صالة إنتاج</option>
-                                    <option value="فني صيانة ميكانيكية">فني صيانة ميكانيكية</option>
-                                    <option value="أمين مستودع">أمين مستودع</option>
-                                </select>
-                            }
-                            else if (field.Type == "image" || field.Type == "video" || field.Type == "audio")
-                            {
-                                <input type="file" class="form-control border-danger" />
-                                <small class="text-danger">📎 مرفق وسائط موثق</small>
-                            }
-                            else
-                            {
-                                <input type="text" class="form-control bg-light" @bind="answers[field.Label]" placeholder="نص..." />
-                            }
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="border rounded p-3 text-center bg-light h-100">
+                                <label class="fw-bold text-dark small d-block mb-2">📷 صورة توثيقية للموقع / المخالفة</label>
+                                <InputFile OnChange="@(e => UploadMediaFile(e, "report_attachment_image", 10 * 1024 * 1024))" 
+                                           accept="image/*" class="form-control form-control-sm border-primary mb-2" />
+                                @if (!string.IsNullOrEmpty(GetAnswer("report_attachment_image")))
+                                {
+                                    <div class="mt-2 position-relative d-inline-block">
+                                        <img src="@GetAnswer("report_attachment_image")" class="img-thumbnail rounded shadow-sm" style="max-height: 140px; object-fit: contain;" />
+                                        <button class="btn btn-sm btn-danger py-0 px-2 mt-1 d-block w-100 fw-bold" 
+                                                @onclick='() => SetAnswer("report_attachment_image", null)'>🗑️ حذف الصورة</button>
+                                    </div>
+                                }
+                            </div>
                         </div>
-                    }
+
+                        <div class="col-md-4">
+                            <div class="border rounded p-3 text-center bg-light h-100">
+                                <label class="fw-bold text-dark small d-block mb-2">🎥 مقطع فيديو توثيقي للتشغيل</label>
+                                <InputFile OnChange="@(e => UploadMediaFile(e, "report_attachment_video", 40 * 1024 * 1024))" 
+                                           accept="video/*" class="form-control form-control-sm border-primary mb-2" />
+                                @if (!string.IsNullOrEmpty(GetAnswer("report_attachment_video")))
+                                {
+                                    <div class="mt-2">
+                                        <video src="@GetAnswer("report_attachment_video")" controls class="w-100 rounded shadow-sm" style="max-height: 140px;"></video>
+                                        <button class="btn btn-sm btn-danger py-0 px-2 mt-1 w-100 fw-bold" 
+                                                @onclick='() => SetAnswer("report_attachment_video", null)'>🗑️ حذف الفيديو</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="border rounded p-3 text-center bg-light h-100">
+                                <label class="fw-bold text-dark small d-block mb-2">🎙️ ملاحظة صوتية ميدانية</label>
+                                <InputFile OnChange="@(e => UploadMediaFile(e, "report_attachment_audio", 15 * 1024 * 1024))" 
+                                           accept="audio/*" class="form-control form-control-sm border-primary mb-2" />
+                                @if (!string.IsNullOrEmpty(GetAnswer("report_attachment_audio")))
+                                {
+                                    <div class="mt-2">
+                                        <audio src="@GetAnswer("report_attachment_audio")" controls class="w-100 mt-2"></audio>
+                                        <button class="btn btn-sm btn-danger py-0 px-2 mt-1 w-100 fw-bold" 
+                                                @onclick='() => SetAnswer("report_attachment_audio", null)'>🗑️ حذف التسجيل</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
                 </div>
+
             </div>
-            <div class="card-footer bg-light text-start py-3">
+
+            <div class="card-footer bg-light text-start py-3 d-flex justify-content-between align-items-center">
+                <span class="text-muted small">يرجى مراجعة كافة البيانات والقرارات والمرفقات قبل الاعتماد النهائي.</span>
                 <button class="btn btn-success fw-bold px-5 shadow" @onclick="SubmitForm" disabled="@isSubmitting">
-                    @(isSubmitting ? "⏳ جاري الحفظ والتوثيق..." : "🚀 حفظ واعتماد محضر التفتيش")
+                    @if (isSubmitting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>جاري الحفظ والتوثيق...</span>
+                    }
+                    else
+                    {
+                        <span>🚀 حفظ واعتماد المستند رقمياً</span>
+                    }
                 </button>
             </div>
         </div>
@@ -186,12 +381,15 @@
 @code {
     private List<DynamicFormDto>? activeForms;
     private DynamicFormDto? selectedForm;
-    private List<FormField>? formFields;
-    private Dictionary<string, string> answers = new();
-    private string successMessage = "";
+    private FormStudioSchema? schema;
+
+    private Dictionary<string, string> answers = new Dictionary<string, string>();
+    private Dictionary<string, List<string>> erpOptions = new Dictionary<string, List<string>>();
+
+    private string statusMessage = "";
+    private bool isSuccess = true;
     private bool isSubmitting = false;
 
-    // تم تعديل المسار ليكون مساراً نسبياً نظيفاً
     private string apiUrl = "api/DynamicForms";
 
     protected override async Task OnInitializedAsync()
@@ -207,36 +405,108 @@
         }
     }
 
-    private void OnFormSelected(ChangeEventArgs e)
+    private async Task OnFormSelected(ChangeEventArgs e)
     {
-        successMessage = "";
+        statusMessage = "";
+        schema = null;
+        answers.Clear();
 
-        if (long.TryParse(e.Value?.ToString(), out long formId))
+        try
         {
-            selectedForm = activeForms?.FirstOrDefault(f => f.Id == formId);
-            if (selectedForm != null && !string.IsNullOrEmpty(selectedForm.FieldsSchema))
+            if (long.TryParse(e.Value?.ToString(), out long formId))
             {
-                formFields = JsonSerializer.Deserialize<List<FormField>>(selectedForm.FieldsSchema);
-                answers.Clear();
-                if (formFields != null)
+                selectedForm = activeForms?.FirstOrDefault(f => f.Id == formId);
+                if (selectedForm != null && !string.IsNullOrWhiteSpace(selectedForm.FieldsSchema))
                 {
-                    foreach (var field in formFields)
+                    var opt = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    schema = JsonSerializer.Deserialize<FormStudioSchema>(selectedForm.FieldsSchema, opt);
+
+                    // تحميل القوائم المنسدلة الحية من قاعدة البيانات
+                    if (schema?.Blocks != null)
                     {
-                        answers[field.Label] = "";
+                        foreach (var blk in schema.Blocks)
+                        {
+                            if (blk.Fields != null)
+                            {
+                                foreach (var f in blk.Fields)
+                                {
+                                    if (f.FieldType == "date") answers[f.Key] = DateTime.Now.ToString("yyyy-MM-dd");
+
+                                    if (f.FieldType == "erp_select" && !string.IsNullOrEmpty(f.ErpSource))
+                                    {
+                                        await LoadErpSourceOptions(f.ErpSource);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+            else
+            {
+                selectedForm = null;
+            }
         }
-        else
+        catch (Exception ex)
         {
-            selectedForm = null;
-            formFields = null;
+            statusMessage = $"تنبيه: {ex.Message}";
+            isSuccess = false;
         }
+    }
+
+    private async Task LoadErpSourceOptions(string source)
+    {
+        if (erpOptions.ContainsKey(source)) return;
+
+        try
+        {
+            var list = await Http.GetFromJsonAsync<List<string>>($"api/FormImport/erp-lookups/{source}");
+            if (list != null && list.Any())
+            {
+                erpOptions[source] = list;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FormViewer] Error loading ERP lookup for {source}: {ex.Message}");
+        }
+    }
+
+    private async Task UploadMediaFile(InputFileChangeEventArgs e, string fieldKey, long maxBytes)
+    {
+        try
+        {
+            var file = e.File;
+            if (file == null) return;
+
+            using var stream = file.OpenReadStream(maxAllowedSize: maxBytes);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            string base64 = Convert.ToBase64String(ms.ToArray());
+            answers[fieldKey] = $"data:{file.ContentType};base64,{base64}";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ في تحميل المرفق: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private string GetAnswer(string? key)
+    {
+        if (string.IsNullOrEmpty(key)) return "";
+        return answers.TryGetValue(key, out var val) ? val : "";
+    }
+
+    private void SetAnswer(string? key, string? value)
+    {
+        if (string.IsNullOrEmpty(key)) return;
+        answers[key] = value ?? "";
     }
 
     private async Task SubmitForm()
     {
-        successMessage = "";
+        statusMessage = "";
         isSubmitting = true;
 
         var options = new JsonSerializerOptions
@@ -249,32 +519,30 @@
         {
             FormId = selectedForm?.Id ?? 0,
             SubmissionData = jsonSubmission,
-            UserId = State.UserId > 0 ? State.UserId : 1,
-            SubmittedByName = !string.IsNullOrEmpty(State.FullName) ? State.FullName : "مراقب الجودة الميداني",
+            UserId = State?.UserId > 0 ? State.UserId : 1,
+            SubmittedByName = !string.IsNullOrEmpty(State?.FullName) ? State.FullName : "مراقب الجودة الميداني",
             Status = "مكتمل"
         };
 
         try
         {
             var response = await Http.PostAsJsonAsync($"{apiUrl}/submit", payload);
-
             if (response.IsSuccessStatusCode)
             {
-                successMessage = "✅ تم حفظ واعتماد محضر التفتيش بنجاح في قاعدة بيانات المصنع!";
-                foreach (var key in answers.Keys.ToList())
-                {
-                    answers[key] = "";
-                }
+                statusMessage = "✅ تم حفظ واعتماد المستند بنجاح في قاعدة بيانات المصنع!";
+                isSuccess = true;
+                answers.Clear();
             }
             else
             {
-                var err = await response.Content.ReadAsStringAsync();
-                successMessage = $"❌ فشل الحفظ من الخادم: {err}";
+                statusMessage = "❌ فشل الحفظ من الخادم.";
+                isSuccess = false;
             }
         }
         catch (Exception ex)
         {
-            successMessage = $"خطأ اتصال: {ex.Message}";
+            statusMessage = $"خطأ اتصال: {ex.Message}";
+            isSuccess = false;
         }
         finally
         {
@@ -291,9 +559,62 @@
         public bool IsActive { get; set; }
     }
 
-    public class FormField
+    public class FormStudioSchema
     {
+        public string FormCode { get; set; } = string.Empty;
+        public string FormTitle { get; set; } = string.Empty;
+        public string Category { get; set; } = "عام";
+        public List<FormStudioBlock> Blocks { get; set; } = new();
+    }
+
+    public class FormStudioBlock
+    {
+        public string Id { get; set; } = string.Empty;
+        public string BlockType { get; set; } = "fields";
+        public string Title { get; set; } = string.Empty;
+        public string InstructionText { get; set; } = string.Empty;
+        public List<StudioFieldDefinition> Fields { get; set; } = new();
+        public List<StudioTableColumn> Columns { get; set; } = new();
+        public List<StudioTableRow> Rows { get; set; } = new();
+        public List<StudioApprovalStage> ApprovalStages { get; set; } = new();
+    }
+
+    public class StudioFieldDefinition
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Key { get; set; } = string.Empty;
         public string Label { get; set; } = string.Empty;
-        public string Type { get; set; } = "text";
+        public string FieldType { get; set; } = "text";
+        public string? ErpSource { get; set; }
+        public List<string> ManualOptions { get; set; } = new();
+        public bool IsRequired { get; set; }
+        public bool IsReportFilter { get; set; } = true;
+        public bool IsKpiMetric { get; set; }
+    }
+
+    public class StudioTableColumn
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string ColumnType { get; set; } = "text";
+        public List<string> Options { get; set; } = new();
+        public bool IsComplianceScore { get; set; }
+    }
+
+    public class StudioTableRow
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public string? ItemCategory { get; set; }
+    }
+
+    public class StudioApprovalStage
+    {
+        public string StageId { get; set; } = string.Empty;
+        public string RoleTitle { get; set; } = string.Empty;
+        public string Condition { get; set; } = string.Empty;
+        public List<string> DecisionOptions { get; set; } = new();
+        public bool HasNotes { get; set; }
+        public bool HasSignature { get; set; }
     }
 }

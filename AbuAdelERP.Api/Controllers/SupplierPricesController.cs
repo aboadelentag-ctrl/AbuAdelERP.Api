@@ -19,7 +19,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 1. جلب كافة أسعار التوريد (GET: api/SupplierPrices)
+        // 1. جلب كافة أسعار التوريد مع الفلترة
         // ==============================================================
         [HttpGet]
         public async Task<ActionResult<List<SupplierItemPriceDto>>> GetAllPrices([FromQuery] long? supplierId = null, [FromQuery] long? itemId = null)
@@ -36,7 +36,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 2. تسجيل سعر توريد جديد أو تحديث السعر الحالي (POST: api/SupplierPrices)
+        // 2. تسجيل سعر توريد جديد أو تحديث السعر الحالي (Upsert)
         // ==============================================================
         [HttpPost]
         public async Task<IActionResult> AddPrice([FromBody] CreateSupplierPriceDto dto)
@@ -60,7 +60,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 3. تعديل سعر توريد قائم (PUT: api/SupplierPrices/{id})
+        // 3. تعديل سعر توريد قائم
         // ==============================================================
         [HttpPut("{id:long}")]
         public async Task<IActionResult> UpdatePrice(long id, [FromBody] CreateSupplierPriceDto dto)
@@ -83,7 +83,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 4. حذف سعر توريد (DELETE: api/SupplierPrices/{id})
+        // 4. حذف سعر توريد
         // ==============================================================
         [HttpDelete("{id:long}")]
         public async Task<IActionResult> DeletePrice(long id)

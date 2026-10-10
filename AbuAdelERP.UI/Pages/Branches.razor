@@ -1,0 +1,330 @@
+﻿@page "/branches"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
+@page "/branch"
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>إدارة الفروع ومنافذ التوزيع - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+    <!-- رأس الشاشة التنفيذي -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom flex-wrap gap-2">
+        <div>
+            <h4 class="text-primary m-0 mb-1 fw-bold">🏪 إدارة الفروع ومنافذ البيع والتوزيع</h4>
+            <span class="text-muted small">سجل معارض وفروع حلواني أبو عادل، العناوين، ومسؤولي الفروع</span>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary btn-sm fw-bold shadow-sm px-3" @onclick="LoadBranches" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise me-1"></i> تحديث
+            </button>
+            <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenAddModal">
+                ➕ إضافة فرع جديد
+            </button>
+        </div>
+    </div>
+
+    <!-- رسائل التنبيه والخطأ الحقيقية من السيرفر -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-3 py-2 fw-bold" role="alert">
+            @statusMessage
+            <button type="button" class="btn-close py-2" @onclick='() => statusMessage = ""'></button>
+        </div>
+    }
+
+    <!-- شريط البحث السريع -->
+    <div class="card shadow-sm border-0 mb-3 bg-white">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <input type="text" class="form-control form-control-sm" placeholder="ابحث باسم الفرع، الكود، أو العنوان..." @bind="searchTerm" @bind:event="oninput" />
+                </div>
+                <div class="col-md-7 text-md-end text-muted small">
+                    إجمالي الفروع المسجلة بقاعدة البيانات: <strong class="text-primary font-monospace">@branchesList.Count</strong> فرع
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول عرض الفروع الفعلي -->
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-2">جاري تحميل بيانات الفروع من الخادم...</p>
+        </div>
+    }
+    else if (!FilteredBranches.Any())
+    {
+        <div class="alert alert-warning text-center py-4 shadow-sm fw-bold">
+            لا توجد فروع مسجلة حالياً تطابق معايير البحث. اضغط على "إضافة فرع جديد" لإدراج الفرع.
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>#</th>
+                            <th>كود الفرع</th>
+                            <th class="text-start ps-3">اسم الفرع / المنفذ</th>
+                            <th>العنوان / الموقع</th>
+                            <th>رقم الهاتف</th>
+                            <th>المدير المسؤول</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var branch in FilteredBranches)
+                        {
+                            <tr>
+                                <td class="font-monospace">@branch.Id</td>
+                                <td class="font-monospace fw-bold text-primary">@branch.BranchCode</td>
+                                <td class="fw-bold text-start ps-3 text-dark">@branch.BranchName</td>
+                                <td class="text-muted">@(!string.IsNullOrEmpty(branch.Address) ? branch.Address : "---")</td>
+                                <td class="font-monospace">@(!string.IsNullOrEmpty(branch.Phone) ? branch.Phone : "---")</td>
+                                <td class="fw-bold">@(!string.IsNullOrEmpty(branch.ManagerName) ? branch.ManagerName : "---")</td>
+                                <td>
+                                    <span class="badge @(branch.IsActive ? "bg-success" : "bg-danger") px-2 py-1">
+                                        @(branch.IsActive ? "نشط ✓" : "معطل ✕")
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="d-flex justify-content-center gap-1">
+                                        <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold" @onclick="() => OpenEditModal(branch)">
+                                            ✏️ تعديل
+                                        </button>
+                                        <button class="btn btn-sm @(branch.IsActive ? "btn-outline-danger" : "btn-outline-success") py-0 px-2 fw-bold" @onclick="() => ToggleBranchStatus(branch)">
+                                            @(branch.IsActive ? "إيقاف" : "تفعيل")
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- مودال إضافة / تعديل فرع مع الحفظ الفعلي بالسيرفر -->
+    @if (isModalOpen)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);" dir="rtl">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-primary text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">
+                            @(activeBranch.Id == 0 ? "➕ تسجيل فرع / منفذ بيع جديد" : $"✏️ تعديل بيانات فرع: {activeBranch.BranchName}")
+                        </h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                    </div>
+                    <div class="modal-body bg-light p-3">
+                        <div class="card p-3 border-0 shadow-sm bg-white">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">كود الفرع (Branch Code) *</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace fw-bold" @bind="activeBranch.BranchCode" placeholder="مثال: BR-03" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">اسم الفرع / المنفذ *</label>
+                                    <input type="text" class="form-control form-control-sm fw-bold" @bind="activeBranch.BranchName" placeholder="مثال: فرع المبيعات الخارجية والتوزيع" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">العنوان التفصيلي</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="activeBranch.Address" placeholder="الشارع، المنطقة، المدينة" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">رقم الهاتف والتواصل</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" @bind="activeBranch.Phone" placeholder="010XXXXXXXX" />
+                                </div>
+                                <div class="col-md-8">
+                                    <label class="form-label small fw-bold">المدير أو المشرف المسؤول</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="activeBranch.ManagerName" placeholder="اسم مدير الفرع" />
+                                </div>
+                                <div class="col-md-4 d-flex align-items-center pt-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="branchActive" @bind="activeBranch.IsActive">
+                                        <label class="form-check-label small fw-bold" for="branchActive">فرع نشط ومفعل</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                        <button class="btn btn-secondary btn-sm px-3" @onclick="CloseModal" disabled="@isSaving">إلغاء</button>
+                        <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SaveBranchAsync" disabled="@isSaving">
+                            @if (isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>جاري الحفظ في قاعدة البيانات...</span>
+                            }
+                            else
+                            {
+                                <span>💾 حفظ البيانات</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<BranchDto> branchesList = new();
+    private bool isLoading = false;
+    private bool isSaving = false;
+    private string searchTerm = "";
+    private string statusMessage = "";
+    private bool isSuccess = true;
+
+    private bool isModalOpen = false;
+    private BranchDto activeBranch = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBranches();
+    }
+
+    private async Task LoadBranches()
+    {
+        isLoading = true;
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<BranchDto>>("api/Branches");
+            branchesList = result ?? new List<BranchDto>();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"تعذر جلب الفروع من الخادم: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private IEnumerable<BranchDto> FilteredBranches => branchesList.Where(b =>
+        string.IsNullOrWhiteSpace(searchTerm) ||
+        (b.BranchName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (b.BranchCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (b.Address?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+    );
+
+    private void OpenAddModal()
+    {
+        activeBranch = new BranchDto
+        {
+            BranchCode = $"BR-{(branchesList.Count + 1):D2}",
+            IsActive = true
+        };
+        isModalOpen = true;
+    }
+
+    private void OpenEditModal(BranchDto branch)
+    {
+        activeBranch = new BranchDto
+        {
+            Id = branch.Id,
+            BranchCode = branch.BranchCode,
+            BranchName = branch.BranchName,
+            Address = branch.Address,
+            Phone = branch.Phone,
+            ManagerName = branch.ManagerName,
+            IsActive = branch.IsActive
+        };
+        isModalOpen = true;
+    }
+
+    private void CloseModal() => isModalOpen = false;
+
+    private async Task SaveBranchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(activeBranch.BranchName) || string.IsNullOrWhiteSpace(activeBranch.BranchCode))
+        {
+            statusMessage = "⚠️ يرجى إدخال كود واسم الفرع.";
+            isSuccess = false;
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            HttpResponseMessage res;
+            if (activeBranch.Id == 0)
+            {
+                res = await Http.PostAsJsonAsync("api/Branches", activeBranch);
+            }
+            else
+            {
+                res = await Http.PutAsJsonAsync($"api/Branches/{activeBranch.Id}", activeBranch);
+            }
+
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "✅ تم حفظ الفرع بنجاح وتثبيته في قاعدة البيانات!";
+                isSuccess = true;
+                isModalOpen = false;
+                await LoadBranches();
+            }
+            else
+            {
+                var errorContent = await res.Content.ReadAsStringAsync();
+                statusMessage = $"❌ فشل الحفظ في السيرفر ({res.StatusCode}): {errorContent}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"❌ خطأ أثناء الاتصال بالسيرفر: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ToggleBranchStatus(BranchDto branch)
+    {
+        branch.IsActive = !branch.IsActive;
+        try
+        {
+            var res = await Http.PutAsJsonAsync($"api/Branches/{branch.Id}", branch);
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "✅ تم تحديث حالة الفرع بنجاح.";
+                isSuccess = true;
+            }
+            else
+            {
+                statusMessage = "تعذر تحديث حالة الفرع.";
+                isSuccess = false;
+                await LoadBranches();
+            }
+        }
+        catch
+        {
+            statusMessage = "خطأ في الاتصال بالخادم.";
+            isSuccess = false;
+            await LoadBranches();
+        }
+    }
+
+    public class BranchDto
+    {
+        public long Id { get; set; }
+        public string BranchCode { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string ManagerName { get; set; } = string.Empty;
+        public bool IsActive { get; set; } = true;
+    }
+}

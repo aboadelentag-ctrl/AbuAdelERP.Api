@@ -18,7 +18,9 @@ namespace AbuAdelERP.Api.Controllers
             _requisitionService = requisitionService;
         }
 
-        // 1. القوائم المرجعية
+        // ==============================================================
+        // 1. القوائم المرجعية (أقسام، مستودعات، خامات)
+        // ==============================================================
         [HttpGet("lookups")]
         public async Task<ActionResult<RequisitionLookupsDto>> GetLookups()
         {
@@ -29,11 +31,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب البيانات المرجعية: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب البيانات المرجعية: {ex.GetBaseException().Message}");
             }
         }
 
-        // 2. جلب كافة الطلبات
+        // ==============================================================
+        // 2. جلب كافة طلبات الصرف مع إمكانية الفلترة بالحالة
+        // ==============================================================
         [HttpGet]
         public async Task<ActionResult<List<RequisitionDetailDto>>> GetRequisitions([FromQuery] string? status = null)
         {
@@ -44,11 +48,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب طلبات الصرف: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب طلبات الصرف: {ex.GetBaseException().Message}");
             }
         }
 
-        // 3. جلب طلب محدد
+        // ==============================================================
+        // 3. جلب تفاصيل طلب محدد
+        // ==============================================================
         [HttpGet("{id:long}")]
         public async Task<ActionResult<RequisitionDetailDto>> GetRequisition(long id)
         {
@@ -60,11 +66,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في استعلام طلب الصرف: {ex.Message}");
+                return StatusCode(500, $"خطأ في استعلام طلب الصرف: {ex.GetBaseException().Message}");
             }
         }
 
-        // 4. إنشاء طلب صرف جديد
+        // ==============================================================
+        // 4. إنشاء طلب صرف جديد من صالة الإنتاج
+        // ==============================================================
         [HttpPost]
         public async Task<ActionResult<RequisitionDetailDto>> CreateRequisition([FromBody] CreateRequisitionDto dto)
         {
@@ -77,11 +85,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في إنشاء طلب الصرف: {ex.Message}");
+                return StatusCode(500, $"خطأ في إنشاء طلب الصرف: {ex.GetBaseException().Message}");
             }
         }
 
-        // 5. مقترحات FEFO
+        // ==============================================================
+        // 5. مقترحات الصرف بنظام FEFO (الأقرب انتهاءً أولاً)
+        // ==============================================================
         [HttpGet("fefo-suggestions")]
         public async Task<ActionResult<List<FefoBatchSuggestionDto>>> GetFefoSuggestions([FromQuery] long itemId, [FromQuery] long warehouseId)
         {
@@ -92,11 +102,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في استخراج تشغيلات FEFO: {ex.Message}");
+                return StatusCode(500, $"خطأ في استخراج تشغيلات FEFO: {ex.GetBaseException().Message}");
             }
         }
 
-        // 6. صرف الشحنة من المخازن
+        // ==============================================================
+        // 6. صرف الشحنة من المخازن وتخصيص اللوطات
+        // ==============================================================
         [HttpPost("dispatch")]
         public async Task<IActionResult> DispatchRequisition([FromBody] DispatchRequisitionDto dto)
         {
@@ -110,11 +122,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء صرف الشحنة: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء صرف الشحنة: {ex.GetBaseException().Message}");
             }
         }
 
-        // 7. استلام الصالة والمطابقة
+        // ==============================================================
+        // 7. استلام الصالة والمطابقة المزدوجة صنفاً بصنف
+        // ==============================================================
         [HttpPost("receive-line")]
         public async Task<IActionResult> ReceiveLineItem([FromBody] ReceiveLineItemDto dto)
         {
@@ -128,11 +142,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء تسجيل استلام الصالة: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء تسجيل استلام الصالة: {ex.GetBaseException().Message}");
             }
         }
 
-        // 8. فض النزاع وتسوية الفروق
+        // ==============================================================
+        // 8. فض النزاع وتسوية الفروق المخزنية
+        // ==============================================================
         [HttpPost("resolve-discrepancy")]
         public async Task<IActionResult> ResolveDiscrepancy([FromBody] ResolveDiscrepancyDto dto)
         {
@@ -146,11 +162,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء تسوية النزاع: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء تسوية النزاع: {ex.GetBaseException().Message}");
             }
         }
 
-        // 9. التقرير الرقابي الشامل
+        // ==============================================================
+        // 9. التقرير الرقابي الشامل لدورة حياة الخامات وأرصدة الصالات
+        // ==============================================================
         [HttpGet("audit-lifecycle-report")]
         public async Task<ActionResult<List<RequisitionLifecycleAuditDto>>> GetAuditReport(
             [FromQuery] DateTime? startDate,
@@ -166,7 +184,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في استخراج التقرير الرقابي: {ex.Message}");
+                return StatusCode(500, $"خطأ في استخراج التقرير الرقابي: {ex.GetBaseException().Message}");
             }
         }
     }

@@ -28,14 +28,17 @@ namespace AbuAdelERP.Api.Controllers
             try
             {
                 var customers = await _context.Customers
+                    .AsNoTracking()
                     .Select(c => new PartyDto { PartyId = c.Id, PartyName = c.CustomerName, PartyType = "CUSTOMER" })
                     .ToListAsync();
 
                 var departments = await _context.Departments
+                    .AsNoTracking()
                     .Select(d => new PartyDto { PartyId = d.Id, PartyName = d.DepartmentName, PartyType = "DEPARTMENT" })
                     .ToListAsync();
 
                 var warehouses = await _context.Warehouses
+                    .AsNoTracking()
                     .Select(w => new PartyDto { PartyId = w.Id, PartyName = w.WarehouseName, PartyType = "WAREHOUSE" })
                     .ToListAsync();
 
@@ -67,6 +70,8 @@ namespace AbuAdelERP.Api.Controllers
                 var balances = await _context.AssetBalances
                     .Include(b => b.Item)
                     .AsNoTracking()
+                    .Where(b => b.Quantity != 0)
+                    .OrderByDescending(b => b.Quantity)
                     .Select(b => new AssetBalanceDto
                     {
                         Id = b.Id,
@@ -78,8 +83,6 @@ namespace AbuAdelERP.Api.Controllers
                         Quantity = b.Quantity,
                         LastUpdatedAt = b.LastUpdatedAt
                     })
-                    .Where(b => b.Quantity != 0)
-                    .OrderByDescending(b => b.Quantity)
                     .ToListAsync();
 
                 return Ok(balances);
@@ -96,12 +99,18 @@ namespace AbuAdelERP.Api.Controllers
         [HttpPost("move")]
         public async Task<IActionResult> RecordMovement([FromBody] AssetMovementDto dto)
         {
+            if (dto == null) return BadRequest("بيانات الحركة غير صالحة.");
+            if (dto.ItemId <= 0) return BadRequest("يجب تحديد الصنف / الأصل المنقول.");
+            if (dto.Quantity <= 0) return BadRequest("يجب أن تكون الكمية المنقولة أكبر من الصفر.");
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 long companyId = dto.CompanyId > 0 ? dto.CompanyId : (await _context.Companies.FirstOrDefaultAsync())?.Id ?? 1;
 
-                DateTime safeMovementDate = DateTime.SpecifyKind(dto.MovementDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+                DateTime safeMovementDate = dto.MovementDate != default
+                    ? DateTime.SpecifyKind(dto.MovementDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
+                    : DateTime.UtcNow;
 
                 var movement = new AssetMovement
                 {
@@ -229,7 +238,6 @@ namespace AbuAdelERP.Api.Controllers
                         createdCount++;
                     }
 
-                    // إثبات حركة تسوية عهدة في سجل الحركات
                     _context.AssetMovements.Add(new AssetMovement
                     {
                         CompanyId = companyId,

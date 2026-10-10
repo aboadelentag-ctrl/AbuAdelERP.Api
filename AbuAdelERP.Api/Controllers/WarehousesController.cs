@@ -20,7 +20,45 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 1. جلب كافة المخازن (مع دعم الفلترة بالفرع والشجرة الهرمية)
+        // 1. جلب قائمة الفروع النشطة لمستودعات النظام
+        // ==============================================================
+        [HttpGet("branches")]
+        public async Task<IActionResult> GetBranches()
+        {
+            try
+            {
+                var branches = await _context.Branches
+                    .AsNoTracking()
+                    .Where(b => b.Active)
+                    .OrderBy(b => b.BranchName)
+                    .Select(b => new WarehouseBranchLookupDto
+                    {
+                        Id = b.Id,
+                        BranchCode = b.BranchCode,
+                        BranchName = b.BranchName
+                    })
+                    .ToListAsync();
+
+                if (!branches.Any())
+                {
+                    branches.Add(new WarehouseBranchLookupDto
+                    {
+                        Id = 1L,
+                        BranchCode = "MAIN",
+                        BranchName = "الفرع الرئيسي - المصنع"
+                    });
+                }
+
+                return Ok(branches);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب الفروع: {ex.GetBaseException().Message}");
+            }
+        }
+
+        // ==============================================================
+        // 2. جلب كافة المخازن (مع دعم الفلترة بالفرع والشجرة الهرمية)
         // ==============================================================
         [HttpGet]
         public async Task<IActionResult> GetWarehouses([FromQuery] long? branchId = null)
@@ -64,63 +102,71 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 2. جلب مخزن محدد
+        // 3. جلب مخزن محدد
         // ==============================================================
-        [HttpGet("{id}")]
+        [HttpGet("{id:long}")]
         public async Task<IActionResult> GetWarehouse(long id)
         {
-            var warehouse = await _context.Warehouses
-                .Include(w => w.ParentWarehouse)
-                .Include(w => w.Branch)
-                .AsNoTracking()
-                .Where(w => w.Id == id)
-                .Select(w => new WarehouseDto
-                {
-                    Id = w.Id,
-                    BranchId = w.BranchId,
-                    BranchName = w.Branch != null ? w.Branch.BranchName : "الفرع الرئيسي",
-                    WarehouseCode = w.WarehouseCode,
-                    WarehouseName = w.WarehouseName,
-                    WarehouseType = w.WarehouseType,
-                    ParentWarehouseId = w.ParentWarehouseId,
-                    ParentWarehouseName = w.ParentWarehouse != null ? w.ParentWarehouse.WarehouseName : null,
-                    Description = w.Description,
-                    Active = w.Active
-                })
-                .FirstOrDefaultAsync();
+            try
+            {
+                var warehouse = await _context.Warehouses
+                    .Include(w => w.ParentWarehouse)
+                    .Include(w => w.Branch)
+                    .AsNoTracking()
+                    .Where(w => w.Id == id)
+                    .Select(w => new WarehouseDto
+                    {
+                        Id = w.Id,
+                        BranchId = w.BranchId,
+                        BranchName = w.Branch != null ? w.Branch.BranchName : "الفرع الرئيسي",
+                        WarehouseCode = w.WarehouseCode,
+                        WarehouseName = w.WarehouseName,
+                        WarehouseType = w.WarehouseType,
+                        ParentWarehouseId = w.ParentWarehouseId,
+                        ParentWarehouseName = w.ParentWarehouse != null ? w.ParentWarehouse.WarehouseName : null,
+                        Description = w.Description,
+                        Active = w.Active
+                    })
+                    .FirstOrDefaultAsync();
 
-            if (warehouse == null) return NotFound("المخزن غير موجود.");
-            return Ok(warehouse);
+                if (warehouse == null) return NotFound("المخزن غير موجود.");
+                return Ok(warehouse);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في استعلام المخزن: {ex.GetBaseException().Message}");
+            }
         }
 
         // ==============================================================
-        // 3. إضافة مخزن جديد (مربوط بالفرع)
+        // 4. إضافة مخزن جديد (مربوط بالفرع)
         // ==============================================================
         [HttpPost]
         public async Task<IActionResult> PostWarehouse([FromBody] WarehouseDto dto)
         {
-            var company = await _context.Companies.FirstOrDefaultAsync();
-            if (company == null) return BadRequest("لا توجد شركات مسجلة بالنظام.");
+            if (dto == null) return BadRequest("بيانات غير صالحة.");
 
             dto.WarehouseCode = dto.WarehouseCode?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(dto.WarehouseCode))
-                return BadRequest("كود المخزن إجباري.");
+                return BadRequest("كود المستودع إجباري.");
+
+            var company = await _context.Companies.FirstOrDefaultAsync();
+            long companyId = company?.Id ?? 1;
 
             bool exists = await _context.Warehouses
-                .AnyAsync(w => w.CompanyId == company.Id && w.WarehouseCode.ToLower() == dto.WarehouseCode.ToLower());
+                .AnyAsync(w => w.CompanyId == companyId && w.WarehouseCode.ToLower() == dto.WarehouseCode.ToLower());
 
-            if (exists) return BadRequest($"كود المخزن ({dto.WarehouseCode}) مستخدم بالفعل.");
+            if (exists) return BadRequest($"كود المستودع ({dto.WarehouseCode}) مستخدم بالفعل.");
 
-            // تحديد الفرع: إما المحدد أو أول فرع مسجل بالنظام
             long branchId = dto.BranchId.HasValue && dto.BranchId.Value > 0
                 ? dto.BranchId.Value
-                : await _context.Branches.Select(b => b.Id).FirstOrDefaultAsync();
+                : (await _context.Branches.Select(b => b.Id).FirstOrDefaultAsync());
 
             if (branchId <= 0) branchId = 1;
 
             var warehouse = new Warehouse
             {
-                CompanyId = company.Id,
+                CompanyId = companyId,
                 BranchId = branchId,
                 WarehouseCode = dto.WarehouseCode,
                 WarehouseName = dto.WarehouseName?.Trim() ?? string.Empty,
@@ -141,16 +187,16 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // 4. تعديل بيانات مخزن
+        // 5. تعديل بيانات مخزن
         // ==============================================================
-        [HttpPut("{id}")]
+        [HttpPut("{id:long}")]
         public async Task<IActionResult> PutWarehouse(long id, [FromBody] WarehouseDto dto)
         {
-            if (id != dto.Id) return BadRequest("رقم المخزن غير متطابق.");
-            if (dto.ParentWarehouseId == id) return BadRequest("لا يمكن جعل المخزن تابعاً لنفسه.");
+            if (dto == null || id != dto.Id) return BadRequest("بيانات المستودع غير متطابقة.");
+            if (dto.ParentWarehouseId == id) return BadRequest("لا يمكن جعل المستودع تابعاً لنفسه.");
 
             var existing = await _context.Warehouses.FindAsync(id);
-            if (existing == null) return NotFound("المخزن غير موجود.");
+            if (existing == null) return NotFound("المستودع غير موجود.");
 
             dto.WarehouseCode = dto.WarehouseCode?.Trim() ?? string.Empty;
 
@@ -159,9 +205,8 @@ namespace AbuAdelERP.Api.Controllers
                             && w.WarehouseCode.ToLower() == dto.WarehouseCode.ToLower()
                             && w.Id != id);
 
-            if (exists) return BadRequest($"كود المخزن ({dto.WarehouseCode}) مستخدم في مخزن آخر.");
+            if (exists) return BadRequest($"كود المستودع ({dto.WarehouseCode}) مستخدم في مستودع آخر.");
 
-            // التحقق من صحة الفرع في حال تم تغييره
             if (dto.BranchId.HasValue && dto.BranchId.Value > 0)
             {
                 existing.BranchId = dto.BranchId.Value;
@@ -176,37 +221,53 @@ namespace AbuAdelERP.Api.Controllers
             existing.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
-            return NoContent();
+            return Ok(existing);
         }
 
         // ==============================================================
-        // 5. حذف مخزن (مع الفحوصات الأمنية)
+        // 6. حذف مستودع (محصن ضد كسر القيود المحاسبية والتاريخية)
         // ==============================================================
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:long}")]
         public async Task<IActionResult> DeleteWarehouse(long id)
         {
-            var warehouse = await _context.Warehouses.FindAsync(id);
-            if (warehouse == null) return NotFound("المخزن غير موجود.");
-
-            bool hasChildren = await _context.Warehouses.AnyAsync(w => w.ParentWarehouseId == id);
-            if (hasChildren)
+            try
             {
-                return BadRequest("لا يمكن حذف هذا المخزن لأنه يمتلك مخازن فرعية تابعة له في الشجرة الهرمية.");
-            }
+                var warehouse = await _context.Warehouses.FindAsync(id);
+                if (warehouse == null) return NotFound("المستودع غير موجود.");
 
-            bool hasStock = await _context.StockBalances.AnyAsync(s => s.WarehouseId == id && s.Quantity > 0);
-            if (hasStock)
+                bool hasChildren = await _context.Warehouses.AnyAsync(w => w.ParentWarehouseId == id);
+                if (hasChildren)
+                {
+                    return BadRequest("لا يمكن حذف هذا المستودع لأنه يمتلك مستودعات فرعية تابعة له في الشجرة الهرمية.");
+                }
+
+                bool hasStock = await _context.StockBalances.AnyAsync(s => s.WarehouseId == id && s.Quantity > 0);
+                if (hasStock)
+                {
+                    return BadRequest("لا يمكن حذف هذا المستودع لأنه يحتوي على أرصدة أصناف فعلية غير صفرية.");
+                }
+
+                bool hasMovements = await _context.StockMovements.AnyAsync(m => m.WarehouseId == id);
+                if (hasMovements)
+                {
+                    warehouse.Active = false;
+                    warehouse.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                    return Ok(new { success = true, message = "تم تعطيل المستودع وإيقافه بدلاً من حذفه لوجود حركات وسجلات مخزنية تاريخية مرتبطة به." });
+                }
+
+                _context.Warehouses.Remove(warehouse);
+                await _context.SaveChangesAsync();
+                return Ok(new { success = true, message = "تم حذف المستودع بنجاح." });
+            }
+            catch (Exception ex)
             {
-                return BadRequest("لا يمكن حذف هذا المخزن لأنه يحتوي على أرصدة أصناف فعلية غير صفرية.");
+                return StatusCode(500, $"خطأ أثناء معالجة الحذف: {ex.GetBaseException().Message}");
             }
-
-            _context.Warehouses.Remove(warehouse);
-            await _context.SaveChangesAsync();
-            return NoContent();
         }
 
         // ==============================================================
-        // 6. استيراد وتحديث المخازن دفعة واحدة (Bulk Import مع الفروع)
+        // 7. استيراد وتحديث المخازن دفعة واحدة (Bulk Import مع الفروع)
         // ==============================================================
         [HttpPost("bulk-import")]
         public async Task<IActionResult> BulkImportWarehouses([FromBody] List<WarehouseImportDto> items)
@@ -215,7 +276,7 @@ namespace AbuAdelERP.Api.Controllers
                 return BadRequest("لا توجد بيانات للاستيراد.");
 
             var company = await _context.Companies.FirstOrDefaultAsync();
-            if (company == null) return BadRequest("لا توجد شركات مسجلة بالنظام.");
+            long companyId = company?.Id ?? 1;
 
             var defaultBranch = await _context.Branches.FirstOrDefaultAsync();
             long defaultBranchId = defaultBranch?.Id ?? 1;
@@ -234,7 +295,6 @@ namespace AbuAdelERP.Api.Controllers
                     var code = item.WarehouseCode?.Trim() ?? string.Empty;
                     if (string.IsNullOrEmpty(code)) continue;
 
-                    // تحديد معرف الفرع من الكود أو الاسم
                     long targetBranchId = defaultBranchId;
                     if (!string.IsNullOrWhiteSpace(item.BranchCodeOrName))
                     {
@@ -249,7 +309,7 @@ namespace AbuAdelERP.Api.Controllers
                     }
 
                     var existing = await _context.Warehouses
-                        .FirstOrDefaultAsync(w => w.CompanyId == company.Id && w.WarehouseCode.ToLower() == code.ToLower());
+                        .FirstOrDefaultAsync(w => w.CompanyId == companyId && w.WarehouseCode.ToLower() == code.ToLower());
 
                     if (existing != null)
                     {
@@ -265,7 +325,7 @@ namespace AbuAdelERP.Api.Controllers
                     {
                         var newWarehouse = new Warehouse
                         {
-                            CompanyId = company.Id,
+                            CompanyId = companyId,
                             BranchId = targetBranchId,
                             WarehouseCode = code,
                             WarehouseName = !string.IsNullOrWhiteSpace(item.WarehouseName) ? item.WarehouseName.Trim() : code,
@@ -282,8 +342,7 @@ namespace AbuAdelERP.Api.Controllers
 
                 await _context.SaveChangesAsync();
 
-                // ربط المخزن الأب
-                var allWarehouses = await _context.Warehouses.Where(w => w.CompanyId == company.Id).ToListAsync();
+                var allWarehouses = await _context.Warehouses.Where(w => w.CompanyId == companyId).ToListAsync();
                 foreach (var item in items)
                 {
                     var code = item.WarehouseCode?.Trim() ?? string.Empty;
@@ -316,47 +375,61 @@ namespace AbuAdelERP.Api.Controllers
                     success = true,
                     createdCount = created,
                     updatedCount = updated,
-                    message = $"تم استيراد المخازن بنجاح: تم إنشاء ({created}) وتحديث ({updated}) مخزن."
+                    message = $"تم استيراد المستودعات بنجاح: تم إنشاء ({created}) وتحديث ({updated}) مستودع."
                 });
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, $"خطأ أثناء استيراد المخازن: {ex.GetBaseException().Message}");
+                return StatusCode(500, $"خطأ أثناء استيراد المستودعات: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
-        // 7. جلب رصيد المخزن مجمعاً مع المخازن التابعة هرمياً
+        // 8. جلب رصيد المستودع مجمعاً مع المستودعات التابعة هرمياً
         // ==============================================================
-        [HttpGet("{id}/stock-balance")]
+        [HttpGet("{id:long}/stock-balance")]
         public async Task<IActionResult> GetWarehouseStockBalance(long id)
         {
-            var warehouseIds = new List<long> { id };
-            var subWarehouseIds = await _context.Warehouses
-                .Where(w => w.ParentWarehouseId == id)
-                .Select(w => w.Id)
-                .ToListAsync();
+            try
+            {
+                var warehouseIds = new List<long> { id };
+                var subWarehouseIds = await _context.Warehouses
+                    .Where(w => w.ParentWarehouseId == id)
+                    .Select(w => w.Id)
+                    .ToListAsync();
 
-            warehouseIds.AddRange(subWarehouseIds);
+                warehouseIds.AddRange(subWarehouseIds);
 
-            var aggregatedStock = await _context.StockBalances
-                .Where(s => warehouseIds.Contains(s.WarehouseId))
-                .Include(s => s.Item)
-                .GroupBy(s => new { s.ItemId, s.Item.ItemCode, s.Item.ItemName })
-                .Select(g => new
-                {
-                    g.Key.ItemId,
-                    g.Key.ItemCode,
-                    g.Key.ItemName,
-                    TotalQuantity = g.Sum(s => s.Quantity),
-                    TotalReserved = g.Sum(s => s.ReservedQuantity),
-                    TotalAvailable = g.Sum(s => s.AvailableQuantity ?? (s.Quantity - s.ReservedQuantity))
-                })
-                .ToListAsync();
+                var aggregatedStock = await _context.StockBalances
+                    .Where(s => warehouseIds.Contains(s.WarehouseId))
+                    .Include(s => s.Item)
+                    .GroupBy(s => new { s.ItemId, s.Item.ItemCode, s.Item.ItemName })
+                    .Select(g => new
+                    {
+                        g.Key.ItemId,
+                        g.Key.ItemCode,
+                        g.Key.ItemName,
+                        TotalQuantity = g.Sum(s => s.Quantity),
+                        TotalReserved = g.Sum(s => s.ReservedQuantity),
+                        TotalAvailable = g.Sum(s => s.AvailableQuantity ?? (s.Quantity - s.ReservedQuantity))
+                    })
+                    .ToListAsync();
 
-            return Ok(aggregatedStock);
+                return Ok(aggregatedStock);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب رصيد المستودع: {ex.GetBaseException().Message}");
+            }
         }
+    }
+
+    public class WarehouseBranchLookupDto
+    {
+        public long Id { get; set; }
+        public string BranchCode { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
     }
 
     public class WarehouseDto

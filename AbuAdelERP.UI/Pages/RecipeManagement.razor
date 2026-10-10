@@ -1,6 +1,7 @@
 ﻿@page "/recipes-management"
 @page "/recipe-management"
 @page "/recipes"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using AbuAdelERP.UI.DTOs
 @using System.Text
@@ -8,6 +9,8 @@
 @using System.IO
 @inject HttpClient Http
 @inject IJSRuntime JS
+
+<PageTitle>معايير وبطاقات خلطات التصنيع (BOM) - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid px-4 py-3" dir="rtl">
 
@@ -55,25 +58,25 @@
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-primary border-4 p-3 bg-white">
                 <small class="text-muted fw-bold">إجمالي خلطات الـ BOM</small>
-                <h4 class="mb-0 fw-bold text-primary mt-1">@(recipesList?.Count ?? 0) معيار</h4>
+                <h4 class="mb-0 fw-bold text-primary mt-1 font-monospace">@(recipesList?.Count ?? 0) معيار</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-info border-4 p-3 bg-white">
                 <small class="text-muted fw-bold">نصف مصنع وزني (عجائن / كجم)</small>
-                <h4 class="mb-0 fw-bold text-dark mt-1">@CountWeightSemiFinished خلطة وزنية</h4>
+                <h4 class="mb-0 fw-bold text-dark mt-1 font-monospace">@CountWeightSemiFinished خلطة وزنية</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
                 <small class="text-muted fw-bold">نصف مصنع قطعي (بلكات / تارت)</small>
-                <h4 class="mb-0 fw-bold text-warning mt-1">@CountPieceSemiFinished خلطة قطعية</h4>
+                <h4 class="mb-0 fw-bold text-warning mt-1 font-monospace">@CountPieceSemiFinished خلطة قطعية</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm border-start border-success border-4 p-3 bg-white">
                 <small class="text-muted fw-bold">خلطات تفنيش تام (وردية 2)</small>
-                <h4 class="mb-0 fw-bold text-success mt-1">@CountFinishedRecipes خلطة تفنيش</h4>
+                <h4 class="mb-0 fw-bold text-success mt-1 font-monospace">@CountFinishedRecipes خلطة تفنيش</h4>
             </div>
         </div>
     </div>
@@ -127,7 +130,7 @@
                         <option value="active">نشطة</option>
                         <option value="inactive">معطلة</option>
                     </select>
-                    <button class="btn btn-outline-danger btn-sm" title="إلغاء الفلاتر" @onclick="ResetFilters">✕</button>
+                    <button class="btn btn-outline-danger btn-sm fw-bold" title="إلغاء الفلاتر" @onclick="ResetFilters">✕</button>
                 </div>
             </div>
 
@@ -188,12 +191,12 @@
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label small fw-bold text-dark">اسم الخلطة / المعيار التصنيعي *</label>
+                        <label class="form-label small fw-bold text-dark mb-1">اسم الخلطة / المعيار التصنيعي *</label>
                         <input class="form-control border-primary fw-bold" placeholder="مثال: خلطة عجين بسبوسة / تفنيش بسبوسة مكسرات / بلكة اسبونج فانيليا" @bind="activeRecipe.RecipeName" />
                     </div>
 
                     <div class="col-md-3">
-                        <label class="form-label small fw-bold text-dark">كود الوصفة (BOM Code)</label>
+                        <label class="form-label small fw-bold text-dark mb-1">كود الوصفة (BOM Code)</label>
                         <input class="form-control font-monospace" placeholder="BOM-..." @bind="activeRecipe.RecipeCode" />
                     </div>
                 </div>
@@ -569,7 +572,6 @@
     private string statusMessage = string.Empty;
     private bool isSuccess = false;
 
-    // فلاتر البحث
     private string searchTerm = "";
     private string selectedStageFilter = "all";
     private string selectedUnitFilter = "all";
@@ -1209,13 +1211,14 @@
     {
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray();
         var base64 = Convert.ToBase64String(bytes);
-        var js = $"const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);";
+        var js = $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);";
         await JS.InvokeVoidAsync("eval", js);
     }
 
     private string EscapeCsv(string val)
     {
-        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
             return $"\"{val.Replace("\"", "\"\"")}\"";
         return val;
     }

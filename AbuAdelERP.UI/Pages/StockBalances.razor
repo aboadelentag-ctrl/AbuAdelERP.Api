@@ -1,10 +1,13 @@
 ﻿@page "/stock-balances"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using System.Text
 @using AbuAdelERP.UI.DTOs
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+
+<PageTitle>أرصدة المخازن اللحظية والرقابة على المخزون - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid py-4" dir="rtl">
     <!-- Header -->
@@ -15,7 +18,13 @@
             </h3>
             <p class="text-muted small mb-0">متابعة الأرصدة الحالية والمحجوزة والمتاحة عبر كافة مستودعات وفروع المصنع</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex align-items-center gap-2">
+            @if (kpis.EstimatedStockValue > 0)
+            {
+                <span class="badge bg-success bg-opacity-10 text-success border border-success px-3 py-2 fs-6 shadow-sm">
+                    💰 القيمة التقديرية للمخزون: <strong>@kpis.EstimatedStockValue.ToString("N2") ج.م</strong>
+                </span>
+            }
             <button class="btn btn-outline-success px-3 shadow-sm fw-bold btn-sm" @onclick="ExportToCsv" disabled="@(isLoading || !FilteredBalances.Any())">
                 <i class="bi bi-file-earmark-excel me-1"></i> تصدير الأرصدة (Excel)
             </button>
@@ -41,7 +50,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <span class="text-muted small fw-bold d-block">إجمالي الأصناف المسجلة</span>
-                        <h4 class="fw-bold text-dark mb-0">@kpis.TotalItemsCount</h4>
+                        <h4 class="fw-bold text-dark mb-0 font-monospace">@kpis.TotalItemsCount</h4>
                     </div>
                     <div class="bg-primary bg-opacity-10 text-primary p-3 rounded-circle">
                         <i class="bi bi-collection fs-4"></i>
@@ -54,7 +63,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <span class="text-muted small fw-bold d-block">الكمية الإجمالية المتاحة</span>
-                        <h4 class="fw-bold text-success mb-0">@kpis.TotalAvailableQuantity.ToString("N0")</h4>
+                        <h4 class="fw-bold text-success mb-0 font-monospace">@kpis.TotalAvailableQuantity.ToString("N1")</h4>
                     </div>
                     <div class="bg-success bg-opacity-10 text-success p-3 rounded-circle">
                         <i class="bi bi-check2-all fs-4"></i>
@@ -67,7 +76,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <span class="text-muted small fw-bold d-block">أصناف قاربت على النفاد (حد الطلب)</span>
-                        <h4 class="fw-bold text-warning mb-0">@kpis.LowStockCount</h4>
+                        <h4 class="fw-bold text-warning mb-0 font-monospace">@kpis.LowStockCount</h4>
                     </div>
                     <div class="bg-warning bg-opacity-10 text-warning p-3 rounded-circle">
                         <i class="bi bi-exclamation-triangle fs-4"></i>
@@ -80,7 +89,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <span class="text-muted small fw-bold d-block">أصناف نفد رصيدها تماماً</span>
-                        <h4 class="fw-bold text-danger mb-0">@kpis.OutOfStockCount</h4>
+                        <h4 class="fw-bold text-danger mb-0 font-monospace">@kpis.OutOfStockCount</h4>
                     </div>
                     <div class="bg-danger bg-opacity-10 text-danger p-3 rounded-circle">
                         <i class="bi bi-x-circle fs-4"></i>
@@ -96,7 +105,7 @@
             <div class="row g-3 align-items-center">
                 <div class="col-md-3">
                     <label class="form-label small fw-bold text-muted mb-1">الفرع:</label>
-                    <select class="form-select form-select-sm fw-bold" @bind="selectedBranchId" @bind:after="OnBranchChanged">
+                    <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedBranchId" @bind:after="OnBranchChanged">
                         <option value="0">كافة الفروع</option>
                         @foreach (var b in branches)
                         {
@@ -106,7 +115,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-bold text-muted mb-1">المستودع:</label>
-                    <select class="form-select form-select-sm fw-bold" @bind="selectedWarehouseId" @bind:after="LoadData">
+                    <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedWarehouseId" @bind:after="LoadData">
                         <option value="0">كافة المستودعات</option>
                         @foreach (var w in availableWarehouses)
                         {
@@ -123,7 +132,7 @@
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" id="lowStockOnlySwitch" 
                                @bind="lowStockOnly" @bind:after="LoadData" />
-                        <label class="form-check-label small fw-bold ms-1" for="lowStockOnlySwitch">النواقص فقط ⚠️</label>
+                        <label class="form-check-label small fw-bold ms-1 text-danger" for="lowStockOnlySwitch">النواقص فقط ⚠️</label>
                     </div>
                 </div>
             </div>
@@ -180,20 +189,20 @@
                                         <div class="small fw-bold text-dark">@s.WarehouseName</div>
                                         <div class="small text-muted"><i class="bi bi-geo-alt me-1"></i>@s.BranchName</div>
                                     </td>
-                                    <td class="fw-bold fs-6">
+                                    <td class="fw-bold fs-6 font-monospace">
                                         @s.Quantity.ToString("N1") <span class="small text-muted fw-normal">@s.Unit</span>
                                     </td>
-                                    <td class="text-warning fw-bold">
+                                    <td class="text-warning fw-bold font-monospace">
                                         @(s.ReservedQuantity > 0 ? s.ReservedQuantity.ToString("N1") : "---")
                                     </td>
-                                    <td class="fw-bold text-success fs-6">
+                                    <td class="fw-bold text-success fs-6 font-monospace">
                                         @s.AvailableQuantity.ToString("N1") <span class="small text-muted fw-normal">@s.Unit</span>
                                     </td>
-                                    <td class="text-muted small">
+                                    <td class="text-muted small font-monospace">
                                         @(s.ReorderLevel > 0 ? s.ReorderLevel.ToString("N0") : "غير محدد")
                                     </td>
                                     <td>
-                                        <span class="badge @GetStatusBadge(s.Status)">
+                                        <span class="badge @GetStatusBadge(s.Status) px-2 py-1">
                                             @s.Status
                                         </span>
                                     </td>
@@ -263,7 +272,7 @@
         }
     }
 
-    private void OnBranchChanged()
+    private async Task OnBranchChanged()
     {
         if (selectedBranchId > 0)
         {
@@ -274,7 +283,7 @@
         {
             availableWarehouses = allWarehouses;
         }
-        LoadData();
+        await LoadData();
     }
 
     private async Task LoadData()
@@ -326,7 +335,7 @@
             var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
             var base64 = Convert.ToBase64String(bytes);
             var fileName = $"تقرير_أرصدة_المخازن_اللحظية_{DateTime.Now:yyyyMMdd_HHmm}.csv";
-            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
         }
         catch (Exception ex)
         {
@@ -337,6 +346,7 @@
     private string GetStatusBadge(string status) => status switch
     {
         "نفد الرصيد" => "bg-danger text-white",
+        "حرج (تحت حد الأمان)" => "bg-danger text-white",
         "حد الطلب" => "bg-warning text-dark",
         _ => "bg-success text-white"
     };

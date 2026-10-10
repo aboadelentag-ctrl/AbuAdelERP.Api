@@ -76,28 +76,35 @@ namespace AbuAdelERP.Api.Controllers
         [HttpGet("{id:long}")]
         public async Task<IActionResult> GetById(long id)
         {
-            var supplier = await _context.Suppliers
-                .AsNoTracking()
-                .Where(s => s.Id == id)
-                .Select(s => new SupplierViewDto
-                {
-                    Id = s.Id,
-                    CompanyId = s.CompanyId,
-                    SupplierCode = s.SupplierCode,
-                    SupplierName = s.SupplierName,
-                    Phone = s.Phone,
-                    Email = s.Email,
-                    Address = s.Address,
-                    TaxNumber = s.TaxNumber,
-                    PaymentTerms = s.PaymentTerms,
-                    Active = s.Active,
-                    Notes = s.Notes,
-                    CreatedAt = s.CreatedAt
-                })
-                .FirstOrDefaultAsync();
+            try
+            {
+                var supplier = await _context.Suppliers
+                    .AsNoTracking()
+                    .Where(s => s.Id == id)
+                    .Select(s => new SupplierViewDto
+                    {
+                        Id = s.Id,
+                        CompanyId = s.CompanyId,
+                        SupplierCode = s.SupplierCode,
+                        SupplierName = s.SupplierName,
+                        Phone = s.Phone,
+                        Email = s.Email,
+                        Address = s.Address,
+                        TaxNumber = s.TaxNumber,
+                        PaymentTerms = s.PaymentTerms,
+                        Active = s.Active,
+                        Notes = s.Notes,
+                        CreatedAt = s.CreatedAt
+                    })
+                    .FirstOrDefaultAsync();
 
-            if (supplier == null) return NotFound("المورد غير مسجل بالنظام.");
-            return Ok(supplier);
+                if (supplier == null) return NotFound("المورد غير مسجل بالنظام.");
+                return Ok(supplier);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في استعلام المورد: {ex.GetBaseException().Message}");
+            }
         }
 
         // ==============================================================
@@ -106,58 +113,71 @@ namespace AbuAdelERP.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] SupplierCreateUpdateDto dto)
         {
+            if (dto == null) return BadRequest("بيانات غير صالحة.");
+
             if (string.IsNullOrWhiteSpace(dto.SupplierName))
                 return BadRequest("اسم المورد مطلوب.");
 
-            var company = await _context.Companies.FirstOrDefaultAsync();
-            long companyId = company?.Id ?? 1;
-
-            string code = dto.SupplierCode?.Trim() ?? string.Empty;
-            if (string.IsNullOrEmpty(code))
+            try
             {
-                int count = await _context.Suppliers.CountAsync(s => s.CompanyId == companyId);
-                code = $"SUP-{(count + 1):D4}";
+                var company = await _context.Companies.FirstOrDefaultAsync();
+                long companyId = company?.Id ?? 1;
+
+                string code = dto.SupplierCode?.Trim() ?? string.Empty;
+                if (string.IsNullOrEmpty(code))
+                {
+                    var count = await _context.Suppliers.CountAsync(s => s.CompanyId == companyId);
+                    code = $"SUP-{(count + 1):D4}";
+                    while (await _context.Suppliers.AnyAsync(s => s.CompanyId == companyId && s.SupplierCode.ToLower() == code.ToLower()))
+                    {
+                        code = $"SUP-{new Random().Next(1000, 9999)}";
+                    }
+                }
+                else
+                {
+                    bool exists = await _context.Suppliers.AnyAsync(s => s.CompanyId == companyId && s.SupplierCode.ToLower() == code.ToLower());
+                    if (exists) return BadRequest($"كود المورد ({code}) مسجل بالفعل لمورد آخر.");
+                }
+
+                var supplier = new Supplier
+                {
+                    CompanyId = companyId,
+                    SupplierCode = code,
+                    SupplierName = dto.SupplierName.Trim(),
+                    Phone = dto.Phone?.Trim(),
+                    Email = dto.Email?.Trim(),
+                    Address = dto.Address?.Trim(),
+                    TaxNumber = dto.TaxNumber?.Trim(),
+                    PaymentTerms = dto.PaymentTerms?.Trim() ?? "نقدي",
+                    Active = dto.Active,
+                    Notes = dto.Notes?.Trim(),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                _context.Suppliers.Add(supplier);
+                await _context.SaveChangesAsync();
+
+                return Ok(new SupplierViewDto
+                {
+                    Id = supplier.Id,
+                    CompanyId = supplier.CompanyId,
+                    SupplierCode = supplier.SupplierCode,
+                    SupplierName = supplier.SupplierName,
+                    Phone = supplier.Phone,
+                    Email = supplier.Email,
+                    Address = supplier.Address,
+                    TaxNumber = supplier.TaxNumber,
+                    PaymentTerms = supplier.PaymentTerms,
+                    Active = supplier.Active,
+                    Notes = supplier.Notes,
+                    CreatedAt = supplier.CreatedAt
+                });
             }
-            else
+            catch (Exception ex)
             {
-                bool exists = await _context.Suppliers.AnyAsync(s => s.CompanyId == companyId && s.SupplierCode.ToLower() == code.ToLower());
-                if (exists) return BadRequest($"كود المورد ({code}) مسجل بالفعل لمورد آخر.");
+                return StatusCode(500, $"خطأ أثناء حفظ المورد: {ex.GetBaseException().Message}");
             }
-
-            var supplier = new Supplier
-            {
-                CompanyId = companyId,
-                SupplierCode = code,
-                SupplierName = dto.SupplierName.Trim(),
-                Phone = dto.Phone?.Trim(),
-                Email = dto.Email?.Trim(),
-                Address = dto.Address?.Trim(),
-                TaxNumber = dto.TaxNumber?.Trim(),
-                PaymentTerms = dto.PaymentTerms?.Trim() ?? "نقدي",
-                Active = dto.Active,
-                Notes = dto.Notes?.Trim(),
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            _context.Suppliers.Add(supplier);
-            await _context.SaveChangesAsync();
-
-            return Ok(new SupplierViewDto
-            {
-                Id = supplier.Id,
-                CompanyId = supplier.CompanyId,
-                SupplierCode = supplier.SupplierCode,
-                SupplierName = supplier.SupplierName,
-                Phone = supplier.Phone,
-                Email = supplier.Email,
-                Address = supplier.Address,
-                TaxNumber = supplier.TaxNumber,
-                PaymentTerms = supplier.PaymentTerms,
-                Active = supplier.Active,
-                Notes = supplier.Notes,
-                CreatedAt = supplier.CreatedAt
-            });
         }
 
         // ==============================================================
@@ -166,56 +186,120 @@ namespace AbuAdelERP.Api.Controllers
         [HttpPut("{id:long}")]
         public async Task<IActionResult> Update(long id, [FromBody] SupplierCreateUpdateDto dto)
         {
-            var supplier = await _context.Suppliers.FindAsync(id);
-            if (supplier == null) return NotFound("المورد غير موجود.");
+            if (dto == null) return BadRequest("بيانات غير صالحة.");
 
             if (string.IsNullOrWhiteSpace(dto.SupplierName))
                 return BadRequest("اسم المورد مطلوب.");
 
-            if (!string.IsNullOrWhiteSpace(dto.SupplierCode))
+            try
             {
-                string code = dto.SupplierCode.Trim();
-                bool codeExists = await _context.Suppliers
-                    .AnyAsync(s => s.CompanyId == supplier.CompanyId && s.SupplierCode.ToLower() == code.ToLower() && s.Id != id);
+                var supplier = await _context.Suppliers.FindAsync(id);
+                if (supplier == null) return NotFound("المورد غير موجود.");
 
-                if (codeExists) return BadRequest($"كود المورد ({code}) مستخدم في سجل مورد آخر.");
-                supplier.SupplierCode = code;
+                if (!string.IsNullOrWhiteSpace(dto.SupplierCode))
+                {
+                    string code = dto.SupplierCode.Trim();
+                    bool codeExists = await _context.Suppliers
+                        .AnyAsync(s => s.CompanyId == supplier.CompanyId && s.SupplierCode.ToLower() == code.ToLower() && s.Id != id);
+
+                    if (codeExists) return BadRequest($"كود المورد ({code}) مستخدم في سجل مورد آخر.");
+                    supplier.SupplierCode = code;
+                }
+
+                supplier.SupplierName = dto.SupplierName.Trim();
+                supplier.Phone = dto.Phone?.Trim();
+                supplier.Email = dto.Email?.Trim();
+                supplier.Address = dto.Address?.Trim();
+                supplier.TaxNumber = dto.TaxNumber?.Trim();
+                supplier.PaymentTerms = dto.PaymentTerms?.Trim() ?? supplier.PaymentTerms;
+                supplier.Active = dto.Active;
+                supplier.Notes = dto.Notes?.Trim();
+                supplier.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+                return Ok(new { success = true, message = "تم تحديث بيانات المورد بنجاح." });
             }
-
-            supplier.SupplierName = dto.SupplierName.Trim();
-            supplier.Phone = dto.Phone?.Trim();
-            supplier.Email = dto.Email?.Trim();
-            supplier.Address = dto.Address?.Trim();
-            supplier.TaxNumber = dto.TaxNumber?.Trim();
-            supplier.PaymentTerms = dto.PaymentTerms?.Trim() ?? supplier.PaymentTerms;
-            supplier.Active = dto.Active;
-            supplier.Notes = dto.Notes?.Trim();
-            supplier.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-            return NoContent();
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ أثناء تحديث بيانات المورد: {ex.GetBaseException().Message}");
+            }
         }
 
         // ==============================================================
-        // 5. تبديل حالة التفعيل
+        // 5. تبديل حالة التفعيل (نشط / معطل)
         // ==============================================================
         [HttpPatch("{id:long}/toggle-status")]
+        [HttpPut("{id:long}/toggle-status")]
         public async Task<IActionResult> ToggleStatus(long id)
         {
-            var supplier = await _context.Suppliers.FindAsync(id);
-            if (supplier == null) return NotFound("المورد غير موجود.");
+            try
+            {
+                var supplier = await _context.Suppliers.FindAsync(id);
+                if (supplier == null) return NotFound("المورد غير موجود.");
 
-            supplier.Active = !supplier.Active;
-            supplier.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+                supplier.Active = !supplier.Active;
+                supplier.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
 
-            return Ok(supplier.Active);
+                return Ok(new { success = true, active = supplier.Active, message = supplier.Active ? "تم تفعيل المورد." : "تم تعطيل المورد." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ أثناء تغيير حالة المورد: {ex.GetBaseException().Message}");
+            }
+        }
+
+        // ==============================================================
+        // 6. حذف المورد (محصن ضد انهيار قيود المشتريات والمخازن)
+        // ==============================================================
+        [HttpDelete("{id:long}")]
+        public async Task<IActionResult> Delete(long id)
+        {
+            try
+            {
+                var supplier = await _context.Suppliers.FindAsync(id);
+                if (supplier == null) return NotFound("المورد غير موجود.");
+
+                bool hasOrders = await _context.PurchaseOrders.AnyAsync(p => p.SupplierId == id);
+
+                if (hasOrders)
+                {
+                    supplier.Active = false;
+                    supplier.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "تم تعطيل المورد بدلاً من الحذف لوجود أوامر شراء ومعاملات توريد مرتبطة بحسابه."
+                    });
+                }
+
+                try
+                {
+                    _context.Suppliers.Remove(supplier);
+                    await _context.SaveChangesAsync();
+                    return Ok(new { success = true, message = "تم حذف المورد نهائياً بنجاح." });
+                }
+                catch (DbUpdateException)
+                {
+                    _context.Entry(supplier).State = EntityState.Modified;
+                    supplier.Active = false;
+                    supplier.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "تم تعطيل المورد بدلاً من الحذف لوجود مستندات وسجلات مرتبطة به في النظام."
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ أثناء معالجة حذف المورد: {ex.GetBaseException().Message}");
+            }
         }
     }
 
-    // ==============================================================
-    // DTOs الموردين المتوافقة مع الكيان
-    // ==============================================================
     public class SupplierViewDto
     {
         public long Id { get; set; }

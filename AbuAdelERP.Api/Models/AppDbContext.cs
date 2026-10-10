@@ -1,18 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
+using AbuAdelERP.Api.Services;
 
 namespace AbuAdelERP.Api.Models;
 
 public partial class AppDbContext : DbContext
 {
+    private readonly ITenantContext? _tenantContext;
+
     public AppDbContext()
     {
     }
 
-    public AppDbContext(DbContextOptions<AppDbContext> options)
+    public AppDbContext(DbContextOptions<AppDbContext> options, ITenantContext? tenantContext = null)
         : base(options)
     {
+        _tenantContext = tenantContext;
     }
 
     // ====== جداول الأصول والماكينات ودورة الأسبات ======
@@ -36,10 +40,12 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<AppRole> Roles { get; set; }
     public virtual DbSet<AppUser> Users { get; set; }
     public virtual DbSet<ProductivityLog> ProductivityLogs { get; set; }
+    public virtual DbSet<BranchTransfer> BranchTransfers { get; set; }
 
     // ====== النماذج الديناميكية والطوارئ ======
     public virtual DbSet<DynamicForm> DynamicForms { get; set; }
     public virtual DbSet<FormSubmission> FormSubmissions { get; set; }
+    public virtual DbSet<FormSubmission> DynamicFormSubmissions => FormSubmissions;
     public virtual DbSet<EmergencyTask> EmergencyTasks { get; set; }
 
     // ====== بطاقات الأصناف والوحدات ======
@@ -103,38 +109,73 @@ public partial class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // ----------------------------------------------------
-        // 1. الفروع (Branches)
+        // 0. تثبيت المخطط الافتراضي لجميع الكيانات في Schema الـ erp
+        // ----------------------------------------------------
+        modelBuilder.HasDefaultSchema("erp");
+
+        // ----------------------------------------------------
+        // عزل المستأجر الآلي لمنصة كيان (SaaS Global Query Filters)
+        // ----------------------------------------------------
+        modelBuilder.Entity<Branch>()
+            .HasQueryFilter(b => _tenantContext == null || b.CompanyId == _tenantContext.CompanyId);
+
+        modelBuilder.Entity<Warehouse>()
+            .HasQueryFilter(w => _tenantContext == null || w.CompanyId == _tenantContext.CompanyId);
+
+        modelBuilder.Entity<Customer>()
+            .HasQueryFilter(c => _tenantContext == null || c.CompanyId == _tenantContext.CompanyId);
+
+        modelBuilder.Entity<SalesInvoice>()
+            .HasQueryFilter(s => _tenantContext == null || s.CompanyId == _tenantContext.CompanyId);
+
+        modelBuilder.Entity<ProductionOrder>()
+            .HasQueryFilter(p => _tenantContext == null || p.CompanyId == _tenantContext.CompanyId);
+
+        modelBuilder.Entity<StockBalance>()
+            .HasQueryFilter(sb => _tenantContext == null || sb.CompanyId == _tenantContext.CompanyId);
+
+        // ----------------------------------------------------
+        // 1. المستخدمين (Users / AppUser)
+        // ----------------------------------------------------
+        modelBuilder.Entity<AppUser>(entity =>
+        {
+            entity.ToTable("users");
+        });
+
+        // ----------------------------------------------------
+        // 2. الفروع (Branches)
         // ----------------------------------------------------
         modelBuilder.Entity<Branch>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("branches_pkey");
-            entity.ToTable("branches", "erp");
+            entity.ToTable("branches");
             entity.HasIndex(e => new { e.CompanyId, e.BranchCode }, "branches_company_id_branch_code_key").IsUnique();
             entity.HasIndex(e => e.CompanyId, "ix_branches_company_id");
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
-            entity.Property(e => e.Active).HasDefaultValue(true).HasColumnName("active");
-            entity.Property(e => e.Address).HasColumnName("address");
+            entity.Property(e => e.CompanyId).HasColumnName("company_id");
             entity.Property(e => e.BranchCode).HasMaxLength(50).HasColumnName("branch_code");
             entity.Property(e => e.BranchName).HasMaxLength(200).HasColumnName("branch_name");
-            entity.Property(e => e.CompanyId).HasColumnName("company_id");
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
+            entity.Property(e => e.Address).HasColumnName("address");
             entity.Property(e => e.Phone).HasMaxLength(50).HasColumnName("phone");
+            entity.Property(e => e.Active).HasDefaultValue(true).HasColumnName("active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("updated_at");
 
-            entity.HasOne(d => d.Company).WithMany(p => p.Branches)
+            entity.HasOne(d => d.Company)
+                .WithMany(p => p.Branches)
                 .HasForeignKey(d => d.CompanyId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("branches_company_id_fkey");
         });
 
         // ----------------------------------------------------
-        // 2. الشركات (Companies)
+        // 3. الشركات (Companies)
         // ----------------------------------------------------
         modelBuilder.Entity<Company>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("companies_pkey");
-            entity.ToTable("companies", "erp");
+            entity.ToTable("companies");
             entity.HasIndex(e => e.CompanyCode, "companies_company_code_key").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -149,12 +190,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 3. المستودعات (Warehouses) - محدث لدعم ربط الفروع
+        // 4. المستودعات (Warehouses)
         // ----------------------------------------------------
         modelBuilder.Entity<Warehouse>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("warehouses_pkey");
-            entity.ToTable("warehouses", "erp");
+            entity.ToTable("warehouses");
             entity.HasIndex(e => new { e.CompanyId, e.WarehouseCode }, "ux_warehouses_company_code").IsUnique();
             entity.HasIndex(e => e.BranchId, "idx_warehouses_branch_id");
 
@@ -184,12 +225,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 4. فواتير المبيعات (SalesInvoices) - محدث لدعم الفروع والترقيم المالي
+        // 5. فواتير المبيعات (SalesInvoices)
         // ----------------------------------------------------
         modelBuilder.Entity<SalesInvoice>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("sales_invoices_pkey");
-            entity.ToTable("sales_invoices", "erp");
+            entity.ToTable("sales_invoices");
 
             entity.HasIndex(e => e.InvoiceNumber, "ux_sales_invoices_invoice_number").IsUnique();
             entity.HasIndex(e => e.BranchId, "idx_sales_invoices_branch_id");
@@ -219,12 +260,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 5. بنود فواتير المبيعات (SalesInvoiceLines)
+        // 6. بنود فواتير المبيعات (SalesInvoiceLines)
         // ----------------------------------------------------
         modelBuilder.Entity<SalesInvoiceLine>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("sales_invoice_lines_pkey");
-            entity.ToTable("sales_invoice_lines", "erp");
+            entity.ToTable("sales_invoice_lines");
 
             entity.HasIndex(e => e.InvoiceId, "idx_sales_invoice_lines_invoice_id");
             entity.HasIndex(e => e.ItemId, "idx_sales_invoice_lines_item_id");
@@ -242,7 +283,7 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("sales_invoice_lines_invoice_id_fkey");
 
-            entity.HasOne<Item>()
+            entity.HasOne(d => d.Item)
                 .WithMany()
                 .HasForeignKey(d => d.ItemId)
                 .OnDelete(DeleteBehavior.Restrict)
@@ -250,12 +291,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 6. العملاء (Customers)
+        // 7. العملاء (Customers)
         // ----------------------------------------------------
         modelBuilder.Entity<Customer>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("customers_pkey");
-            entity.ToTable("customers", "erp");
+            entity.ToTable("customers");
             entity.HasIndex(e => new { e.CompanyId, e.CustomerCode }, "customers_company_id_customer_code_key").IsUnique();
             entity.HasIndex(e => e.CompanyId, "ix_customers_company_id");
 
@@ -282,12 +323,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 7. الأقسام والموظفين (Departments & Employees)
+        // 8. الأقسام والموظفين (Departments & Employees)
         // ----------------------------------------------------
         modelBuilder.Entity<Department>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("departments_pkey");
-            entity.ToTable("departments", "erp");
+            entity.ToTable("departments");
             entity.HasIndex(e => new { e.CompanyId, e.DepartmentCode }, "departments_company_id_department_code_key").IsUnique();
 
             entity.HasOne(d => d.ParentDepartment)
@@ -305,7 +346,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<Employee>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("employees_pkey");
-            entity.ToTable("employees", "erp");
+            entity.ToTable("employees");
 
             entity.HasOne(e => e.Manager)
                 .WithMany()
@@ -323,17 +364,17 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<JobTitle>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("job_titles_pkey");
-            entity.ToTable("job_titles", "erp");
+            entity.ToTable("job_titles");
             entity.HasIndex(e => new { e.CompanyId, e.TitleName }, "ux_job_titles_company_title").IsUnique();
         });
 
         // ----------------------------------------------------
-        // 8. بطاقات الأصناف والتصنيفات (Items)
+        // 9. بطاقات الأصناف والتصنيفات (Items)
         // ----------------------------------------------------
         modelBuilder.Entity<Item>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("items_pkey");
-            entity.ToTable("items", "erp");
+            entity.ToTable("items");
             entity.HasIndex(e => new { e.CompanyId, e.ItemCode }, "items_company_id_item_code_key").IsUnique();
             entity.HasIndex(e => e.CategoryId, "idx_items_category_id");
             entity.HasIndex(e => e.DepartmentId, "idx_items_department_id");
@@ -385,7 +426,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<ItemCategory>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("item_categories_pkey");
-            entity.ToTable("item_categories", "erp");
+            entity.ToTable("item_categories");
             entity.HasIndex(e => new { e.CompanyId, e.CategoryCode }, "item_categories_company_id_category_code_key").IsUnique();
             entity.HasIndex(e => e.CompanyId, "ix_item_categories_company_id");
 
@@ -406,12 +447,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 9. أوامر الإنتاج والتكاليف الصناعية
+        // 10. أوامر الإنتاج والتكاليف الصناعية
         // ----------------------------------------------------
         modelBuilder.Entity<ProductionOrder>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("production_orders_pkey");
-            entity.ToTable("production_orders", "erp");
+            entity.ToTable("production_orders");
             entity.HasIndex(e => e.Status, "idx_production_orders_status");
             entity.HasIndex(e => new { e.CompanyId, e.OrderNumber }, "production_orders_company_order_number_unique").IsUnique();
 
@@ -440,7 +481,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<ProductionOrderDetail>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("production_order_details_pkey");
-            entity.ToTable("production_order_details", "erp");
+            entity.ToTable("production_order_details");
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.ProductionOrderId).HasColumnName("production_order_id");
@@ -473,7 +514,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<ProductionOrderStage>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("production_order_stages_pkey");
-            entity.ToTable("production_order_stages", "erp");
+            entity.ToTable("production_order_stages");
             entity.HasIndex(e => e.ItemId, "idx_production_stages_item");
             entity.HasIndex(e => e.ProductionOrderDetailId, "idx_production_stages_detail");
             entity.HasIndex(e => e.RecipeStageId, "idx_production_stages_recipe_stage");
@@ -509,7 +550,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<ProductionStageMaterial>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("production_stage_materials_pkey");
-            entity.ToTable("production_stage_materials", "erp");
+            entity.ToTable("production_stage_materials");
             entity.HasIndex(e => e.RecipeLineId, "idx_production_material_recipe_line");
             entity.HasIndex(e => e.ItemId, "idx_production_materials_item");
             entity.HasIndex(e => e.ProductionStageId, "idx_production_materials_stage");
@@ -540,12 +581,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 10. أوامر الشراء والموردين
+        // 11. أوامر الشراء والموردين
         // ----------------------------------------------------
         modelBuilder.Entity<PurchaseOrder>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("purchase_orders_pkey");
-            entity.ToTable("purchase_orders", "erp");
+            entity.ToTable("purchase_orders");
             entity.HasIndex(e => new { e.CompanyId, e.OrderNumber }, "purchase_orders_company_id_order_number_key").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -584,7 +625,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<PurchaseOrderLine>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("purchase_order_lines_pkey");
-            entity.ToTable("purchase_order_lines", "erp");
+            entity.ToTable("purchase_order_lines");
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
             entity.Property(e => e.DiscountAmount).HasPrecision(18, 2).HasColumnName("discount_amount");
@@ -608,12 +649,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 11. الرقابة على الجودة وفحص الخامات
+        // 12. الرقابة على الجودة وفحص الخامات
         // ----------------------------------------------------
         modelBuilder.Entity<QualityInspection>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("quality_inspections_pkey");
-            entity.ToTable("quality_inspections", "erp");
+            entity.ToTable("quality_inspections");
             entity.HasIndex(e => e.ItemId, "idx_quality_item");
             entity.HasIndex(e => e.ProductionOrderId, "idx_quality_production");
 
@@ -656,12 +697,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 12. وصفات التصنيع ومراحل التشغيل (Recipes)
+        // 13. وصفات التصنيع ومراحل التشغيل (Recipes)
         // ----------------------------------------------------
         modelBuilder.Entity<Recipe>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("recipes_pkey");
-            entity.ToTable("recipes", "erp");
+            entity.ToTable("recipes");
             entity.HasIndex(e => new { e.CompanyId, e.RecipeCode }, "recipes_company_id_recipe_code_key").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -692,7 +733,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<RecipeLine>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("recipe_lines_pkey");
-            entity.ToTable("recipe_lines", "erp");
+            entity.ToTable("recipe_lines");
             entity.HasIndex(e => e.StageId, "idx_recipe_lines_stage");
             entity.HasIndex(e => new { e.RecipeId, e.LineNumber }, "recipe_lines_recipe_id_line_number_key").IsUnique();
 
@@ -727,7 +768,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<RecipeStage>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("recipe_stages_pkey");
-            entity.ToTable("recipe_stages", "erp");
+            entity.ToTable("recipe_stages");
             entity.HasIndex(e => e.OutputItemId, "idx_recipe_stages_output_item");
             entity.HasIndex(e => e.RecipeId, "idx_recipe_stages_recipe");
             entity.HasIndex(e => e.StageRecipeId, "idx_recipe_stages_stage_recipe");
@@ -758,12 +799,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 13. الأدوار والصلاحيات (Roles)
+        // 14. الأدوار والصلاحيات (Roles)
         // ----------------------------------------------------
         modelBuilder.Entity<AppRole>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("roles_pkey");
-            entity.ToTable("roles", "erp");
+            entity.ToTable("roles");
             entity.HasIndex(e => e.CompanyId, "idx_roles_company");
             entity.HasIndex(e => new { e.CompanyId, e.Name }, "roles_company_id_role_code_key").IsUnique();
 
@@ -779,12 +820,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 14. أوامر المبيعات (SalesOrders)
+        // 15. أوامر المبيعات (SalesOrders)
         // ----------------------------------------------------
         modelBuilder.Entity<SalesOrder>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("sales_orders_pkey");
-            entity.ToTable("sales_orders", "erp");
+            entity.ToTable("sales_orders");
             entity.HasIndex(e => e.CompanyId, "idx_sales_orders_company");
             entity.HasIndex(e => e.CustomerId, "idx_sales_orders_customer");
             entity.HasIndex(e => e.WarehouseId, "idx_sales_orders_warehouse");
@@ -829,12 +870,12 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<SalesOrderLine>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("sales_order_lines_pkey");
-            entity.ToTable("sales_order_lines", "erp");
+            entity.ToTable("sales_order_lines");
             entity.HasIndex(e => e.ItemId, "idx_sales_lines_item");
             entity.HasIndex(e => e.SalesOrderId, "idx_sales_lines_order");
 
             entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.DeliveredQuantity).HasPrecision(18, 6).HasColumnName("delivered_quantity");
+            entity.Property(e => e.DeliveredQuantity).HasPrecision(18, 6).HasColumnName("delivred_quantity");
             entity.Property(e => e.DiscountAmount).HasPrecision(18, 2).HasColumnName("discount_amount");
             entity.Property(e => e.ItemId).HasColumnName("item_id");
             entity.Property(e => e.LineTotal).HasPrecision(18, 2).HasColumnName("line_total");
@@ -856,46 +897,58 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 15. الأرصدة وحركات المخازن (Stock Balances & Movements)
+        // الأرصدة وحركات المخازن (Stock Movements)
         // ----------------------------------------------------
-        modelBuilder.Entity<StockBalance>(entity =>
+        modelBuilder.Entity<StockMovement>(entity =>
         {
-            entity.HasKey(e => e.Id).HasName("stock_balances_pkey");
-            entity.ToTable("stock_balances", "erp");
-            entity.HasIndex(e => e.CompanyId, "idx_stock_balances_company");
-            entity.HasIndex(e => e.ItemId, "idx_stock_balances_item");
-            entity.HasIndex(e => e.WarehouseId, "idx_stock_balances_warehouse");
-            entity.HasIndex(e => new { e.WarehouseId, e.ItemId }, "stock_balances_warehouse_id_item_id_key").IsUnique();
+            entity.HasKey(e => e.Id).HasName("stock_movements_pkey");
+            entity.ToTable("stock_movements");
+            entity.HasIndex(e => e.CompanyId, "idx_stock_movements_company");
+            entity.HasIndex(e => e.MovementAt, "idx_stock_movements_date");
+            entity.HasIndex(e => e.ItemId, "idx_stock_movements_item");
+            entity.HasIndex(e => new { e.ReferenceType, e.ReferenceId }, "idx_stock_movements_reference");
+            entity.HasIndex(e => e.WarehouseId, "idx_stock_movements_warehouse");
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
-            entity.Property(e => e.AvailableQuantity).HasPrecision(18, 3).HasComputedColumnSql("(quantity - reserved_quantity)", true).HasColumnName("available_quantity");
             entity.Property(e => e.CompanyId).HasColumnName("company_id");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
             entity.Property(e => e.ItemId).HasColumnName("item_id");
-            entity.Property(e => e.LastUpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("last_updated_at");
+            entity.Property(e => e.MovementAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("movement_at");
+            entity.Property(e => e.MovementType).HasMaxLength(30).HasColumnName("movement_type");
+            entity.Property(e => e.Notes).HasColumnName("notes");
             entity.Property(e => e.Quantity).HasPrecision(18, 3).HasColumnName("quantity");
-            entity.Property(e => e.ReservedQuantity).HasPrecision(18, 3).HasColumnName("reserved_quantity");
+            entity.Property(e => e.ReferenceId).HasColumnName("reference_id");
+            entity.Property(e => e.ReferenceType).HasMaxLength(50).HasColumnName("reference_type");
+            entity.Property(e => e.UnitCost).HasPrecision(18, 4).HasColumnName("unit_cost");
             entity.Property(e => e.WarehouseId).HasColumnName("warehouse_id");
 
-            entity.HasOne(d => d.Company).WithMany(p => p.StockBalances)
+            entity.HasOne(d => d.Company).WithMany(p => p.StockMovements)
                 .HasForeignKey(d => d.CompanyId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("stock_balances_company_id_fkey");
+                .HasConstraintName("stock_movements_company_id_fkey");
 
             entity.HasOne(d => d.Item).WithMany()
                 .HasForeignKey(d => d.ItemId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("stock_balances_item_id_fkey");
+                .HasConstraintName("stock_movements_item_id_fkey");
 
-            entity.HasOne(d => d.Warehouse).WithMany(p => p.StockBalances)
+            entity.HasOne(d => d.Warehouse).WithMany(p => p.StockMovements)
                 .HasForeignKey(d => d.WarehouseId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("stock_balances_warehouse_id_fkey");
+                .HasConstraintName("stock_movements_warehouse_id_fkey");
+
+            // الربط الصريح الصارم مع عمود created_by لمنع توليد أي اسم وهمي
+            entity.HasOne(d => d.CreatedByNavigation)
+                .WithMany()
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<StockMovement>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("stock_movements_pkey");
-            entity.ToTable("stock_movements", "erp");
+            entity.ToTable("stock_movements");
             entity.HasIndex(e => e.CompanyId, "idx_stock_movements_company");
             entity.HasIndex(e => e.MovementAt, "idx_stock_movements_date");
             entity.HasIndex(e => e.ItemId, "idx_stock_movements_item");
@@ -933,12 +986,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 16. التحويلات المخزنية بين الفروع والمصنع (Transfers)
+        // 17. التحويلات المخزنية بين الفروع والمصنع (Transfers)
         // ----------------------------------------------------
         modelBuilder.Entity<StockTransfer>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("stock_transfers_pkey");
-            entity.ToTable("stock_transfers", "erp");
+            entity.ToTable("stock_transfers");
             entity.HasIndex(e => e.FromWarehouseId, "idx_stock_transfers_from");
             entity.HasIndex(e => e.ToWarehouseId, "idx_stock_transfers_to");
             entity.HasIndex(e => new { e.CompanyId, e.TransferNumber }, "stock_transfers_company_id_transfer_number_key").IsUnique();
@@ -979,7 +1032,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<StockTransferLine>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("stock_transfer_lines_pkey");
-            entity.ToTable("stock_transfer_lines", "erp");
+            entity.ToTable("stock_transfer_lines");
             entity.HasIndex(e => e.ItemId, "idx_stock_transfer_lines_item");
 
             entity.Property(e => e.Id).HasColumnName("id");
@@ -1008,12 +1061,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 17. الموردين (Suppliers)
+        // 18. الموردين (Suppliers)
         // ----------------------------------------------------
         modelBuilder.Entity<Supplier>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("suppliers_pkey");
-            entity.ToTable("suppliers", "erp");
+            entity.ToTable("suppliers");
             entity.HasIndex(e => e.CompanyId, "ix_suppliers_company_id");
             entity.HasIndex(e => new { e.CompanyId, e.SupplierCode }, "suppliers_company_id_supplier_code_key").IsUnique();
 
@@ -1039,12 +1092,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 18. وحدات القياس والتحويلات (Units)
+        // 19. وحدات القياس والتحويلات (Units)
         // ----------------------------------------------------
         modelBuilder.Entity<Unit>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("units_pkey");
-            entity.ToTable("units", "erp");
+            entity.ToTable("units");
             entity.HasIndex(e => e.CompanyId, "idx_units_company");
             entity.HasIndex(e => new { e.CompanyId, e.UnitCode }, "units_company_id_unit_code_key").IsUnique();
 
@@ -1063,7 +1116,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<UnitConversion>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("unit_conversions_pkey");
-            entity.ToTable("unit_conversions", "erp");
+            entity.ToTable("unit_conversions");
             entity.HasIndex(e => e.FromUnitId, "idx_unit_conversions_from");
             entity.HasIndex(e => e.ToUnitId, "idx_unit_conversions_to");
             entity.HasIndex(e => new { e.CompanyId, e.FromUnitId, e.ToUnitId }, "unit_conversions_company_id_from_unit_id_to_unit_id_key").IsUnique();
@@ -1091,12 +1144,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 19. سجلات الهوالك والأصول المتداولة
+        // 20. سجلات الهوالك والأصول المتداولة
         // ----------------------------------------------------
         modelBuilder.Entity<WasteRecord>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("waste_records_pkey");
-            entity.ToTable("waste_records", "erp");
+            entity.ToTable("waste_records");
             entity.HasIndex(e => e.ProductionOrderId, "idx_waste_production");
 
             entity.Property(e => e.Id).HasColumnName("id");
@@ -1138,7 +1191,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<AssetBalance>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("asset_balances_pkey");
-            entity.ToTable("asset_balances", "erp");
+            entity.ToTable("asset_balances");
             entity.HasIndex(e => new { e.CompanyId, e.ItemId, e.PartyType, e.PartyId }, "ux_asset_balances_unique").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -1163,7 +1216,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<AssetMovement>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("asset_movements_pkey");
-            entity.ToTable("asset_movements", "erp");
+            entity.ToTable("asset_movements");
             entity.HasIndex(e => new { e.FromPartyType, e.FromPartyId }, "idx_asset_movements_from");
             entity.HasIndex(e => new { e.ToPartyType, e.ToPartyId }, "idx_asset_movements_to");
             entity.HasIndex(e => e.ItemId, "idx_asset_movements_item");
@@ -1193,12 +1246,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 20. الأصول الثابتة والأسبات
+        // 21. الأصول الثابتة والأسبات
         // ----------------------------------------------------
         modelBuilder.Entity<FixedAsset>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("fixed_assets_pkey");
-            entity.ToTable("fixed_assets", "erp");
+            entity.ToTable("fixed_assets");
             entity.HasIndex(e => e.AssetCode, "idx_fixed_assets_asset_code").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -1223,7 +1276,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<AssetHistoryLog>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("asset_history_logs_pkey");
-            entity.ToTable("asset_history_logs", "erp");
+            entity.ToTable("asset_history_logs");
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
             entity.Property(e => e.FixedAssetId).HasColumnName("fixed_asset_id");
@@ -1238,7 +1291,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<CirculatingContainer>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("circulating_containers_pkey");
-            entity.ToTable("circulating_containers", "erp");
+            entity.ToTable("circulating_containers");
             entity.HasIndex(e => e.ContainerName, "idx_circulating_containers_name").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -1255,7 +1308,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<CrateMovement>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("crate_movements_pkey");
-            entity.ToTable("crate_movements", "erp");
+            entity.ToTable("crate_movements");
             entity.HasIndex(e => e.MovementNumber, "idx_crate_movements_number").IsUnique();
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn().HasColumnName("id");
@@ -1285,12 +1338,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 21. النماذج الديناميكية وبلاغات الطوارئ
+        // 22. النماذج الديناميكية وبلاغات الطوارئ
         // ----------------------------------------------------
         modelBuilder.Entity<DynamicForm>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("dynamic_forms_pkey");
-            entity.ToTable("dynamic_forms", "erp");
+            entity.ToTable("dynamic_forms");
             entity.HasIndex(e => e.FormCode, "dynamic_forms_form_code_key").IsUnique();
 
             entity.Property(e => e.Id).HasColumnName("id");
@@ -1305,7 +1358,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<FormSubmission>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("form_submissions_pkey");
-            entity.ToTable("form_submissions", "erp");
+            entity.ToTable("form_submissions");
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.FormId).HasColumnName("form_id");
@@ -1322,7 +1375,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<EmergencyTask>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("emergency_tasks_pkey");
-            entity.ToTable("emergency_tasks", "erp");
+            entity.ToTable("emergency_tasks");
             entity.HasIndex(e => e.TaskNumber, "idx_emergency_tasks_number").IsUnique();
             entity.HasIndex(e => e.Status, "idx_emergency_tasks_status");
 
@@ -1359,12 +1412,12 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 22. الصيانة الدورية للأصول (Maintenance)
+        // 23. الصيانة الدورية للأصول (Maintenance)
         // ----------------------------------------------------
         modelBuilder.Entity<MaintenanceAsset>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("maintenance_assets_pkey");
-            entity.ToTable("maintenance_assets", "erp");
+            entity.ToTable("maintenance_assets");
             entity.HasIndex(e => new { e.CompanyId, e.AssetCode }, "maintenance_assets_company_id_asset_code_key").IsUnique();
 
             entity.Property(e => e.Id).HasColumnName("id");
@@ -1391,7 +1444,7 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<MaintenanceOrder>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("maintenance_orders_pkey");
-            entity.ToTable("maintenance_orders", "erp");
+            entity.ToTable("maintenance_orders");
             entity.HasIndex(e => e.AssetId, "idx_maintenance_asset");
             entity.HasIndex(e => new { e.CompanyId, e.OrderNumber }, "maintenance_orders_company_id_order_number_key").IsUnique();
 
@@ -1423,11 +1476,11 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
-        // 23. عروض أسعار الموردين والViews المرجعية
+        // 24. عروض أسعار الموردين والViews المرجعية
         // ----------------------------------------------------
         modelBuilder.Entity<VCoreItem>(entity =>
         {
-            entity.HasNoKey().ToView("v_core_items", "erp");
+            entity.HasNoKey().ToView("v_core_items");
             entity.Property(e => e.Active).HasColumnName("active");
             entity.Property(e => e.Barcode).HasMaxLength(100).HasColumnName("barcode");
             entity.Property(e => e.CategoryCode).HasMaxLength(50).HasColumnName("category_code");
@@ -1450,7 +1503,7 @@ public partial class AppDbContext : DbContext
 
         modelBuilder.Entity<VMaterialShortage>(entity =>
         {
-            entity.HasNoKey().ToView("v_material_shortages", "erp");
+            entity.HasNoKey().ToView("v_material_shortages");
             entity.Property(e => e.CompanyId).HasColumnName("company_id");
             entity.Property(e => e.CurrentStock).HasColumnName("current_stock");
             entity.Property(e => e.ItemCode).HasMaxLength(100).HasColumnName("item_code");
@@ -1462,7 +1515,7 @@ public partial class AppDbContext : DbContext
 
         modelBuilder.Entity<VMultiLevelRecipe>(entity =>
         {
-            entity.HasNoKey().ToView("v_multi_level_recipes", "erp");
+            entity.HasNoKey().ToView("v_multi_level_recipes");
             entity.Property(e => e.Active).HasColumnName("active");
             entity.Property(e => e.BatchQuantity).HasPrecision(18, 3).HasColumnName("batch_quantity");
             entity.Property(e => e.BatchUnit).HasMaxLength(50).HasColumnName("batch_unit");
@@ -1486,7 +1539,7 @@ public partial class AppDbContext : DbContext
 
         modelBuilder.Entity<VProductionOrderDetail>(entity =>
         {
-            entity.HasNoKey().ToView("v_production_order_details", "erp");
+            entity.HasNoKey().ToView("v_production_order_details");
             entity.Property(e => e.CompanyId).HasColumnName("company_id");
             entity.Property(e => e.ConsumedQuantity).HasPrecision(14, 3).HasColumnName("consumed_quantity");
             entity.Property(e => e.MaterialItemId).HasColumnName("material_item_id");
@@ -1519,7 +1572,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.WastePercentage).HasPrecision(8, 3).HasColumnName("waste_percentage");
         });
 
-        modelBuilder.HasSequence("production_order_number_seq", "erp");
+        modelBuilder.HasSequence("production_order_number_seq");
         OnModelCreatingPartial(modelBuilder);
     }
 

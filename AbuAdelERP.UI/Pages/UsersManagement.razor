@@ -1,4 +1,6 @@
 ﻿@page "/users-management"
+@page "/users"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using AbuAdelERP.UI.Services
 @using Blazored.LocalStorage
@@ -12,7 +14,6 @@
 
 @if (isAccessDenied)
 {
-    <!-- شاشة الحظر عند محاولة الدخول غير المصرح به -->
     <div class="container py-5 text-center" dir="rtl">
         <div class="card shadow-sm border-0 mx-auto p-5 rounded-4" style="max-width: 600px;">
             <div class="text-danger mb-3">
@@ -23,8 +24,8 @@
                 شاشة إدارة المستخدمين وهندسة الصلاحيات مقصورة حصراً على الإدارة العليا ومديري النظام المعتمدين (<strong class="text-danger">Users.View</strong>).
             </p>
             <div>
-                <a href="emergency-tasks" class="btn btn-primary fw-bold px-4 py-2 shadow-sm">
-                    🚨 الانتقال لغرفة المهام المصرح بها
+                <a href="production-operations-hub" class="btn btn-primary fw-bold px-4 py-2 shadow-sm">
+                    🚨 الانتقال لغرفة عمليات الإنتاج
                 </a>
             </div>
         </div>
@@ -33,28 +34,16 @@
 else
 {
     <div class="container-fluid px-4 py-3" dir="rtl">
-
         <!-- رأس الشاشة التنفيذي -->
         <div class="card shadow-sm border-0 mb-4 bg-dark text-white rounded-3">
             <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
                 <div>
-                    <div class="d-flex align-items-center gap-2 mb-1">
-                        <h4 class="fw-bold m-0 text-info">🛡️ حوكمة الحسابات ومحرك قوالب الصلاحيات الميدانية (RBAC)</h4>
-                        <span class="badge bg-danger px-2 py-1 small">معايير الفصل بين المهام SoD</span>
-                    </div>
-                    <small class="text-light text-opacity-75">
-                        الربط الإجباري لحسابات الدخول بسجلات شؤون العاملين (HR) بناءً على الكود الوظيفي، وتوزيع صلاحيات كل مرحلة تشغيلية بالزر المخصص لها.
-                    </small>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <span class="badge bg-white bg-opacity-10 text-white border p-2 small font-monospace">
-                        المستخدم الحالي: [@State.EmployeeCode] @State.FullName
-                    </span>
+                    <h4 class="fw-bold m-0 text-info">🛡️ حوكمة الحسابات ومحرك قوالب الصلاحيات الميدانية (RBAC)</h4>
+                    <small class="text-light text-opacity-75">إدارة حسابات المستخدمين وصلاحياتهم المعتمدة لمصانع أبو عادل.</small>
                 </div>
             </div>
         </div>
 
-        <!-- رسائل النظام والتنبيهات -->
         @if (!string.IsNullOrEmpty(statusMessage))
         {
             <div class="alert @(isSuccessMessage ? "alert-success" : "alert-danger") py-2 small fw-bold alert-dismissible fade show shadow-sm" role="alert">
@@ -63,72 +52,67 @@ else
             </div>
         }
 
-        <!-- نظام التبويبات (Tabs) -->
-        <ul class="nav nav-tabs fw-bold mb-3 border-bottom-2" id="rbacTabs" role="tablist">
+        <!-- التبويبات -->
+        <ul class="nav nav-tabs fw-bold mb-3 border-bottom-2" role="tablist">
             <li class="nav-item">
-                <button class="nav-link @(activeTab == "users" ? "active text-primary border-primary border-bottom-0 fw-bold" : "text-muted")" @onclick='() => activeTab = "users"'>
-                    👥 حسابات المستخدمين المربوطة بالـ HR (@usersList.Count)
+                <button class="nav-link @(activeTab == "users" ? "active text-primary border-primary border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => activeTab = "users"'>
+                    👥 حسابات المستخدمين المعتمدة (@usersList.Count)
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link @(activeTab == "roles" ? "active text-danger border-danger border-bottom-0 fw-bold" : "text-muted")" @onclick='() => activeTab = "roles"'>
-                    ⚙️ مصفوفة قوالب الأدوار الوظيفية Dynamic Roles (@rolesList.Count)
+                <button class="nav-link @(activeTab == "roles" ? "active text-danger border-danger border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => activeTab = "roles"'>
+                    ⚙️ مصفوفة قوالب الأدوار الوظيفية (@rolesList.Count)
                 </button>
             </li>
         </ul>
 
-        <!-- ======================================================== -->
-        <!-- التبويب الأول: إدارة حسابات المستخدمين المربوطة بالموظفين -->
-        <!-- ======================================================== -->
         @if (activeTab == "users")
         {
             <div class="card shadow-sm border-0 rounded-3 mb-4">
                 <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
                     <div class="d-flex align-items-center gap-2 flex-grow-1" style="max-width: 400px;">
-                        <input type="text" class="form-control form-control-sm font-monospace" placeholder="بحث بكود الموظف، الاسم، أو اسم المستخدم..." @bind="userSearchTerm" @bind:event="oninput" />
+                        <input type="text" class="form-control form-control-sm font-monospace" placeholder="بحث باسم المستخدم أو الاسم الكامل..." @bind="userSearchTerm" @bind:event="oninput" />
                     </div>
                     <button class="btn btn-primary btn-sm fw-bold px-3 shadow-sm d-flex align-items-center gap-2" @onclick="OpenNewUserModal">
-                        <i class="bi bi-person-plus-fill fs-6"></i> إضافة حساب مستخدم (ربط بكود موظف)
+                        ➕ إضافة حساب مستخدم جديد
                     </button>
                 </div>
                 <div class="card-body p-0 table-responsive">
                     <table class="table table-hover table-bordered mb-0 text-center align-middle small">
                         <thead class="table-light">
                             <tr>
-                                <th>الكود الوظيفي (HR)</th>
-                                <th>الاسم الرباعي الرسمي</th>
-                                <th>الإدارة / الصالة</th>
-                                <th>المسمى الوظيفي المعتمد</th>
-                                <th>اسم الدخول (Username)</th>
-                                <th>الدور الوظيفي (القالب الموروث)</th>
+                                <th>#</th>
+                                <th class="text-start ps-3">الاسم الكامل</th>
+                                <th>اسم الدخول</th>
+                                <th>القسم / الصالة</th>
+                                <th>الدور الوظيفي</th>
                                 <th>الحالة</th>
-                                <th>إجراءات الحساب</th>
+                                <th>الإجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (!FilteredUsers.Any())
                             {
-                                <tr><td colspan="8" class="text-muted py-4 fw-bold">لا يوجد مستخدمون مطابقون لمعايير البحث.</td></tr>
+                                <tr><td colspan="7" class="text-muted py-4 fw-bold">لا توجد حسابات مطابقة للبحث.</td></tr>
                             }
                             else
                             {
                                 @foreach (var user in FilteredUsers)
                                 {
                                     <tr>
-                                        <td class="font-monospace fw-bold text-primary">@user.EmployeeCode</td>
-                                        <td class="fw-bold text-start ps-3 text-dark">@user.EmployeeName</td>
-                                        <td><span class="badge bg-light text-dark border">@user.Department</span></td>
-                                        <td class="text-muted small">@user.JobTitle</td>
-                                        <td class="font-monospace fw-bold text-danger">@user.Username</td>
-                                        <td><span class="badge bg-dark px-2 py-1">@user.RoleName</span></td>
+                                        <td class="font-monospace">@user.Id</td>
+                                        <td class="fw-bold text-start ps-3 text-dark">@user.FullName</td>
+                                        <td class="font-monospace text-primary">@user.Username</td>
+                                        <td><span class="badge bg-light text-dark border">@(!string.IsNullOrEmpty(user.DepartmentName) ? user.DepartmentName : "عام")</span></td>
+                                        <td><span class="badge bg-info text-dark">@user.Role</span></td>
                                         <td>
-                                            <span class="badge @(user.IsActive ? "bg-success" : "bg-danger")">
-                                                @(user.IsActive ? "نشط ومفعل ✓" : "موقوف ⛔")
+                                            <span class="badge @(user.IsActive ? "bg-success" : "bg-danger") px-2 py-1">
+                                                @(user.IsActive ? "نشط ✓" : "معطل ✕")
                                             </span>
                                         </td>
                                         <td>
                                             <button class="btn btn-sm btn-outline-primary py-1 px-2 fw-bold" @onclick="() => EditUser(user)">
-                                                🛠 تعديل الصلاحيات والقالب
+                                                ✏️ تعديل وحفظ
                                             </button>
                                         </td>
                                     </tr>
@@ -140,30 +124,20 @@ else
             </div>
         }
 
-        <!-- ======================================================== -->
-        <!-- التبويب الثاني: هندسة قوالب الأدوار الوظيفية الشاملة -->
-        <!-- ======================================================== -->
         @if (activeTab == "roles")
         {
-            <div class="card shadow-sm border-0 rounded-3 mb-4 border-top border-danger border-3">
-                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="fw-bold text-dark m-0">قوالب الأدوار الوظيفية المعيارية</h6>
-                        <small class="text-muted">تخصيص صلاحيات كل مرحلة عمل وزر تشغيلي بدقة متناهية</small>
-                    </div>
-                    <button class="btn btn-danger btn-sm fw-bold px-3 shadow-sm d-flex align-items-center gap-2" @onclick="OpenNewRoleModal">
-                        <i class="bi bi-shield-plus fs-6"></i> بناء وتصميم قالب دور جديد
-                    </button>
+            <div class="card shadow-sm border-0 rounded-3 mb-4">
+                <div class="card-header bg-white py-3">
+                    <h6 class="fw-bold text-dark m-0">قوالب الأدوار الوظيفية وصلاحياتها</h6>
                 </div>
                 <div class="card-body p-0 table-responsive">
                     <table class="table table-hover table-bordered mb-0 text-center align-middle small">
                         <thead class="table-light">
                             <tr>
                                 <th>#</th>
-                                <th>اسم القالب / الدور الوظيفي</th>
-                                <th>عدد الصلاحيات الممنوحة</th>
-                                <th>عدد العاملين المرتبطين بهذا القالب</th>
-                                <th>إجراءات تصميم القالب</th>
+                                <th>اسم الدور</th>
+                                <th>الصلاحيات المتاحة</th>
+                                <th>إجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -172,15 +146,12 @@ else
                                 <tr>
                                     <td class="font-monospace">@role.Id</td>
                                     <td class="fw-bold text-danger text-start ps-3 fs-6">@role.Name</td>
-                                    <td>
-                                        <span class="badge bg-primary font-monospace px-2 py-1">@role.Permissions.Count صلاحية مفعلة</span>
-                                    </td>
-                                    <td class="font-monospace fw-bold">
-                                        @usersList.Count(u => u.RoleId == role.Id) موظف
+                                    <td class="text-start ps-3 text-secondary font-monospace small" style="max-width: 500px; word-break: break-all;">
+                                        @role.Permissions
                                     </td>
                                     <td>
                                         <button class="btn btn-sm btn-outline-danger py-1 px-3 fw-bold" @onclick="() => EditRole(role)">
-                                            ⚙️ تعديل مصفوفة الصلاحيات
+                                            ⚙️ تعديل الصلاحيات
                                         </button>
                                     </td>
                                 </tr>
@@ -190,239 +161,100 @@ else
                 </div>
             </div>
         }
-
     </div>
-}
 
-<!-- ======================================================== -->
-<!-- نافذة 1: إنشاء/تعديل مستخدم مع الربط التلقائي بكود الموظف -->
-<!-- ======================================================== -->
-@if (isUserModalOpen)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-primary text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">@(editingUser.Id == 0 ? "👤 ربط موظف جديد بحساب نظام (User)" : $"🛠 تعديل حساب: {editingUser.EmployeeName}")</h6>
-                    <button type="button" class="btn-close btn-close-white" @onclick="() => isUserModalOpen = false"></button>
-                </div>
-                <div class="modal-body bg-light p-4">
-                    
-                    <div class="card p-3 mb-3 border-0 shadow-sm border-start border-4 border-info bg-white">
-                        <label class="form-label fw-bold small text-dark mb-1">
-                            1. ابحث واختر الموظف الرسمي (مسحوب حياً من قاعدة بيانات العاملين) *
-                        </label>
-                        <select class="form-select fw-bold font-monospace border-primary mb-2" 
-                                value="@selectedEmployeeCode" 
-                                @onchange="OnEmployeeCodeSelected">
-                            <option value="">-- اضغط للبحث بكود الموظف أو الاسم الرباعي --</option>
-                            @foreach (var emp in employeesCatalog)
-                            {
-                                <option value="@emp.Code">[@emp.Code] - @emp.FullName - (@emp.Department)</option>
-                            }
-                        </select>
-                        
-                        <div class="row g-2 mt-2 bg-light p-2 rounded border">
-                            <div class="col-md-4">
-                                <label class="small text-muted mb-0 d-block">الاسم الرسمي الكامل:</label>
-                                <strong class="text-dark small">@(!string.IsNullOrEmpty(editingUser.EmployeeName) ? editingUser.EmployeeName : "---")</strong>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="small text-muted mb-0 d-block">الإدارة / الصالة التابع لها:</label>
-                                <span class="badge bg-primary">@(!string.IsNullOrEmpty(editingUser.Department) ? editingUser.Department : "---")</span>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="small text-muted mb-0 d-block">المسمى الميداني المعتمد:</label>
-                                <strong class="text-secondary small">@(!string.IsNullOrEmpty(editingUser.JobTitle) ? editingUser.JobTitle : "---")</strong>
-                            </div>
+    <!-- مودال المستخدم -->
+    @if (isUserModalOpen)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
+            <div class="modal-dialog modal-md modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-primary text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">@(editingUser.Id == 0 ? "➕ إضافة حساب مستخدم جديد" : $"✏️ تعديل حساب: {editingUser.FullName}")</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="() => isUserModalOpen = false"></button>
+                    </div>
+                    <div class="modal-body bg-light p-3">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">اسم المستخدم (Username) *</label>
+                            <input type="text" class="form-control form-control-sm font-monospace fw-bold" @bind="editingUser.Username" disabled="@(editingUser.Id > 0)" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">الاسم الكامل *</label>
+                            <input type="text" class="form-control form-control-sm fw-bold" @bind="editingUser.FullName" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">اسم القسم / الصالة</label>
+                            <input type="text" class="form-control form-control-sm" @bind="editingUser.DepartmentName" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">الدور الرئيسي *</label>
+                            <select class="form-select form-select-sm fw-bold border-primary" @bind="editingUser.Role">
+                                <option value="Admin">مدير نظام (Admin)</option>
+                                <option value="ProductionChef">شيف إنتاج (Production Chef)</option>
+                                <option value="Storekeeper">أمين مخزن (Storekeeper)</option>
+                                <option value="QualityOfficer">مراقب جودة (Quality Officer)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">كلمة المرور الجديدة</label>
+                            <input type="password" class="form-control form-control-sm font-monospace" @bind="editingUser.PasswordHash" placeholder="اتركها فارغة إن لم ترد تغييرها" />
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="isActiveCheck" @bind="editingUser.IsActive">
+                            <label class="form-check-label small fw-bold" for="isActiveCheck">حساب نشط ومفعل</label>
                         </div>
                     </div>
-
-                    <div class="card p-3 border-0 shadow-sm bg-white">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold small text-dark">اسم الدخول للنظام (Username) *</label>
-                                <input type="text" class="form-control fw-bold font-monospace" @bind="editingUser.Username" placeholder="مثال: emp102 أو كود الموظف" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold small text-dark">كلمة المرور (Password) *</label>
-                                <input type="password" class="form-control fw-bold" @bind="editingUser.Password" placeholder="••••••••" />
-                            </div>
-
-                            <div class="col-12 mt-2">
-                                <label class="form-label fw-bold small text-danger">2. قالب الدور الوظيفي المعتمد بالـ ERP *</label>
-                                <select class="form-select fw-bold border-danger" @bind="editingUser.RoleId">
-                                    <option value="0">-- اختر القالب المناسب ليرث صلاحياته آلياً --</option>
-                                    @foreach (var role in rolesList)
-                                    {
-                                        <option value="@role.Id">@role.Name (@role.Permissions.Count صلاحية معتمدة)</option>
-                                    }
-                                </select>
-                            </div>
-
-                            <div class="col-12 mt-3 pt-2 border-top">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="userActiveCheck" @bind="editingUser.IsActive">
-                                    <label class="form-check-label fw-bold small" for="userActiveCheck">تفعيل الحساب والسماح بتسجيل الدخول الفوري</label>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                        <button class="btn btn-secondary btn-sm px-3" @onclick="() => isUserModalOpen = false">إلغاء</button>
+                        <button class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="SaveUserAsync">💾 حفظ البيانات</button>
                     </div>
-
-                </div>
-                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isUserModalOpen = false">إلغاء</button>
-                    <button class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="SaveUser">💾 حفظ وتأكيد ربط الموظف</button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
 
-<!-- ======================================================== -->
-<!-- نافذة 2: مصمم مصفوفة الصلاحيات وقوالب الأدوار الشاملة -->
-<!-- ======================================================== -->
-@if (isRoleModalOpen)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-danger text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">@(editingRole.Id == 0 ? "✨ هندسة قالب دور وظيفي جديد" : $"⚙ تعديل مصفوفة القالب: {editingRole.Name}")</h6>
-                    <button type="button" class="btn-close btn-close-white" @onclick="() => isRoleModalOpen = false"></button>
-                </div>
-                <div class="modal-body bg-light p-4">
-                    
-                    <div class="card p-3 border-0 shadow-sm bg-white mb-3">
-                        <div class="row align-items-center">
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold text-dark mb-1">اسم الدور الوظيفي / القالب *</label>
-                                <input type="text" class="form-control form-control-lg fw-bold text-danger" placeholder="مثال: فني صيانة، أمين مستودع، شيف صالة..." @bind="editingRole.Name" />
-                            </div>
-                            <div class="col-md-6 text-md-end mt-3 mt-md-0">
-                                <span class="badge bg-dark fs-6 font-monospace p-2">
-                                    عدد الصلاحيات المحددة: @editingRole.Permissions.Count
-                                </span>
-                            </div>
+    <!-- مودال الدور والصلاحيات -->
+    @if (isRoleModalOpen)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-danger text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">⚙️ تعديل صلاحيات الدور: @editingRole.Name</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="() => isRoleModalOpen = false"></button>
+                    </div>
+                    <div class="modal-body bg-light p-3">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">الصلاحيات مفصولة بفواصل (Comma-separated permissions):</label>
+                            <textarea class="form-control font-monospace small" rows="5" @bind="editingRole.Permissions"></textarea>
+                            <small class="text-muted d-block mt-1">مثال: Users.View, Production.OperationsHub, Production.OrdersView, Requisition.Create</small>
                         </div>
                     </div>
-
-                    <h6 class="fw-bold text-dark mb-3 border-bottom pb-2">
-                        📋 اختر الشاشات والمراحل التشغيلية المصرح بها لهذا القالب:
-                    </h6>
-
-                    <div class="row g-3">
-                        @foreach (var module in systemModules)
-                        {
-                            <div class="col-lg-4 col-md-6">
-                                <div class="card border-0 shadow-sm h-100 bg-white">
-                                    <div class="card-header bg-light py-2 d-flex justify-content-between align-items-center border-bottom">
-                                        <strong class="text-primary small">@module.ModuleName</strong>
-                                        <div class="btn-group btn-group-sm">
-                                            <button class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 11px;" @onclick="() => ToggleModulePermissions(module, true)">تحديد الكل</button>
-                                            <button class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 11px;" @onclick="() => ToggleModulePermissions(module, false)">إلغاء</button>
-                                        </div>
-                                    </div>
-                                    <div class="card-body p-2" style="max-height: 320px; overflow-y: auto;">
-                                        @foreach (var perm in module.Permissions)
-                                        {
-                                            var isGranted = editingRole.Permissions.Contains(perm.Code);
-                                            <div class="form-check form-switch mb-2 p-2 rounded @(isGranted ? "bg-primary text-white bg-opacity-75" : "bg-light")" style="transition: 0.2s;">
-                                                <input class="form-check-input ms-2 float-end" type="checkbox" id="@perm.Code" 
-                                                       checked="@isGranted" 
-                                                       @onchange="(e) => TogglePermission(perm.Code, (bool)(e.Value ?? false))">
-                                                <label class="form-check-label small fw-bold" for="@perm.Code" style="cursor:pointer;">
-                                                    @perm.Title
-                                                    <span class="d-block text-opacity-75 fw-normal font-monospace" style="font-size: 10px;">@perm.Code</span>
-                                                </label>
-                                            </div>
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-                        }
+                    <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                        <button class="btn btn-secondary btn-sm px-3" @onclick="() => isRoleModalOpen = false">إلغاء</button>
+                        <button class="btn btn-danger btn-sm px-4 fw-bold shadow-sm" @onclick="SaveRolePermissionsAsync">💾 حفظ الصلاحيات</button>
                     </div>
-
-                </div>
-                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isRoleModalOpen = false">إلغاء</button>
-                    <button class="btn btn-danger btn-sm px-4 fw-bold shadow-sm" @onclick="SaveRole">💾 حفظ واعتماد القالب المحدث</button>
                 </div>
             </div>
         </div>
-    </div>
+    }
 }
 
 @code {
-    public class RoleDto
-    {
-        public int Id { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public HashSet<string> Permissions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    }
-
-    public class UserDto
-    {
-        public int Id { get; set; }
-        public string EmployeeCode { get; set; } = string.Empty;
-        public string EmployeeName { get; set; } = string.Empty;
-        public string Department { get; set; } = string.Empty;
-        public string JobTitle { get; set; } = string.Empty;
-        public string Username { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-        public int RoleId { get; set; }
-        public string RoleName { get; set; } = string.Empty;
-        public bool IsActive { get; set; } = true;
-    }
-
-    public class EmployeeApiDto
-    {
-        public long Id { get; set; }
-        public string? Code { get; set; }
-        public string? FullName { get; set; }
-        public string? Name { get; set; }
-        public string? DepartmentName { get; set; }
-        public string? JobTitle { get; set; }
-    }
-
-    public class EmployeeCatalogItem
-    {
-        public string Code { get; set; } = string.Empty;
-        public string FullName { get; set; } = string.Empty;
-        public string Department { get; set; } = string.Empty;
-        public string JobTitle { get; set; } = string.Empty;
-    }
-
-    public class SystemModule
-    {
-        public string ModuleName { get; set; } = string.Empty;
-        public List<PermissionItem> Permissions { get; set; } = new();
-    }
-
-    public class PermissionItem
-    {
-        public string Code { get; set; } = string.Empty;
-        public string Title { get; set; } = string.Empty;
-    }
-
     private string activeTab = "users";
     private string userSearchTerm = "";
     private bool isAccessDenied = false;
+    private string statusMessage = "";
+    private bool isSuccessMessage = true;
 
     private List<UserDto> usersList = new();
     private List<RoleDto> rolesList = new();
-    private List<EmployeeCatalogItem> employeesCatalog = new();
-    private List<SystemModule> systemModules = new();
 
     private bool isUserModalOpen = false;
     private bool isRoleModalOpen = false;
 
     private UserDto editingUser = new();
     private RoleDto editingRole = new();
-    private string selectedEmployeeCode = "";
-
-    private string statusMessage = "";
-    private bool isSuccessMessage = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -442,7 +274,7 @@ else
             var dept = await LocalStorage.GetItemAsync<string>("departmentName");
             var perms = await LocalStorage.GetItemAsync<List<string>>("userPermissions");
 
-            State.SetUserSession(0, empCode ?? (user ?? "EMP"), user ?? "admin", fullName ?? "أحمد عبد العزيز", role ?? "Admin", null, dept ?? "الإدارة", perms ?? new List<string>());
+            State.SetUserSession(0, empCode ?? "EMP", user ?? "admin", fullName ?? "أحمد عبد العزيز", role ?? "Admin", null, dept ?? "الإدارة", perms ?? new List<string>());
         }
 
         if (!State.HasPermission("Users.View"))
@@ -451,320 +283,32 @@ else
             return;
         }
 
-        BuildComprehensivePermissionsMatrix();
-        await LoadEmployeesFromApi();
-        await LoadRolesAndUsers();
+        await LoadDataAsync();
     }
 
-    private void BuildComprehensivePermissionsMatrix()
-    {
-        systemModules = new List<SystemModule>
-        {
-            new SystemModule
-            {
-                ModuleName = "👑 الإدارة العليا والرقابة التنفيذية",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Dashboard.View", Title = "استعراض لوحة المؤشرات التنفيذية المباشرة" },
-                    new PermissionItem { Code = "Dashboard.Financial", Title = "استعراض تثمين المخزون والبيانات المالية الحساسة" },
-                    new PermissionItem { Code = "Audit.ViewLogs", Title = "سجل التدقيق الرقمي ومراقبة حركات المستخدمين" }
-                }
-            },
-            // ========================================================
-            // الموديول الجديد: صلاحيات غرفة عمليات التصنيع الموحدة (MES)
-            // ========================================================
-            new SystemModule
-            {
-                ModuleName = "🏭 غرفة عمليات الإنتاج والتكاليف والورديات (MES Hub)",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Production.OperationsHub", Title = "استعراض ودخول غرفة العمليات الصناعية الموحدة (MES Hub)" },
-                    new PermissionItem { Code = "Production.OrdersView", Title = "استعراض سجل أوامر التشغيل وخطط الصالات" },
-                    new PermissionItem { Code = "Production.CreateOrder", Title = "زر إصدار أمر تشغيل جديد واستيراد أوامر إكسيل (CSV)" },
-                    new PermissionItem { Code = "Production.Execution", Title = "التنفيذ الميداني وتوليد اللوطات وحصر الهالك" },
-                    new PermissionItem { Code = "Productivity.Entry", Title = "إدارة الوردية وترصيد حضور وساعات وإنتاجية العمال" },
-                    new PermissionItem { Code = "BatchCosting.View", Title = "استعراض واحتساب تكلفة الدفعة والتشغيل (Costing)" },
-                    new PermissionItem { Code = "Productivity.Reports", Title = "استخراج وتصدير تقارير اليوميات ومؤشرات كفاءة الصالات" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "🏭 الأصول الثابتة والماكينات بالصالات (Fixed Assets)",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "FixedAssets.View", Title = "استعراض سجل الماكينات وخطوط الإنتاج بالصالات" },
-                    new PermissionItem { Code = "FixedAssets.Manage", Title = "زر قيد وتعديل ماكينة وتثبيت ونقل العهدة" },
-                    new PermissionItem { Code = "FixedAssets.History", Title = "زر استعراض السجل التاريخي للماكينة (Asset Dossier)" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "🧺 دورة استلام وتسليم الأسبات وفض المنازعات (Chain of Custody)",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Crates.View", Title = "استعراض أرصدة الأسبات والصواني وسجل التداول (للقراءة)" },
-                    new PermissionItem { Code = "Crates.Dispatch", Title = "زر إصدار إذن تسليم وصرف عهدة أسبات (طرف أول مُسلِّم)" },
-                    new PermissionItem { Code = "Crates.Receive", Title = "زر فحص وتأكيد الاستلام الميداني السليم (طرف ثانٍ مُستلِم)" },
-                    new PermissionItem { Code = "Crates.RaiseDispute", Title = "زر إثبات العجز والكسر وفتح محضر نزاع رسمي بين الطرفين" },
-                    new PermissionItem { Code = "Crates.SettleDispute", Title = "زر فض وتسوية منازعات العجز والكسر (التحكيم والرقابة)" },
-                    new PermissionItem { Code = "Crates.Export", Title = "زر تصدير وطباعة محاضر الاستلام والتسليم والنزاع" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "🥐 طلبات وصرف الخامات للصالات (Requisition)",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Requisition.View", Title = "استعراض سجل طلبات صرف الخامات وأرشيفها" },
-                    new PermissionItem { Code = "Requisition.Create", Title = "زر إنشاء طلب صرف مقادير جديد (شيف الصالة)" },
-                    new PermissionItem { Code = "Requisition.Approve", Title = "زر اعتماد طلب الصرف ومراجعة المعايير (إدارة الإنتاج)" },
-                    new PermissionItem { Code = "Requisition.Issue", Title = "زر تنفيذ الصرف المخزني وتخفيض الرصيد (أمين المخزن)" },
-                    new PermissionItem { Code = "Requisition.Receive", Title = "زر تأكيد استلام الخامات بالصالة وتوقيع المطابقة" },
-                    new PermissionItem { Code = "Requisition.Cancel", Title = "زر إلغاء أو تعديل الطلب قبل اعتماده" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "🚚 التحويلات بين المخازن وفض المنازعات",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Transfers.View", Title = "استعراض حركة الشحنات والتحويلات قيد النقل" },
-                    new PermissionItem { Code = "Transfers.Create", Title = "زر إصدار إذن تحويل بضاعة أو خامات لمخزن آخر" },
-                    new PermissionItem { Code = "Transfers.Dispatch", Title = "زر اعتماد شحن البضاعة وتحديد وسيلة النقل والسائق" },
-                    new PermissionItem { Code = "Transfers.Receive", Title = "زر فحص واستلام البضاعة المحولة في المخزن المستلم" },
-                    new PermissionItem { Code = "Transfers.RaiseDispute", Title = "زر إثبات العجز والتلف وفتح محضر نزاع رسمي" },
-                    new PermissionItem { Code = "Transfers.SettleDispute", Title = "زر فض المنازعات واعتماد تسوية العجز والهالك (اللجنة العليا)" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "📦 المستودعات والاستلام وفحص الجودة",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Warehouse.View", Title = "الاستعلام عن أرصدة الخامات وتتبع اللوطات والصلاحيات" },
-                    new PermissionItem { Code = "Receipt.Create", Title = "زر تسجيل وصول شحنات الخامات من الموردين على الميزان" },
-                    new PermissionItem { Code = "Receipt.QCAssess", Title = "زر فحص الجودة المخبري وإصدار قرار الفحص (GMP/ISO)" },
-                    new PermissionItem { Code = "Receipt.PostToStock", Title = "زر ترحيل التوريدات لرصيد المخزن الفعلي وتوليد الباركود" },
-                    new PermissionItem { Code = "Stock.Adjust", Title = "زر تسوية الجرد الدوري وفروق المخزون" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "⚙️ وصفات التصنيع المعيارية (BOM)",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "BOM.View", Title = "استعراض بطاقات ومقادير وصفات التصنيع المعيارية" },
-                    new PermissionItem { Code = "BOM.Manage", Title = "زر تعديل وإنشاء بطاقات الـ BOM ونسب الهالك المعياري" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "🚨 منظومة الطوارئ والتدخل السريع (SOS)",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Emergency.View", Title = "عرض سجل البلاغات والأعطال الحية" },
-                    new PermissionItem { Code = "Emergency.Create", Title = "زر إطلاق بلاغ طارئ جديد واستدعاء فوري (الصالة)" },
-                    new PermissionItem { Code = "Emergency.Delegate", Title = "زر تكليف وإحالة البلاغ لفني مختص (إدارة الصيانة/النظافة)" },
-                    new PermissionItem { Code = "Emergency.Respond", Title = "زر بدء التنفيذ الميداني وتسجيل وقت التوجه" },
-                    new PermissionItem { Code = "Emergency.Close", Title = "زر إغلاق البلاغ وتوثيق تقرير ودليل الإصلاح المصور" },
-                    new PermissionItem { Code = "Emergency.Reports", Title = "استعراض وتصدير تقارير مؤشرات سرعة الإنجاز SLA" }
-                }
-            },
-            new SystemModule
-            {
-                ModuleName = "🛡️ الأمان والحوكمة الإدارية (Security & HR)",
-                Permissions = new()
-                {
-                    new PermissionItem { Code = "Users.View", Title = "استعراض وإدارة حسابات المستخدمين وربطها بالـ HR" },
-                    new PermissionItem { Code = "Roles.Manage", Title = "تصميم وتعديل قوالب الأدوار ومصفوفة الصلاحيات (RBAC)" },
-                    new PermissionItem { Code = "Companies.Manage", Title = "إدارة بيانات المنشأة والفروع" },
-                    new PermissionItem { Code = "Departments.Manage", Title = "إدارة الهيكل التنظيمي، الأقسام، وصالات الإنتاج" },
-                    new PermissionItem { Code = "Employees.Manage", Title = "إدارة بيانات العاملين، الورديات، والبطاقات المهنية" },
-                    new PermissionItem { Code = "Suppliers.View", Title = "استعراض دليل الموردين المعتمدين وقوائم الأسعار" }
-                }
-            }
-        };
-    }
-
-    private async Task LoadEmployeesFromApi()
+    private async Task LoadDataAsync()
     {
         try
         {
-            var res = await Http.GetFromJsonAsync<List<EmployeeApiDto>>("api/Employees");
-            if (res != null && res.Any())
-            {
-                employeesCatalog = res.Select(e => new EmployeeCatalogItem
-                {
-                    Code = !string.IsNullOrEmpty(e.Code) ? e.Code : $"EMP-{e.Id:D3}",
-                    FullName = !string.IsNullOrEmpty(e.FullName) ? e.FullName : (!string.IsNullOrEmpty(e.Name) ? e.Name : $"موظف #{e.Id}"),
-                    Department = !string.IsNullOrEmpty(e.DepartmentName) ? e.DepartmentName : "عام",
-                    JobTitle = !string.IsNullOrEmpty(e.JobTitle) ? e.JobTitle : "موظف تشغيل"
-                }).ToList();
-            }
+            usersList = await Http.GetFromJsonAsync<List<UserDto>>("api/UsersManagement/users") ?? new();
+            rolesList = await Http.GetFromJsonAsync<List<RoleDto>>("api/UsersManagement/roles") ?? new();
         }
-        catch { }
-
-        if (!employeesCatalog.Any())
+        catch (Exception ex)
         {
-            employeesCatalog = new List<EmployeeCatalogItem>
-            {
-                new() { Code = "EMP-001", FullName = "أحمد عبد العزيز", Department = "الإدارة العليا والتشغيل", JobTitle = "مدير المصنع" },
-                new() { Code = "EMP-012", FullName = "أحمد محمد أحمد", Department = "إدارة الصيانة", JobTitle = "فني صيانة ميكانيكية" },
-                new() { Code = "EMP-045", FullName = "فتحي حميده", Department = "قسم الشرقي والمخبوزات", JobTitle = "شيف صالة إنتاج" },
-                new() { Code = "EMP-088", FullName = "محمود علي حسن", Department = "إدارة المخازن", JobTitle = "أمين مخزن خامات" }
-            };
+            statusMessage = $"خطأ في جلب البيانات من الخادم: {ex.Message}";
+            isSuccessMessage = false;
         }
     }
 
-    private async Task LoadRolesAndUsers()
-    {
-        rolesList = new List<RoleDto>
-        {
-            new RoleDto
-            {
-                Id = 1,
-                Name = "مدير نظام وإدارة عليا (Super Admin)",
-                Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    "Dashboard.View", "Dashboard.Financial", "Audit.ViewLogs", "Users.View", "Roles.Manage",
-                    "Production.OperationsHub", "Production.OrdersView", "Production.CreateOrder", "Production.Execution", "Productivity.Entry", "BatchCosting.View", "Productivity.Reports",
-                    "FixedAssets.View", "FixedAssets.Manage", "FixedAssets.History",
-                    "Emergency.View", "Emergency.Create", "Emergency.Delegate", "Emergency.Respond", "Emergency.Close", "Emergency.Reports",
-                    "BOM.View", "BOM.Manage",
-                    "Requisition.View", "Requisition.Create", "Requisition.Approve", "Requisition.Issue", "Requisition.Receive", "Requisition.Cancel",
-                    "Warehouse.View", "Receipt.Create", "Receipt.QCAssess", "Receipt.PostToStock", "Stock.Adjust",
-                    "Transfers.View", "Transfers.Create", "Transfers.Dispatch", "Transfers.Receive", "Transfers.RaiseDispute", "Transfers.SettleDispute",
-                    "Crates.View", "Crates.Dispatch", "Crates.Receive", "Crates.RaiseDispute", "Crates.SettleDispute", "Crates.Export",
-                    "Companies.Manage", "Departments.Manage", "Employees.Manage", "Suppliers.View"
-                }
-            },
-            new RoleDto
-            {
-                Id = 2,
-                Name = "فني صيانة ميداني (Maintenance Tech)",
-                Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    "Emergency.View", "Emergency.Respond", "Emergency.Close",
-                    "FixedAssets.View", "FixedAssets.History"
-                }
-            },
-            new RoleDto
-            {
-                Id = 3,
-                Name = "شيف صالة إنتاج (Production Chef)",
-                Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    "Production.OperationsHub", "Production.OrdersView", "Production.Execution", "Productivity.Entry",
-                    "BOM.View",
-                    "Emergency.View", "Emergency.Create",
-                    "FixedAssets.View", "FixedAssets.History",
-                    "Requisition.View", "Requisition.Create", "Requisition.Receive",
-                    "Crates.View", "Crates.Receive"
-                }
-            },
-            new RoleDto
-            {
-                Id = 4,
-                Name = "أمين مستودع التعبئة وسلاسل الإمداد (Dispatcher)",
-                Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    "Warehouse.View", "Receipt.Create", "Receipt.PostToStock",
-                    "Requisition.View", "Requisition.Issue",
-                    "Transfers.View", "Transfers.Create", "Transfers.Dispatch", "Transfers.Receive", "Transfers.RaiseDispute",
-                    "Crates.View", "Crates.Dispatch", "Crates.Receive", "Crates.RaiseDispute", "Crates.Export"
-                }
-            },
-            new RoleDto
-            {
-                Id = 5,
-                Name = "مراقب جودة وسلامة غذاء (Quality Officer - ISO)",
-                Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    "Emergency.View", "Emergency.Create", "Emergency.Reports",
-                    "Receipt.QCAssess", "BOM.View", "FixedAssets.View"
-                }
-            },
-            new RoleDto
-            {
-                Id = 6,
-                Name = "لجنة فض المنازعات والرقابة المالية (Arbitration)",
-                Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    "Transfers.View", "Transfers.SettleDispute",
-                    "Crates.View", "Crates.SettleDispute", "Crates.Export",
-                    "Stock.Adjust", "Dashboard.Financial", "BatchCosting.View"
-                }
-            }
-        };
+    private IEnumerable<UserDto> FilteredUsers => usersList.Where(u =>
+        string.IsNullOrWhiteSpace(userSearchTerm) ||
+        u.FullName.Contains(userSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+        u.Username.Contains(userSearchTerm, StringComparison.OrdinalIgnoreCase)
+    );
 
-        usersList = new List<UserDto>
-        {
-            new UserDto
-            {
-                Id = 1,
-                EmployeeCode = "EMP-001",
-                EmployeeName = "أحمد عبد العزيز",
-                Department = "الإدارة العليا والتشغيل",
-                JobTitle = "مدير المصنع",
-                Username = "admin",
-                Password = "123",
-                RoleId = 1,
-                RoleName = "مدير نظام وإدارة عليا (Super Admin)",
-                IsActive = true
-            },
-            new UserDto
-            {
-                Id = 2,
-                EmployeeCode = "EMP-012",
-                EmployeeName = "أحمد محمد أحمد",
-                Department = "إدارة الصيانة",
-                JobTitle = "فني صيانة ميكانيكية",
-                Username = "123",
-                Password = "123",
-                RoleId = 2,
-                RoleName = "فني صيانة ميداني (Maintenance Tech)",
-                IsActive = true
-            },
-            new UserDto
-            {
-                Id = 3,
-                EmployeeCode = "EMP-045",
-                EmployeeName = "فتحي حميده",
-                Department = "قسم الشرقي والمخبوزات",
-                JobTitle = "شيف صالة إنتاج",
-                Username = "fathi",
-                Password = "123",
-                RoleId = 3,
-                RoleName = "شيف صالة إنتاج (Production Chef)",
-                IsActive = true
-            }
-        };
-    }
-
-    private IEnumerable<UserDto> FilteredUsers
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(userSearchTerm))
-                return usersList;
-
-            var term = userSearchTerm.Trim();
-            return usersList.Where(u =>
-                u.EmployeeCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                u.EmployeeName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                u.Username.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                u.Department.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                u.RoleName.Contains(term, StringComparison.OrdinalIgnoreCase));
-        }
-    }
-
-    // ============================================
-    // دوال إدارة المستخدمين والربط بالكود
-    // ============================================
     private void OpenNewUserModal()
     {
-        editingUser = new UserDto { IsActive = true };
-        selectedEmployeeCode = "";
+        editingUser = new UserDto { IsActive = true, Role = "ProductionChef" };
         isUserModalOpen = true;
     }
 
@@ -773,102 +317,51 @@ else
         editingUser = new UserDto
         {
             Id = user.Id,
-            EmployeeCode = user.EmployeeCode,
-            EmployeeName = user.EmployeeName,
-            Department = user.Department,
-            JobTitle = user.JobTitle,
             Username = user.Username,
-            Password = user.Password,
-            RoleId = user.RoleId,
-            RoleName = user.RoleName,
-            IsActive = user.IsActive
+            FullName = user.FullName,
+            DepartmentId = user.DepartmentId,
+            DepartmentName = user.DepartmentName,
+            Role = user.Role,
+            IsActive = user.IsActive,
+            PasswordHash = user.PasswordHash,
+            CustomPermissions = user.CustomPermissions
         };
-        selectedEmployeeCode = user.EmployeeCode;
         isUserModalOpen = true;
     }
 
-    private void OnEmployeeCodeSelected(ChangeEventArgs e)
+    private async Task SaveUserAsync()
     {
-        selectedEmployeeCode = e.Value?.ToString() ?? "";
-        var emp = employeesCatalog.FirstOrDefault(x => x.Code == selectedEmployeeCode);
-        if (emp != null)
+        try
         {
-            editingUser.EmployeeCode = emp.Code;
-            editingUser.EmployeeName = emp.FullName;
-            editingUser.Department = emp.Department;
-            editingUser.JobTitle = emp.JobTitle;
-
-            if (string.IsNullOrEmpty(editingUser.Username))
+            HttpResponseMessage res;
+            if (editingUser.Id == 0)
             {
-                editingUser.Username = emp.Code.Replace("EMP-", "").ToLower();
+                res = await Http.PostAsJsonAsync("api/UsersManagement/users", editingUser);
+            }
+            else
+            {
+                res = await Http.PutAsJsonAsync($"api/UsersManagement/users/{editingUser.Id}", editingUser);
+            }
+
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "✅ تم حفظ بيانات المستخدم بنجاح!";
+                isSuccessMessage = true;
+                isUserModalOpen = false;
+                await LoadDataAsync();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"❌ فشل الحفظ: {err}";
+                isSuccessMessage = false;
             }
         }
-        else
+        catch (Exception ex)
         {
-            editingUser.EmployeeCode = "";
-            editingUser.EmployeeName = "";
-            editingUser.Department = "";
-            editingUser.JobTitle = "";
-        }
-    }
-
-    private async Task SaveUser()
-    {
-        if (string.IsNullOrWhiteSpace(editingUser.EmployeeCode))
-        {
-            statusMessage = "⚠️ يجب اختيار كود الموظف من سجل العاملين أولاً!";
+            statusMessage = $"خطأ اتصال: {ex.Message}";
             isSuccessMessage = false;
-            return;
         }
-
-        if (string.IsNullOrWhiteSpace(editingUser.Username) || editingUser.RoleId == 0)
-        {
-            statusMessage = "⚠️ يرجى إدخال اسم المستخدم واختيار قالب الدور الوظيفي!";
-            isSuccessMessage = false;
-            return;
-        }
-
-        var role = rolesList.FirstOrDefault(r => r.Id == editingUser.RoleId);
-        if (role != null)
-        {
-            editingUser.RoleName = role.Name;
-        }
-
-        if (editingUser.Id == 0)
-        {
-            editingUser.Id = usersList.Any() ? usersList.Max(u => u.Id) + 1 : 1;
-            usersList.Add(editingUser);
-            statusMessage = $"✅ تم ربط الموظف [{editingUser.EmployeeCode}] بحساب ({editingUser.Username}) ومنحه قالب ({editingUser.RoleName}) بنجاح!";
-        }
-        else
-        {
-            var existing = usersList.FirstOrDefault(u => u.Id == editingUser.Id);
-            if (existing != null)
-            {
-                existing.EmployeeCode = editingUser.EmployeeCode;
-                existing.EmployeeName = editingUser.EmployeeName;
-                existing.Department = editingUser.Department;
-                existing.JobTitle = editingUser.JobTitle;
-                existing.Username = editingUser.Username;
-                existing.Password = editingUser.Password;
-                existing.RoleId = editingUser.RoleId;
-                existing.RoleName = editingUser.RoleName;
-                existing.IsActive = editingUser.IsActive;
-                statusMessage = $"✅ تم تحديث بيانات وصلاحيات المستخدم ({existing.Username}) بنجاح!";
-            }
-        }
-
-        isSuccessMessage = true;
-        isUserModalOpen = false;
-    }
-
-    // ============================================
-    // دوال قوالب الأدوار ومصفوفة الصلاحيات
-    // ============================================
-    private void OpenNewRoleModal()
-    {
-        editingRole = new RoleDto { Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) };
-        isRoleModalOpen = true;
     }
 
     private void EditRole(RoleDto role)
@@ -877,59 +370,54 @@ else
         {
             Id = role.Id,
             Name = role.Name,
-            Permissions = new HashSet<string>(role.Permissions, StringComparer.OrdinalIgnoreCase)
+            Permissions = role.Permissions
         };
         isRoleModalOpen = true;
     }
 
-    private void TogglePermission(string code, bool isGranted)
+    private async Task SaveRolePermissionsAsync()
     {
-        if (isGranted)
-            editingRole.Permissions.Add(code);
-        else
-            editingRole.Permissions.Remove(code);
-    }
-
-    private void ToggleModulePermissions(SystemModule module, bool grantAll)
-    {
-        foreach (var perm in module.Permissions)
+        try
         {
-            TogglePermission(perm.Code, grantAll);
-        }
-    }
-
-    private void SaveRole()
-    {
-        if (string.IsNullOrWhiteSpace(editingRole.Name))
-        {
-            statusMessage = "⚠️ يرجى كتابة اسم الدور الوظيفي!";
-            isSuccessMessage = false;
-            return;
-        }
-
-        if (editingRole.Id == 0)
-        {
-            editingRole.Id = rolesList.Any() ? rolesList.Max(r => r.Id) + 1 : 1;
-            rolesList.Add(editingRole);
-            statusMessage = $"✅ تم إنشاء قالب الدور الجديد ({editingRole.Name}) وتضمين {editingRole.Permissions.Count} صلاحية بنجاح!";
-        }
-        else
-        {
-            var existing = rolesList.FirstOrDefault(r => r.Id == editingRole.Id);
-            if (existing != null)
+            var res = await Http.PutAsJsonAsync($"api/UsersManagement/roles/{editingRole.Id}/permissions", editingRole.Permissions);
+            if (res.IsSuccessStatusCode)
             {
-                existing.Name = editingRole.Name;
-                existing.Permissions = new HashSet<string>(editingRole.Permissions, StringComparer.OrdinalIgnoreCase);
-
-                foreach (var user in usersList.Where(u => u.RoleId == existing.Id))
-                {
-                    user.RoleName = existing.Name;
-                }
-                statusMessage = $"✅ تم اعتماد تحديث مصفوفة قالب ({existing.Name}) بنجاح!";
+                statusMessage = "✅ تم تحديث صلاحيات الدور بنجاح!";
+                isSuccessMessage = true;
+                isRoleModalOpen = false;
+                await LoadDataAsync();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"❌ فشل التحديث: {err}";
+                isSuccessMessage = false;
             }
         }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ اتصال: {ex.Message}";
+            isSuccessMessage = false;
+        }
+    }
 
-        isSuccessMessage = true;
-        isRoleModalOpen = false;
+    public class UserDto
+    {
+        public long Id { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
+        public string Role { get; set; } = "Admin";
+        public string DepartmentName { get; set; } = string.Empty;
+        public long? DepartmentId { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string PasswordHash { get; set; } = string.Empty;
+        public string CustomPermissions { get; set; } = string.Empty;
+    }
+
+    public class RoleDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Permissions { get; set; } = string.Empty;
     }
 }

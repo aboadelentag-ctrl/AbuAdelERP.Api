@@ -8,7 +8,6 @@ using AbuAdelERP.Api.Services;
 
 namespace AbuAdelERP.Api.Controllers
 {
-    [Authorize]
     [Route("api/[controller]")]
     [ApiController]
     public class QualityController : ControllerBase
@@ -20,7 +19,9 @@ namespace AbuAdelERP.Api.Controllers
             _qualityService = qualityService;
         }
 
+        // ==============================================================
         // 1. استعراض كافة تقارير الجودة المسجلة
+        // ==============================================================
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -31,11 +32,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء جلب تقارير الجودة: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء جلب تقارير الجودة: {ex.GetBaseException().Message}");
             }
         }
 
-        // 2. جلب أوامر الإنتاج بانتظار الفحص
+        // ==============================================================
+        // 2. جلب أوامر التشغيل أو الشحنات بانتظار الفحص
+        // ==============================================================
         [HttpGet("pending-orders")]
         public async Task<IActionResult> GetPendingOrders()
         {
@@ -46,11 +49,13 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ أثناء استعلام الأوامر: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء استعلام الأوامر المعلقة: {ex.GetBaseException().Message}");
             }
         }
 
+        // ==============================================================
         // 3. اعتماد تسجيل فحص الجودة وتطبيق القرار الآلي
+        // ==============================================================
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] QualityInspectionCreateDto request)
         {

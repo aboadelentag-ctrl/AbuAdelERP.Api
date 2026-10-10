@@ -1,4 +1,5 @@
 ﻿@page "/inventory-dashboard"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using System.Text
 @inject HttpClient Http
@@ -23,6 +24,9 @@
             <div class="d-flex flex-wrap gap-2">
                 @if (isViewingLedger)
                 {
+                    <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportLedgerToCsv" disabled="@(!movements.Any() || isLoadingLedger)">
+                        <i class="bi bi-file-earmark-excel me-1"></i> تصدير كشف الحركة (CSV)
+                    </button>
                     <button class="btn btn-outline-light btn-sm fw-bold shadow-sm" @onclick="BackToBalances">
                         ⬅️ عودة لجدول الأرصدة
                     </button>
@@ -288,8 +292,11 @@
     private string apiUrl = "api/Inventory";
 
     private IEnumerable<StockBalanceDetailedDto> FilteredBalances => balances.Where(b =>
-        (string.IsNullOrWhiteSpace(searchTerm) || b.ItemName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || b.ItemCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || b.WarehouseName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) &&
-        (string.IsNullOrWhiteSpace(selectedTypeFilter) || b.ItemType.Contains(selectedTypeFilter)) &&
+        (string.IsNullOrWhiteSpace(searchTerm) ||
+         (!string.IsNullOrEmpty(b.ItemName) && b.ItemName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+         (!string.IsNullOrEmpty(b.ItemCode) && b.ItemCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+         (!string.IsNullOrEmpty(b.WarehouseName) && b.WarehouseName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))) &&
+        (string.IsNullOrWhiteSpace(selectedTypeFilter) || (!string.IsNullOrEmpty(b.ItemType) && b.ItemType.Contains(selectedTypeFilter))) &&
         (string.IsNullOrWhiteSpace(selectedStatusFilter) ||
          (selectedStatusFilter == "AVAILABLE" && b.AvailableQuantity > 10) ||
          (selectedStatusFilter == "LOW" && b.AvailableQuantity > 0 && b.AvailableQuantity <= 10) ||
@@ -373,18 +380,55 @@
             foreach (var b in list)
             {
                 string status = b.AvailableQuantity <= 0 ? "نفد الرصيد" : (b.AvailableQuantity <= 10 ? "حد الطلب" : "متوفر");
-                sb.AppendLine($"\"{b.ItemCode}\",\"{b.ItemName}\",\"{b.ItemType}\",\"{b.WarehouseName}\",{b.Quantity:F2},{b.ReservedQuantity:F2},{b.AvailableQuantity:F2},\"{b.Unit}\",{b.EstimatedUnitCost:F2},{b.TotalValue:F2},\"{status}\"");
+                sb.AppendLine($"{EscapeCsv(b.ItemCode)},{EscapeCsv(b.ItemName)},{EscapeCsv(b.ItemType)},{EscapeCsv(b.WarehouseName)},{b.Quantity:F2},{b.ReservedQuantity:F2},{b.AvailableQuantity:F2},{EscapeCsv(b.Unit)},{b.EstimatedUnitCost:F2},{b.TotalValue:F2},{EscapeCsv(status)}");
             }
 
             var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
             var base64 = Convert.ToBase64String(bytes);
             var fileName = $"تقرير_رقابة_المخزون_{DateTime.Now:yyyyMMdd_HHmm}.csv";
-            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
         }
         catch (Exception ex)
         {
             errorMessage = $"فشل التصدير: {ex.Message}";
         }
+    }
+
+    private async Task ExportLedgerToCsv()
+    {
+        if (!movements.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("التاريخ_والوقت,نوع_الحركة,المستودع,الكمية,التكلفة,المستند_المرجعي,البيان");
+
+            foreach (var m in movements)
+            {
+                var refStr = (m.ReferenceId.HasValue && m.ReferenceId.Value > 0)
+                    ? $"{TranslateReferenceType(m.ReferenceType)} #{m.ReferenceId}"
+                    : "--";
+
+                sb.AppendLine($"{m.MovementDate:yyyy-MM-dd HH:mm},{EscapeCsv(TranslateMovementType(m.MovementType))},{EscapeCsv(m.WarehouseName)},{m.Quantity:F2},{m.UnitCost:F2},{EscapeCsv(refStr)},{EscapeCsv(m.Notes ?? "")}");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"كشف_حركة_صنف_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تصدير كشف الحركة: {ex.Message}";
+        }
+    }
+
+    private string EscapeCsv(string val)
+    {
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        return val;
     }
 
     private string TranslateMovementType(string type) => type switch
@@ -394,6 +438,9 @@
         "PRODUCTION_RECEIPT" or "PRODUCTION_IN" => "استلام تشغيل (تام/وسيط)",
         "FG_TRANSFER_OUT" => "خروج تحويل تام",
         "FG_TRANSFER_IN" => "استلام تحويل بالكنترول",
+        "TRANSFER_IN" => "تحويل وارد",
+        "TRANSFER_OUT" => "تحويل صادر",
+        "TRANSFER_LOSS" => "عجز / هالك نقل",
         "QC_SAMPLE" => "سحب عينة جودة",
         "QC_SCRAP" => "إهلاك جودة غير مطابق",
         "FG_TRANSIT_DEFICIT" => "تسوية عجز استلام",
@@ -407,10 +454,10 @@
         "PURCHASE_RECEIPT" => "bg-success",
         "PRODUCTION_ISSUE" => "bg-secondary",
         "PRODUCTION_RECEIPT" or "PRODUCTION_IN" => "bg-primary",
-        "FG_TRANSFER_IN" => "bg-info text-dark",
-        "FG_TRANSFER_OUT" => "bg-warning text-dark",
+        "FG_TRANSFER_IN" or "TRANSFER_IN" => "bg-info text-dark",
+        "FG_TRANSFER_OUT" or "TRANSFER_OUT" => "bg-warning text-dark",
         "QC_SAMPLE" => "bg-info",
-        "QC_SCRAP" or "FG_TRANSIT_DEFICIT" => "bg-danger",
+        "QC_SCRAP" or "FG_TRANSIT_DEFICIT" or "TRANSFER_LOSS" => "bg-danger",
         _ => "bg-dark"
     };
 

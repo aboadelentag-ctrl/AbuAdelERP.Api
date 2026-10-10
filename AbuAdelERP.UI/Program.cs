@@ -29,5 +29,6 @@ builder.Services.AddAuthorizationCore();
 // 4. تسجيل خدمة إدارة حالة المستخدم وصلاحيات الأزرار (AppState)
 builder.Services.AddScoped<AppState>();
 builder.Services.AddScoped<ISalesClientService, SalesClientService>();
+builder.Services.AddScoped<AbuAdelERP.UI.Services.IBranchContextService, AbuAdelERP.UI.Services.BranchContextService>();
 
 await builder.Build().RunAsync();

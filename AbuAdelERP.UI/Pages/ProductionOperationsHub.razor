@@ -1,5 +1,6 @@
 ﻿@page "/production-operations-hub"
 @page "/production-hub"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using System.Text
 @using System.IO
@@ -681,10 +682,10 @@
                     </div>
                     <small class="text-muted d-block mb-3">الصالة المعتمدة: @employeeDossierData.Department</small>
                     <div class="row g-2 text-center">
-                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">أوامر منفذة</small><h4 class="fw-bold text-primary m-0">@employeeDossierData.TotalOrdersExecuted</h4></div></div>
-                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">إجمالي الإنتاج</small><h4 class="fw-bold text-success m-0">@employeeDossierData.TotalQuantityProduced كجم</h4></div></div>
-                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">ساعات العمل</small><h4 class="fw-bold text-info m-0">@employeeDossierData.TotalWorkingHours س</h4></div></div>
-                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">معدل الإنجاز بالساعة</small><h4 class="fw-bold text-warning m-0">@employeeDossierData.ProductionPerHour كجم/س</h4></div></div>
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">أوامر منفذة</small><h4 class="fw-bold text-primary m-0 font-monospace">@employeeDossierData.TotalOrdersExecuted</h4></div></div>
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">إجمالي الإنتاج</small><h4 class="fw-bold text-success m-0 font-monospace">@employeeDossierData.TotalQuantityProduced كجم</h4></div></div>
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">ساعات العمل</small><h4 class="fw-bold text-info m-0 font-monospace">@employeeDossierData.TotalWorkingHours س</h4></div></div>
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">معدل الإنجاز بالساعة</small><h4 class="fw-bold text-warning m-0 font-monospace">@employeeDossierData.ProductionPerHour كجم/س</h4></div></div>
                     </div>
                 </div>
             }
@@ -723,7 +724,7 @@
                             </div>
                             <div class="col-md-4">
                                 <label class="small fw-bold text-dark mb-1">تاريخ التشغيل *</label>
-                                <input type="date" class="form-control" @bind="newOrderDate" />
+                                <input type="date" class="form-control font-monospace" @bind="newOrderDate" />
                             </div>
                         </div>
                     </div>
@@ -743,28 +744,34 @@
                             </div>
                             <div class="col-md-3">
                                 <label class="small fw-bold">الكمية المخططة *</label>
-                                <input type="number" class="form-control text-center fw-bold" @bind="itemToAddQty" min="1" />
+                                <input type="number" class="form-control text-center fw-bold font-monospace" @bind="itemToAddQty" min="1" />
                             </div>
                             <div class="col-md-3">
-                                <button class="btn btn-success fw-bold w-100" @onclick="AddItemToCreateList">➕ إضافة للقائمة</button>
+                                <button class="btn btn-success fw-bold w-100 shadow-sm" @onclick="AddItemToCreateList">➕ إضافة للقائمة</button>
                             </div>
                         </div>
                     </div>
 
-                    <table class="table table-bordered bg-white text-center small">
-                        <thead><tr><th>الصنف</th><th>الكمية المخططة</th><th>الوحدة</th><th>إجراء</th></tr></thead>
-                        <tbody>
-                            @foreach (var itm in newOrderLines)
-                            {
-                                <tr>
-                                    <td>@itm.ItemName</td>
-                                    <td class="fw-bold font-monospace">@itm.PlannedQuantity</td>
-                                    <td>@itm.Unit</td>
-                                    <td><button class="btn btn-sm btn-danger py-0" @onclick="() => newOrderLines.Remove(itm)">حذف</button></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+                    <div class="table-responsive bg-white rounded border">
+                        <table class="table table-bordered bg-white text-center small mb-0">
+                            <thead class="table-light"><tr><th>الصنف</th><th>الكمية المخططة</th><th>الوحدة</th><th>إجراء</th></tr></thead>
+                            <tbody>
+                                @if (!newOrderLines.Any())
+                                {
+                                    <tr><td colspan="4" class="text-muted py-3">لا توجد أصناف مضافة للقائمة.</td></tr>
+                                }
+                                @foreach (var itm in newOrderLines)
+                                {
+                                    <tr>
+                                        <td class="text-start ps-3 fw-bold">@itm.ItemName</td>
+                                        <td class="fw-bold font-monospace text-primary">@itm.PlannedQuantity</td>
+                                        <td><span class="badge bg-light text-dark border">@itm.Unit</span></td>
+                                        <td><button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => newOrderLines.Remove(itm)"><i class="bi bi-trash"></i></button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 <div class="modal-footer py-2 bg-white d-flex justify-content-between">
                     <button class="btn btn-secondary btn-sm px-4" @onclick="() => isCreateModalOpen = false">إلغاء</button>
@@ -794,7 +801,6 @@
     private string selectedOrderTrackFilter = "";
     private string selectedOrderStatusFilter = "";
 
-    // إنشاء أمر
     private bool isCreateModalOpen = false;
     private long newOrderDeptId = 0;
     private long newOrderWarehouseId = 0;
@@ -804,12 +810,10 @@
     private decimal itemToAddQty = 10;
     private List<NewOrderItemLine> newOrderLines = new();
 
-    // التنفيذ
     private long selectedExecutionOrderId = 0;
     private OrderExecutionFullDto? currentExecutionOrder;
     private bool isSubmittingExecution = false;
 
-    // إدارة الوردية
     private long shiftDeptFilter = 0;
     private long shiftSelectedOrderId = 0;
     private string shiftNameInput = "وردية صباحية";
@@ -835,11 +839,9 @@
 
     private int PresentActiveWorkersCount => FilteredShiftCrew.Count(c => c.AttendanceStatus == "حاضر" && c.HoursWorked > 0);
 
-    // التكلفة
     private BatchCostReq costCalculationReq = new();
     private CostResultDto? costResultData;
 
-    // التقارير التفصيلية
     private DateTime reportStartDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
     private DateTime reportEndDate = DateTime.Now;
     private long reportDeptFilter = 0;
@@ -1357,7 +1359,6 @@
         await JS.InvokeVoidAsync("eval", js);
     }
 
-    // DTOs
     public class LookupsResponseDto { public List<DepartmentDto> Departments { get; set; } = new(); public List<WarehouseDto> Warehouses { get; set; } = new(); public List<ItemDto> Items { get; set; } = new(); public List<EmployeeDto> Employees { get; set; } = new(); }
     public class ProductionOrderDto { public long OrderId { get; set; } public string OrderNumber { get; set; } = ""; public DateOnly OrderDate { get; set; } public long DepartmentId { get; set; } public string DepartmentName { get; set; } = ""; public string WarehouseName { get; set; } = ""; public string Status { get; set; } = ""; public List<OrderDetailDto> Details { get; set; } = new(); }
     public class OrderDetailDto { public long DetailId { get; set; } public string ItemName { get; set; } = ""; public decimal PlannedQuantity { get; set; } public decimal ProducedQuantity { get; set; } public string Unit { get; set; } = ""; public string? BatchNumber { get; set; } public string Status { get; set; } = ""; }

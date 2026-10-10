@@ -27,10 +27,10 @@ namespace AbuAdelERP.Api.Controllers
         {
             try
             {
-                // استعلام نقي يجلب فقط المعرف والاسم لتجنب أي خطأ في حال عدم وجود عمود hourly_rate
                 var titles = await _context.JobTitles
                     .AsNoTracking()
                     .Where(j => j.Active)
+                    .OrderBy(j => j.TitleName)
                     .Select(j => new JobTitleLookupDto
                     {
                         Id = j.Id,
@@ -42,8 +42,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                var inner = ex.InnerException?.Message ?? ex.Message;
-                return StatusCode(500, $"خطأ في جلب الوظائف: {inner}");
+                return StatusCode(500, $"خطأ في جلب الوظائف: {ex.GetBaseException().Message}");
             }
         }
 
@@ -59,7 +58,6 @@ namespace AbuAdelERP.Api.Controllers
             {
                 var trimmedName = dto.TitleName.Trim();
 
-                // التحقق من وجود المسمى مسبقاً لمنع التكرار
                 var existing = await _context.JobTitles
                     .FirstOrDefaultAsync(j => j.TitleName.ToLower() == trimmedName.ToLower());
 
@@ -96,15 +94,12 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                var inner = ex.InnerException?.InnerException?.Message
-                         ?? ex.InnerException?.Message
-                         ?? ex.Message;
-                return StatusCode(500, $"خطأ في حفظ المسمى الوظيفي: {inner}");
+                return StatusCode(500, $"خطأ في حفظ المسمى الوظيفي: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
-        // 2. جلب الموظفين بالكامل
+        // 2. جلب الموظفين بالكامل مع دعم التسميات المتعددة (Flat API)
         // ==============================================================
         [HttpGet]
         public async Task<IActionResult> GetEmployeesFlat()
@@ -115,11 +110,14 @@ namespace AbuAdelERP.Api.Controllers
                     .AsNoTracking()
                     .Include(e => e.Department)
                     .Include(e => e.JobTitle)
+                    .OrderBy(e => e.EmployeeCode)
                     .Select(e => new
                     {
                         e.Id,
                         e.Name,
+                        FullName = e.Name,
                         EmployeeName = e.Name,
+                        Code = e.EmployeeCode,
                         WorkerCode = e.EmployeeCode,
                         EmployeeCode = e.EmployeeCode,
                         JobTitleId = e.JobTitleId,
@@ -135,35 +133,98 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                var inner = ex.InnerException?.Message ?? ex.Message;
-                return StatusCode(500, $"خطأ في جلب الموظفين: {inner}");
+                return StatusCode(500, $"خطأ في جلب الموظفين: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
-        // 3. إضافة موظف جديد
+        // 3. إضافة موظف جديد (محصن ضد نقص المعرفات والأسماء)
         // ==============================================================
         [HttpPost]
         public async Task<IActionResult> CreateEmployee([FromBody] CreateEmployeeDto dto)
         {
-            if (dto == null || string.IsNullOrWhiteSpace(dto.Name) || !dto.DepartmentId.HasValue || dto.DepartmentId <= 0)
+            if (dto == null) return BadRequest("بيانات غير صالحة.");
+
+            var resolvedName = !string.IsNullOrWhiteSpace(dto.Name) ? dto.Name :
+                               (!string.IsNullOrWhiteSpace(dto.FullName) ? dto.FullName : dto.EmployeeName);
+
+            if (string.IsNullOrWhiteSpace(resolvedName))
             {
-                return BadRequest("اسم العامل والقسم مطلوبان.");
+                return BadRequest("اسم العامل مطلوب.");
             }
 
             try
             {
                 var company = await _context.Companies.FirstOrDefaultAsync();
                 var companyId = company != null ? company.Id : 1;
-                var code = !string.IsNullOrWhiteSpace(dto.WorkerCode) ? dto.WorkerCode : dto.EmployeeCode;
+
+                var code = !string.IsNullOrWhiteSpace(dto.WorkerCode) ? dto.WorkerCode :
+                           (!string.IsNullOrWhiteSpace(dto.EmployeeCode) ? dto.EmployeeCode : dto.Code);
+
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    int nextId = (await _context.Employees.MaxAsync(e => (int?)e.Id) ?? 0) + 1;
+                    code = $"EMP-{nextId:D3}";
+                }
+                else
+                {
+                    code = code.Trim();
+                }
+
+                // فحص تكرار الكود مع موظف آخر
+                var codeExists = await _context.Employees.AnyAsync(e => e.EmployeeCode.ToLower() == code.ToLower());
+                if (codeExists)
+                {
+                    code = $"{code}-{new Random().Next(10, 99)}";
+                }
+
+                // تسوية القسم (بالرقم أو بالاسم)
+                long? deptId = dto.DepartmentId;
+                if ((!deptId.HasValue || deptId <= 0) && !string.IsNullOrWhiteSpace(dto.DepartmentName))
+                {
+                    var deptMatch = await _context.Departments.FirstOrDefaultAsync(d =>
+                        d.DepartmentName.ToLower() == dto.DepartmentName.Trim().ToLower() ||
+                        d.DepartmentCode.ToLower() == dto.DepartmentName.Trim().ToLower());
+                    if (deptMatch != null) deptId = deptMatch.Id;
+                }
+
+                if (!deptId.HasValue || deptId <= 0)
+                {
+                    deptId = (await _context.Departments.FirstOrDefaultAsync())?.Id ?? 1;
+                }
+
+                // تسوية المسمى الوظيفي
+                long? jobTitleId = dto.JobTitleId;
+                var jobText = !string.IsNullOrWhiteSpace(dto.JobTitle) ? dto.JobTitle : dto.JobTitleName;
+                if ((!jobTitleId.HasValue || jobTitleId <= 0) && !string.IsNullOrWhiteSpace(jobText))
+                {
+                    var titleMatch = await _context.JobTitles.FirstOrDefaultAsync(j => j.TitleName.ToLower() == jobText.Trim().ToLower());
+                    if (titleMatch != null)
+                    {
+                        jobTitleId = titleMatch.Id;
+                    }
+                    else
+                    {
+                        var newTitle = new JobTitle
+                        {
+                            CompanyId = companyId,
+                            TitleName = jobText.Trim(),
+                            JobGrade = 10,
+                            Active = true
+                        };
+                        _context.JobTitles.Add(newTitle);
+                        await _context.SaveChangesAsync();
+                        jobTitleId = newTitle.Id;
+                    }
+                }
 
                 var employee = new Employee
                 {
                     CompanyId = companyId,
-                    Name = dto.Name.Trim(),
-                    EmployeeCode = code?.Trim() ?? string.Empty,
-                    DepartmentId = dto.DepartmentId > 0 ? dto.DepartmentId : null,
-                    JobTitleId = dto.JobTitleId > 0 ? dto.JobTitleId : null,
+                    Name = resolvedName.Trim(),
+                    EmployeeCode = code,
+                    DepartmentId = deptId,
+                    JobTitleId = jobTitleId,
                     ManagerId = dto.ManagerId > 0 ? dto.ManagerId : null,
                     CreatedAt = DateTime.UtcNow,
                     Active = dto.Active
@@ -171,35 +232,78 @@ namespace AbuAdelERP.Api.Controllers
 
                 _context.Employees.Add(employee);
                 await _context.SaveChangesAsync();
-                return Ok(new { Message = "تم حفظ العامل بنجاح!", EmployeeId = employee.Id });
+
+                return Ok(new { Message = "تم حفظ العامل بنجاح!", EmployeeId = employee.Id, EmployeeCode = employee.EmployeeCode });
             }
             catch (Exception ex)
             {
-                var inner = ex.InnerException?.Message ?? ex.Message;
-                return StatusCode(500, $"خطأ أثناء حفظ العامل: {inner}");
+                return StatusCode(500, $"خطأ أثناء حفظ العامل: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
         // 4. تعديل بيانات موظف / نقله إلى قسم آخر / تغيير وظيفته
         // ==============================================================
-        [HttpPut("{id}")]
+        [HttpPut("{id:long}")]
         public async Task<IActionResult> UpdateEmployee(long id, [FromBody] UpdateEmployeeDto dto)
         {
+            if (dto == null) return BadRequest("بيانات غير صالحة.");
+
             try
             {
                 var employee = await _context.Employees.FindAsync(id);
-                if (employee == null)
+                if (employee == null) return NotFound("الموظف غير موجود.");
+
+                var resolvedName = !string.IsNullOrWhiteSpace(dto.Name) ? dto.Name :
+                                   (!string.IsNullOrWhiteSpace(dto.FullName) ? dto.FullName : dto.EmployeeName);
+
+                if (!string.IsNullOrWhiteSpace(resolvedName))
+                    employee.Name = resolvedName.Trim();
+
+                var code = !string.IsNullOrWhiteSpace(dto.WorkerCode) ? dto.WorkerCode :
+                           (!string.IsNullOrWhiteSpace(dto.EmployeeCode) ? dto.EmployeeCode : dto.Code);
+
+                if (!string.IsNullOrWhiteSpace(code))
                 {
-                    return NotFound("الموظف غير موجود.");
+                    code = code.Trim();
+                    var codeExists = await _context.Employees.AnyAsync(e => e.Id != id && e.EmployeeCode.ToLower() == code.ToLower());
+                    if (!codeExists)
+                    {
+                        employee.EmployeeCode = code;
+                    }
                 }
 
-                var code = !string.IsNullOrWhiteSpace(dto.WorkerCode) ? dto.WorkerCode : dto.EmployeeCode;
+                // تسوية القسم
+                if (dto.DepartmentId.HasValue && dto.DepartmentId > 0)
+                {
+                    employee.DepartmentId = dto.DepartmentId;
+                }
+                else if (!string.IsNullOrWhiteSpace(dto.DepartmentName))
+                {
+                    var deptMatch = await _context.Departments.FirstOrDefaultAsync(d =>
+                        d.DepartmentName.ToLower() == dto.DepartmentName.Trim().ToLower() ||
+                        d.DepartmentCode.ToLower() == dto.DepartmentName.Trim().ToLower());
+                    if (deptMatch != null) employee.DepartmentId = deptMatch.Id;
+                }
 
-                employee.Name = dto.Name.Trim();
-                employee.EmployeeCode = code?.Trim() ?? string.Empty;
-                employee.DepartmentId = dto.DepartmentId > 0 ? dto.DepartmentId : null;
-                employee.JobTitleId = dto.JobTitleId > 0 ? dto.JobTitleId : null;
+                // تسوية المسمى الوظيفي
+                if (dto.JobTitleId.HasValue && dto.JobTitleId > 0)
+                {
+                    employee.JobTitleId = dto.JobTitleId;
+                }
+                else
+                {
+                    var jobText = !string.IsNullOrWhiteSpace(dto.JobTitle) ? dto.JobTitle : dto.JobTitleName;
+                    if (!string.IsNullOrWhiteSpace(jobText))
+                    {
+                        var titleMatch = await _context.JobTitles.FirstOrDefaultAsync(j => j.TitleName.ToLower() == jobText.Trim().ToLower());
+                        if (titleMatch != null)
+                        {
+                            employee.JobTitleId = titleMatch.Id;
+                        }
+                    }
+                }
+
                 employee.Active = dto.Active;
 
                 await _context.SaveChangesAsync();
@@ -207,24 +311,20 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                var inner = ex.InnerException?.Message ?? ex.Message;
-                return StatusCode(500, $"خطأ أثناء تحديث بيانات العامل: {inner}");
+                return StatusCode(500, $"خطأ أثناء تحديث بيانات العامل: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
         // 5. تبديل حالة العامل (نشط / موقوف) بنقرة زر
         // ==============================================================
-        [HttpPut("{id}/toggle-status")]
+        [HttpPut("{id:long}/toggle-status")]
         public async Task<IActionResult> ToggleStatus(long id)
         {
             try
             {
                 var employee = await _context.Employees.FindAsync(id);
-                if (employee == null)
-                {
-                    return NotFound("الموظف غير موجود.");
-                }
+                if (employee == null) return NotFound("الموظف غير موجود.");
 
                 employee.Active = !employee.Active;
                 await _context.SaveChangesAsync();
@@ -232,32 +332,38 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء تغيير الحالة: {ex.GetBaseException().Message}");
             }
         }
 
         // ==============================================================
-        // 6. حذف العامل نهائياً من قاعدة البيانات
+        // 6. حذف العامل (محصن ضد انهيار القيود المفتاحية)
         // ==============================================================
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:long}")]
         public async Task<IActionResult> DeleteEmployee(long id)
         {
             try
             {
                 var employee = await _context.Employees.FindAsync(id);
-                if (employee == null)
-                {
-                    return NotFound("العامل غير موجود.");
-                }
+                if (employee == null) return NotFound("العامل غير موجود.");
 
-                _context.Employees.Remove(employee);
-                await _context.SaveChangesAsync();
-                return Ok(new { Message = "تم حذف العامل نهائياً بنجاح!" });
+                try
+                {
+                    _context.Employees.Remove(employee);
+                    await _context.SaveChangesAsync();
+                    return Ok(new { success = true, Message = "تم حذف العامل نهائياً بنجاح!" });
+                }
+                catch (DbUpdateException)
+                {
+                    // إذا كان مرتبطاً بسجلات تاريخية أو عهد أو أوامر تشغيل
+                    employee.Active = false;
+                    await _context.SaveChangesAsync();
+                    return Ok(new { success = true, Message = "تم إيقاف وتعطيل العامل بدلاً من الحذف لوجود سجلات وعهد أو مهام مرتبطة به في النظام." });
+                }
             }
             catch (Exception ex)
             {
-                var inner = ex.InnerException?.Message ?? ex.Message;
-                return StatusCode(500, $"تعذر حذف العامل: {inner}");
+                return StatusCode(500, $"تعذر حذف العامل: {ex.GetBaseException().Message}");
             }
         }
     }
@@ -279,10 +385,16 @@ namespace AbuAdelERP.Api.Controllers
     public class CreateEmployeeDto
     {
         public string Name { get; set; } = string.Empty;
-        public string WorkerCode { get; set; } = string.Empty;
-        public string EmployeeCode { get; set; } = string.Empty;
+        public string? FullName { get; set; }
+        public string? EmployeeName { get; set; }
+        public string? Code { get; set; }
+        public string? WorkerCode { get; set; }
+        public string? EmployeeCode { get; set; }
         public long? DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
         public long? JobTitleId { get; set; }
+        public string? JobTitle { get; set; }
+        public string? JobTitleName { get; set; }
         public long? ManagerId { get; set; }
         public bool Active { get; set; } = true;
     }
@@ -290,10 +402,16 @@ namespace AbuAdelERP.Api.Controllers
     public class UpdateEmployeeDto
     {
         public string Name { get; set; } = string.Empty;
-        public string WorkerCode { get; set; } = string.Empty;
-        public string EmployeeCode { get; set; } = string.Empty;
+        public string? FullName { get; set; }
+        public string? EmployeeName { get; set; }
+        public string? Code { get; set; }
+        public string? WorkerCode { get; set; }
+        public string? EmployeeCode { get; set; }
         public long? DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
         public long? JobTitleId { get; set; }
+        public string? JobTitle { get; set; }
+        public string? JobTitleName { get; set; }
         public bool Active { get; set; } = true;
     }
 }

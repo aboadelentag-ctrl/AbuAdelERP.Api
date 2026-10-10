@@ -1,6 +1,9 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using AbuAdelERP.Api.DTOs;
 using AbuAdelERP.Api.Services;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace AbuAdelERP.Api.Controllers
 {
@@ -15,72 +18,88 @@ namespace AbuAdelERP.Api.Controllers
             _hierarchyService = hierarchyService;
         }
 
+        // ==============================================================
+        // 1. معاملات تحويل الوحدات (UoM Conversions)
+        // ==============================================================
         [HttpGet("conversions")]
         public async Task<ActionResult<List<UomConversionDto>>> GetConversions()
         {
             try
             {
-                return Ok(await _hierarchyService.GetAllConversionsAsync());
+                var result = await _hierarchyService.GetAllConversionsAsync();
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب التحويلات: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ في جلب معاملات التحويل: {ex.GetBaseException().Message}");
             }
         }
 
         [HttpPost("conversions")]
         public async Task<IActionResult> CreateConversion([FromBody] UomConversionCreateDto dto)
         {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
             try
             {
                 var result = await _hierarchyService.CreateConversionAsync(dto);
-                if (!result) return BadRequest("بيانات معامل التحويل غير صحيحة.");
+                if (!result) return BadRequest("بيانات معامل التحويل غير صحيحة أو المعامل يساوي صفراً.");
                 return Ok(true);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في قاعدة البيانات: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ في حفظ معامل التحويل: {ex.GetBaseException().Message}");
             }
         }
 
+        // ==============================================================
+        // 2. الأصناف الأساسية (Parents Lookup)
+        // ==============================================================
         [HttpGet("parents")]
         public async Task<ActionResult<List<ParentItemLookupDto>>> GetParentItems()
         {
             try
             {
-                return Ok(await _hierarchyService.GetParentItemsLookupAsync());
+                var parents = await _hierarchyService.GetParentItemsLookupAsync();
+                return Ok(parents);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب الأصناف: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ في جلب الأصناف الأساسية: {ex.GetBaseException().Message}");
             }
         }
 
+        // ==============================================================
+        // 3. تفريعات الأصناف والنكهات (Variants)
+        // ==============================================================
         [HttpGet("variants")]
         public async Task<ActionResult<List<ItemVariantDto>>> GetAllVariants()
         {
             try
             {
-                return Ok(await _hierarchyService.GetAllVariantsAsync());
+                var variants = await _hierarchyService.GetAllVariantsAsync();
+                return Ok(variants);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب التفريعات: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ في جلب تفريعات الأصناف: {ex.GetBaseException().Message}");
             }
         }
 
         [HttpPost("variants")]
         public async Task<IActionResult> CreateVariant([FromBody] ItemVariantCreateDto dto)
         {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
             try
             {
                 var result = await _hierarchyService.CreateItemVariantAsync(dto);
-                if (!result) return BadRequest("تعذر إنشاء تفريع الصنف. تأكد من تحديد الصنف الأساسي.");
+                if (!result) return BadRequest("تعذر إنشاء تفريع الصنف. تأكد من تحديد الصنف الأساسي وكتابة اسم التفرع.");
                 return Ok(true);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في قاعدة البيانات: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"خطأ في إنشاء تفرع الصنف: {ex.GetBaseException().Message}");
             }
         }
     }

@@ -1,43 +1,70 @@
 ﻿@page "/dynamic-forms"
 @page "/dynamic-form"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @inject HttpClient Http
 @using System.Text.Json
 @using System.Net.Http.Json
+@using System.IO
+@using System.Text
 
-<PageTitle>مُنشئ نماذج الجودة والتفتيش - حلواني أبو عادل</PageTitle>
+<PageTitle>أستوديو تصميم النماذج وهندسة HACCP - حلواني أبو عادل</PageTitle>
 
-<div class="container mt-4" dir="rtl">
+<div class="container-fluid px-4 py-3" dir="rtl">
     <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom flex-wrap gap-2">
         <div>
-            <h3 class="text-primary m-0 mb-1 fw-bold">🛠️ مُنشئ النماذج واستمارات HACCP الرقمية</h3>
-            <span class="text-muted small">تصميم قوالب الفحص المعملي وربطها بنقاط التحكم الحرجة وصالات الإنتاج</span>
+            <h3 class="text-primary m-0 mb-1 fw-bold">🛠️ أستوديو تصميم النماذج واستمارات HACCP</h3>
+            <span class="text-muted small">محرك النماذج المرن: استيراد المسودات، تخصيص القوائم، ربط الـ ERP، الوسائط المتعددة، وتجهيز تقارير الـ KPIs</span>
         </div>
-        <button class="btn btn-success fw-bold shadow-sm" @onclick="ShowAddForm">
-            ➕ تصميم استمارة تفتيش جديدة
-        </button>
+        <div class="d-flex gap-2">
+            @if (forms != null && forms.Any())
+            {
+                <button class="btn btn-outline-danger btn-sm fw-bold shadow-sm px-3" @onclick="ClearAllFormsAsync">
+                    ⚠️ مسح كافة النماذج
+                </button>
+            }
+            <button class="btn btn-outline-success btn-sm fw-bold shadow-sm px-3" @onclick="ShowImportModal">
+                <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد مسودة من ملف (Word)
+            </button>
+            <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="CreateBlankForm">
+                ➕ تصميم نموذج جديد من الصفر
+            </button>
+        </div>
     </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-3 py-2 fw-bold" role="alert">
+            @statusMessage
+            <button type="button" class="btn-close py-2" @onclick='() => statusMessage = ""'></button>
+        </div>
+    }
 
     @if (forms == null)
     {
-        <div class="alert alert-info shadow-sm">جاري تحميل النماذج...</div>
+        <div class="alert alert-info shadow-sm d-flex align-items-center">
+            <span class="spinner-border spinner-border-sm me-2"></span>
+            جاري تحميل النماذج والاستمارات...
+        </div>
     }
     else if (!forms.Any())
     {
-        <div class="alert alert-warning shadow-sm">لم يتم تصميم أي نماذج حتى الآن.</div>
+        <div class="alert alert-warning shadow-sm">
+            لا توجد استمارات مسجلة حالياً. يمكنك استيراد مسودة من ملف Word أو إنشاء نموذج جديد للبدء بالتصميم.
+        </div>
     }
     else
     {
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 rounded-3">
             <div class="card-body p-0 table-responsive">
                 <table class="table table-hover mb-0 text-center align-middle small">
                     <thead class="table-dark">
                         <tr>
                             <th>م</th>
-                            <th>اسم النموذج</th>
+                            <th class="text-start ps-3">اسم النموذج</th>
                             <th>كود الربط (Form Code)</th>
-                            <th>تاريخ الإنشاء</th>
+                            <th>تاريخ التحديث</th>
                             <th>الحالة</th>
-                            <th>الإجراءات</th>
+                            <th>الإجراءات وأدوات التصميم</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -45,18 +72,26 @@
                         {
                             <tr>
                                 <td>@form.Id</td>
-                                <td class="fw-bold">@form.FormName</td>
-                                <td dir="ltr" class="text-primary fw-bold font-monospace">@form.FormCode</td>
-                                <td dir="ltr" class="font-monospace text-muted">@form.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                <td class="fw-bold text-start ps-3 text-primary">@form.FormName</td>
+                                <td class="text-primary fw-bold font-monospace">@form.FormCode</td>
+                                <td class="font-monospace text-muted">@form.CreatedAt.ToString("yyyy-MM-dd")</td>
                                 <td>
-                                    <span class="badge @(form.IsActive ? "bg-success" : "bg-danger")">
-                                        @(form.IsActive ? "مفعل" : "معطل")
+                                    <span class="badge @(form.IsActive ? "bg-success" : "bg-danger") px-2 py-1">
+                                        @(form.IsActive ? "مفعل ✓" : "معطل ✕")
                                     </span>
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm @(form.IsActive ? "btn-outline-danger" : "btn-outline-success") py-0 px-2 fw-bold"
+                                    <button class="btn btn-sm btn-primary fw-bold px-3 py-1 me-1 shadow-sm"
+                                            @onclick="() => OpenStudioForForm(form)">
+                                        🎨 تخصيص في الأستوديو
+                                    </button>
+                                    <button class="btn btn-sm @(form.IsActive ? "btn-outline-warning" : "btn-outline-success") py-1 px-2 fw-bold me-1"
                                             @onclick="() => ToggleFormStatus(form.Id)">
                                         @(form.IsActive ? "إيقاف ⏸️" : "تفعيل ▶️")
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger py-1 px-2 fw-bold"
+                                            @onclick="() => DeleteFormAsync(form.Id)">
+                                        🗑️ حذف
                                     </button>
                                 </td>
                             </tr>
@@ -67,80 +102,350 @@
         </div>
     }
 
-    @if (showBuilderModal)
+    <!-- مودال أستوديو تصميم النماذج المتقدم -->
+    @if (showStudioModal)
     {
-        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);">
-            <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-                <div class="modal-content border-primary">
-                    <div class="modal-header bg-primary text-white py-2 px-3">
-                        <h6 class="modal-title fw-bold">🎨 تصميم نموذج فحص معملي متقدم</h6>
-                        <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+            <div class="modal-dialog modal-fullscreen modal-dialog-scrollable" dir="rtl">
+                <div class="modal-content border-0">
+                    
+                    <div class="modal-header bg-dark text-white py-2 px-3 d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fs-5">🎨</span>
+                            <h5 class="modal-title fw-bold m-0">أستوديو هندسة النماذج - Form Studio</h5>
+                            <span class="badge bg-primary ms-2 font-monospace">@editingSchema.FormCode</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-light fw-bold px-3" @onclick="CloseStudio">إغلاق</button>
+                            <button type="button" class="btn btn-sm btn-success fw-bold px-4 shadow" @onclick="SaveStudioDesign">
+                                💾 حفظ واعتماد النموذج النهائي
+                            </button>
+                        </div>
                     </div>
-                    <div class="modal-body bg-light">
-                        @if (!string.IsNullOrEmpty(errorMessage))
-                        {
-                            <div class="alert alert-danger py-2 fw-bold shadow-sm small">@errorMessage</div>
-                        }
 
-                        <div class="row bg-white p-3 rounded shadow-sm mb-3 g-2">
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">اسم النموذج (عربي) <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control form-control-sm border-primary" @bind="newForm.FormName" placeholder="مثال: فحص درجات حرارة أفران الشرقي والتخمير" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">كود النموذج (إنجليزي) <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control form-control-sm border-primary font-monospace" dir="ltr" @bind="newForm.FormCode" placeholder="مثال: HACCP_OVEN_TEMP_01" />
+                    <div class="modal-body bg-light p-4">
+                        
+                        <!-- إعدادات النموذج -->
+                        <div class="card p-3 shadow-sm border-0 mb-4 bg-white rounded-3">
+                            <div class="row g-3">
+                                <div class="col-md-5">
+                                    <label class="form-label small fw-bold text-dark">اسم النموذج (عربي) <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control form-control-sm border-primary fw-bold" @bind="editingSchema.FormTitle" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold text-dark">كود الربط الفريد (Code) <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control form-control-sm border-primary font-monospace" @bind="editingSchema.FormCode" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold text-dark">تصنيف النموذج للتقارير</label>
+                                    <select class="form-select form-select-sm border-primary" @bind="editingSchema.Category">
+                                        <option value="رقابة وجودة وسلامة غذاء">رقابة وجودة وسلامة غذاء</option>
+                                        <option value="تشغيل وصيانة مصانع">تشغيل وصيانة مصانع</option>
+                                        <option value="إداري وجزاءات ورقابي">إداري وجزاءات ورقابي</option>
+                                        <option value="مستودعات وخامات">مستودعات وخامات</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="bg-white p-3 rounded shadow-sm">
-                            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
-                                <h6 class="m-0 text-secondary fw-bold">📋 بنود وعناصر الفحص</h6>
-                                <button class="btn btn-sm btn-primary fw-bold" @onclick="AddField">➕ إضافة بند فحص</button>
+                        <!-- صندوق الأدوات -->
+                        <div class="card p-3 shadow-sm border-0 mb-4 bg-white rounded-3">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div>
+                                    <h6 class="m-0 fw-bold text-secondary">🧰 صندوق الأدوات البنائية (Add Components):</h6>
+                                    <span class="text-muted small">اختر المكوّن المطلوب لإضافته إلى النموذج الحالي</span>
+                                </div>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <button class="btn btn-sm btn-outline-primary fw-bold" @onclick='() => AddNewBlock("fields")'>
+                                        ➕ كتلة حقول وإدخال
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-success fw-bold" @onclick='() => AddNewBlock("table")'>
+                                        ➕ جدول فحص وتدقيق
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-warning text-dark fw-bold" @onclick='() => AddNewBlock("approval")'>
+                                        ➕ مسار اعتمادات وموافقات
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary fw-bold" @onclick='() => AddNewBlock("instruction")'>
+                                        ➕ صندوق تعليمات وتوجيه
+                                    </button>
+                                </div>
                             </div>
+                        </div>
 
-                            @if (!formFields.Any())
+                        @if (editingSchema.Blocks == null || !editingSchema.Blocks.Any())
+                        {
+                            <div class="text-center p-5 bg-white rounded shadow-sm">
+                                <h5 class="text-muted fw-bold">النموذج فارغ حالياً</h5>
+                                <p class="text-muted small">استخدم صندوق الأدوات أعلاه لإضافة أول كتلة إلى استمارتك.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            @for (int bIndex = 0; bIndex < editingSchema.Blocks.Count; bIndex++)
                             {
-                                <div class="text-center text-muted p-3 small">اضغط على "إضافة بند فحص" لتحديد عناصر التفتيش.</div>
-                            }
+                                var block = editingSchema.Blocks[bIndex];
+                                int blockNumber = bIndex + 1;
 
-                            @foreach (var field in formFields)
-                            {
-                                <div class="row align-items-end mb-2 pb-2 border-bottom border-light g-2">
-                                    <div class="col-md-5">
-                                        <label class="form-label small fw-bold text-muted">اسم البند أو السؤال</label>
-                                        <input type="text" class="form-control form-control-sm" @bind="field.Label" placeholder="مثال: درجة حرارة الفرن الفعلية" />
+                                <div class="card shadow-sm border-0 mb-4 rounded-3 overflow-hidden">
+                                    <div class="card-header bg-light py-2 px-3 d-flex justify-content-between align-items-center border-bottom">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1 me-3">
+                                            <span class="badge bg-secondary">كتلة @blockNumber</span>
+                                            <input type="text" class="form-control form-control-sm fw-bold border-0 bg-transparent" 
+                                                   style="max-width: 350px;" @bind="block.Title" placeholder="عنوان القسم أو الكتلة..." />
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge @GetBlockBadgeClass(block.BlockType)">@GetBlockTypeName(block.BlockType)</span>
+                                            <button class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" @onclick="() => RemoveBlock(block)">🗑️ حذف القسم</button>
+                                        </div>
                                     </div>
-                                    <div class="col-md-5">
-                                        <label class="form-label small fw-bold text-muted">نوع الحقل</label>
-                                        <select class="form-select form-select-sm border-info fw-bold" @bind="field.Type">
-                                            <optgroup label="إدخال قياسي">
-                                                <option value="text">نص (Text)</option>
-                                                <option value="number">رقم قياسي / حرارة / وزن (Number)</option>
-                                                <option value="date">تاريخ (Date)</option>
-                                                <option value="checkbox">مربع اختيار (مطابق / نعم)</option>
-                                            </optgroup>
-                                            <optgroup label="ربط بكيانات المصنع (ERP)">
-                                                <option value="departments">صالات وأقسام الإنتاج</option>
-                                                <option value="branches">فروع ومعارض البيع</option>
-                                                <option value="warehouses">مستودعات المصنع</option>
-                                                <option value="items">أصناف الحلويات التامة</option>
-                                                <option value="materials">الخامات ومواد التعبئة</option>
-                                                <option value="equipment">الأفران والآلات والمعدات</option>
-                                                <option value="job_roles">المسمى الوظيفي</option>
-                                            </optgroup>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2 text-start">
-                                        <button class="btn btn-sm btn-danger w-100 fw-bold" @onclick="() => RemoveField(field)">🗑️ حذف</button>
+
+                                    <div class="card-body p-3">
+                                        <!-- كتلة الحقول والإدخال -->
+                                        @if (block.BlockType == "fields")
+                                        {
+                                            <div class="mb-3 d-flex justify-content-between align-items-center">
+                                                <span class="small fw-bold text-muted">حقول البيانات والقوائم والوسائط:</span>
+                                                <button class="btn btn-sm btn-primary py-0 px-3 fw-bold" @onclick="() => AddFieldToBlock(block)">➕ إضافة حقل جديد</button>
+                                            </div>
+
+                                            @if (block.Fields.Any())
+                                            {
+                                                <div class="table-responsive">
+                                                    <table class="table table-bordered table-sm align-middle small text-center mb-0">
+                                                        <thead class="table-light">
+                                                            <tr>
+                                                                <th>اسم الحقل (Label)</th>
+                                                                <th>نوع الحقل</th>
+                                                                <th>مصدر البيانات / الخيارات</th>
+                                                                <th>خيارات التقرير (BI)</th>
+                                                                <th>إجراءات</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var field in block.Fields)
+                                                            {
+                                                                <tr>
+                                                                    <td style="width: 25%;">
+                                                                        <input type="text" class="form-control form-control-sm" @bind="field.Label" placeholder="مثال: الإدارة / الموظف / صورة المخالفة" />
+                                                                    </td>
+                                                                    <td style="width: 25%;">
+                                                                        <select class="form-select form-select-sm" @bind="field.FieldType">
+                                                                            <option value="text">نص عادي (Text)</option>
+                                                                            <option value="textarea">نص تفصيلي (Textarea)</option>
+                                                                            <option value="number">رقم قياسي / مقياس (Number)</option>
+                                                                            <option value="date">تاريخ (Date)</option>
+                                                                            <option value="manual_select">قائمة منسدلة يدوية (Manual Dropdown)</option>
+                                                                            <option value="erp_select">قائمة منسدلة من الـ ERP (Live Source)</option>
+                                                                            <option value="image">📷 التقاط / إرفاق صورة (Image)</option>
+                                                                            <option value="video">🎥 إرفاق مقطع فيديو (Video)</option>
+                                                                            <option value="audio">🎙️ تسجيل / إرفاق صوت (Audio)</option>
+                                                                        </select>
+                                                                    </td>
+                                                                    <td style="width: 25%;">
+                                                                        @if (field.FieldType == "erp_select")
+                                                                        {
+                                                                            <select class="form-select form-select-sm border-success fw-bold" @bind="field.ErpSource">
+                                                                                <option value="Departments">الأقسام وصالات الإنتاج (Departments)</option>
+                                                                                <option value="Employees">الموظفين وفريق العمل (Employees)</option>
+                                                                                <option value="Branches">الفروع والمعارض (Branches)</option>
+                                                                                <option value="Products">المنتجات التامة (Products)</option>
+                                                                                <option value="RawMaterials">الخامات والتعبئة (Materials)</option>
+                                                                                <option value="Equipment">الماكينات وخطوط الإنتاج (Equipment)</option>
+                                                                            </select>
+                                                                        }
+                                                                        else if (field.FieldType == "manual_select")
+                                                                        {
+                                                                            <input type="text" class="form-control form-control-sm" 
+                                                                                   placeholder="خيارات مفصولة بفاصلة (مثال: نعم, لا, جزئي)" 
+                                                                                   value="@string.Join(", ", field.ManualOptions)"
+                                                                                   @onchange="@(e => UpdateManualOptions(field, e.Value?.ToString()))" />
+                                                                        }
+                                                                        else if (field.FieldType == "image" || field.FieldType == "video" || field.FieldType == "audio")
+                                                                        {
+                                                                            <span class="badge bg-light text-dark border py-1">مرفق وسائط توثيقي</span>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <div class="form-check d-flex justify-content-center m-0">
+                                                                                <input class="form-check-input me-1" type="checkbox" @bind="field.IsRequired" id="@($"req_{field.Id}")" />
+                                                                                <label class="form-check-label small" for="@($"req_{field.Id}")">إلزامي</label>
+                                                                            </div>
+                                                                        }
+                                                                    </td>
+                                                                    <td style="width: 15%;">
+                                                                        <div class="d-flex justify-content-center gap-2">
+                                                                            <div class="form-check">
+                                                                                <input class="form-check-input" type="checkbox" @bind="field.IsReportFilter" id="@($"fil_{field.Id}")" />
+                                                                                <label class="form-check-label small" for="@($"fil_{field.Id}")">فلتر</label>
+                                                                            </div>
+                                                                            <div class="form-check">
+                                                                                <input class="form-check-input" type="checkbox" @bind="field.IsKpiMetric" id="@($"kpi_{field.Id}")" />
+                                                                                <label class="form-check-label small" for="@($"kpi_{field.Id}")">KPI</label>
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td style="width: 10%;">
+                                                                        <button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => block.Fields.Remove(field)">🗑️</button>
+                                                                    </td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            }
+                                        }
+
+                                        <!-- كتلة جدول الفحص -->
+                                        @if (block.BlockType == "table")
+                                        {
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <div class="d-flex gap-2">
+                                                    <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold" @onclick="() => AddColumnToTable(block)">➕ إدراج عمود للجدول</button>
+                                                    <button class="btn btn-sm btn-outline-success py-0 px-2 fw-bold" @onclick="() => AddRowToTable(block)">➕ إدراج سطر / بند فحص</button>
+                                                </div>
+                                                <span class="small text-muted">الأعمدة: @block.Columns.Count | الصفوف: @block.Rows.Count</span>
+                                            </div>
+
+                                            <div class="p-2 bg-light rounded mb-3 border">
+                                                <span class="small fw-bold text-dark d-block mb-1">أعمدة التقييم والبيانات:</span>
+                                                <div class="d-flex gap-2 flex-wrap">
+                                                    @foreach (var col in block.Columns)
+                                                    {
+                                                        <div class="badge bg-white text-dark border p-2 d-flex align-items-center gap-2 shadow-sm">
+                                                            <input type="text" class="form-control form-control-sm py-0 px-1 border-0 fw-bold" style="width: 100px;" @bind="col.Title" />
+                                                            <select class="form-select form-select-sm py-0 px-1" style="width: 110px;" @bind="col.ColumnType">
+                                                                <option value="radio">أزرار اختيار (Radio)</option>
+                                                                <option value="checkbox">مربع تحديد (Check)</option>
+                                                                <option value="text">نص ملاحظات (Text)</option>
+                                                                <option value="number">رقمي (Number)</option>
+                                                            </select>
+                                                            <button class="btn btn-sm btn-outline-danger py-0 px-1 border-0" @onclick="() => block.Columns.Remove(col)">✕</button>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+
+                                            <div class="table-responsive">
+                                                <table class="table table-bordered table-sm align-middle small mb-0">
+                                                    <thead class="table-light text-center">
+                                                        <tr>
+                                                            <th style="width: 5%;">م</th>
+                                                            <th class="text-start ps-3" style="width: 85%;">نص البند المطلوب فحصه</th>
+                                                            <th style="width: 10%;">حذف</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @for (int rIdx = 0; rIdx < block.Rows.Count; rIdx++)
+                                                        {
+                                                            var row = block.Rows[rIdx];
+                                                            int rNum = rIdx + 1;
+                                                            <tr>
+                                                                <td class="text-center text-muted fw-bold">@rNum</td>
+                                                                <td>
+                                                                    <input type="text" class="form-control form-control-sm border-0" @bind="row.Label" placeholder="اكتب بند الفحص..." />
+                                                                </td>
+                                                                <td class="text-center">
+                                                                    <button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => block.Rows.Remove(row)">🗑️</button>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+
+                                        <!-- كتلة مسار الاعتمادات -->
+                                        @if (block.BlockType == "approval")
+                                        {
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <span class="small fw-bold text-muted">مراحل القرارات والتوقيع الإلكتروني:</span>
+                                                <button class="btn btn-sm btn-warning py-0 px-3 fw-bold text-dark" @onclick="() => AddApprovalStage(block)">➕ إضافة مستوى موافقة</button>
+                                            </div>
+
+                                            <div class="row g-2">
+                                                @foreach (var stage in block.ApprovalStages)
+                                                {
+                                                    <div class="col-md-4">
+                                                        <div class="border rounded p-2 bg-white shadow-sm">
+                                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                                <input type="text" class="form-control form-control-sm fw-bold border-primary" @bind="stage.RoleTitle" placeholder="المسمى (مثال: الرئيس المباشر)" />
+                                                                <button class="btn btn-sm btn-outline-danger py-0 px-2 ms-2" @onclick="() => block.ApprovalStages.Remove(stage)">✕</button>
+                                                            </div>
+                                                            <input type="text" class="form-control form-control-sm mb-2" @bind="stage.Condition" placeholder="الشرط (مثال: في حالة تظلم العامل...)" />
+                                                            <div class="form-check form-switch small">
+                                                                <input class="form-check-input" type="checkbox" @bind="stage.HasSignature" id="@($"sign_{stage.StageId}")">
+                                                                <label class="form-check-label" for="@($"sign_{stage.StageId}")">توقيع واعتماد إلكتروني</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+
+                                        <!-- كتلة التعليمات والتوجيهات -->
+                                        @if (block.BlockType == "instruction")
+                                        {
+                                            <label class="form-label small text-muted">نص التوجيهات واللوائح المعروضة أعلى المستند:</label>
+                                            <textarea class="form-control form-control-sm" rows="3" @bind="block.InstructionText" placeholder="اكتب التعليمات هنا..."></textarea>
+                                        }
+
                                     </div>
                                 </div>
                             }
+                        }
+                    </div>
+
+                    <div class="modal-footer bg-white py-2 d-flex justify-content-between">
+                        <span class="text-muted small">جميع التعديلات يتم التحقق منها برمجياً وتأمين وسومها لمحرك التقارير.</span>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseStudio">إلغاء</button>
+                            <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow" @onclick="SaveStudioDesign">
+                                💾 اعتماد وتحديث النموذج
+                            </button>
                         </div>
                     </div>
-                    <div class="modal-footer bg-white py-2">
-                        <button type="button" class="btn btn-secondary btn-sm fw-bold px-3" @onclick="CloseModal">إلغاء</button>
-                        <button type="button" class="btn btn-success btn-sm fw-bold px-4" @onclick="SaveForm">💾 حفظ واعتماد الاستمارة</button>
+
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- مودال استيراد المسودة من Word -->
+    @if (showImportModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);">
+            <div class="modal-dialog modal-lg modal-dialog-centered" dir="rtl">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-success text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">استيراد مسودة من ملف Word</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="() => showImportModal = false"></button>
+                    </div>
+                    <div class="modal-body p-3 bg-light">
+                        <div class="alert alert-info py-2 small mb-3">
+                            سيقوم المحلل باستخراج الجداول والنصوص كمسودة أولية، وتستطيع فتحها في الأستوديو لضبط قوائم الـ ERP وتحديد أعمدة التقييم.
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-dark">كود الربط المخصص (اختياري)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" @bind="importFormCode" placeholder="مثال: SHIFT_HANDOVER" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-dark">اختر ملف Word (.docx):</label>
+                            <InputFile OnChange="OnImportFileSelected" accept=".docx" class="form-control form-control-sm border-success fw-bold" />
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-white py-2 d-flex justify-content-between">
+                        <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => showImportModal = false">إلغاء</button>
+                        <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" disabled="@(isImporting || selectedFile == null)" @onclick="UploadAndGenerateFormAsync">
+                            @if (isImporting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>جاري استخراج وتوليد المسودة...</span>
+                            }
+                            else
+                            {
+                                <span>⚡ استيراد المسودة للأستوديو</span>
+                            }
+                        </button>
                     </div>
                 </div>
             </div>
@@ -150,12 +455,19 @@
 
 @code {
     private List<DynamicFormDto>? forms;
-    private bool showBuilderModal = false;
-    private DynamicFormDto newForm = new();
-    private List<FormField> formFields = new();
-    private string errorMessage = "";
+    private bool showStudioModal = false;
+    private bool showImportModal = false;
 
-    // تم تعديل المسار ليكون مساراً نسبياً نظيفاً
+    private FormStudioSchema editingSchema = new();
+    private long currentEditingFormId = 0;
+
+    private string statusMessage = "";
+    private bool isSuccess = true;
+
+    private string importFormCode = "";
+    private IBrowserFile? selectedFile;
+    private bool isImporting = false;
+
     private string apiUrl = "api/DynamicForms";
 
     protected override async Task OnInitializedAsync()
@@ -175,50 +487,195 @@
         }
     }
 
-    private void ShowAddForm()
+    private void CreateBlankForm()
     {
-        newForm = new DynamicFormDto { IsActive = true };
-        formFields = new List<FormField>();
-        errorMessage = "";
-        showBuilderModal = true;
+        currentEditingFormId = 0;
+        editingSchema = new FormStudioSchema
+        {
+            FormTitle = "استمارة فحص جديدة",
+            FormCode = "FORM_" + DateTime.Now.ToString("yyyyMMddHHmmss"),
+            Category = "رقابة وجودة وسلامة غذاء",
+            Blocks = new()
+        };
+
+        var initialBlock = new FormStudioBlock { BlockType = "fields", Title = "البيانات الأساسية" };
+        initialBlock.Fields.Add(new StudioFieldDefinition { Key = "dept", Label = "القسم / الصالة", FieldType = "erp_select", ErpSource = "Departments", IsRequired = true, IsReportFilter = true });
+        initialBlock.Fields.Add(new StudioFieldDefinition { Key = "date", Label = "التاريخ", FieldType = "date", IsRequired = true, IsReportFilter = true });
+        editingSchema.Blocks.Add(initialBlock);
+
+        showStudioModal = true;
     }
 
-    private void CloseModal() => showBuilderModal = false;
-
-    private void AddField() => formFields.Add(new FormField { Label = "", Type = "text" });
-
-    private void RemoveField(FormField field) => formFields.Remove(field);
-
-    private async Task SaveForm()
+    private void OpenStudioForForm(DynamicFormDto form)
     {
-        errorMessage = "";
-        if (string.IsNullOrWhiteSpace(newForm.FormName) || string.IsNullOrWhiteSpace(newForm.FormCode))
+        currentEditingFormId = form.Id;
+        try
         {
-            errorMessage = "⚠️ يرجى إدخال اسم وكود النموذج."; return;
+            var opt = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            editingSchema = JsonSerializer.Deserialize<FormStudioSchema>(form.FieldsSchema, opt) 
+                            ?? new FormStudioSchema { FormTitle = form.FormName, FormCode = form.FormCode };
         }
-        if (!formFields.Any() || formFields.Any(f => string.IsNullOrWhiteSpace(f.Label)))
+        catch
         {
-            errorMessage = "⚠️ يرجى إضافة بند واحد على الأقل مع كتابة التسمية."; return;
+            editingSchema = new FormStudioSchema { FormTitle = form.FormName, FormCode = form.FormCode };
         }
 
-        newForm.FieldsSchema = JsonSerializer.Serialize(formFields);
+        showStudioModal = true;
+    }
+
+    private void CloseStudio() => showStudioModal = false;
+    private void ShowImportModal() { importFormCode = ""; selectedFile = null; showImportModal = true; }
+
+    private void AddNewBlock(string type)
+    {
+        string uniqueId = "blk_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+        string title = type == "fields" ? "حقول وبيانات" :
+                       type == "table" ? "جدول فحص وتدقيق" :
+                       type == "approval" ? "مسار اعتمادات" : "توجيهات";
+
+        var block = new FormStudioBlock { Id = uniqueId, BlockType = type, Title = title };
+
+        if (type == "table")
+        {
+            block.Columns.Add(new StudioTableColumn { Key = "status", Title = "التقييم", ColumnType = "radio", Options = new() { "مطابق", "غير مطابق" }, IsComplianceScore = true });
+            block.Columns.Add(new StudioTableColumn { Key = "notes", Title = "ملاحظات", ColumnType = "text" });
+            block.Columns.Add(new StudioTableColumn { Key = "verified", Title = "التحقق", ColumnType = "checkbox" });
+        }
+
+        editingSchema.Blocks.Add(block);
+    }
+
+    private void RemoveBlock(FormStudioBlock block) => editingSchema.Blocks.Remove(block);
+
+    private void AddFieldToBlock(FormStudioBlock block)
+    {
+        string uniqueKey = "fld_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+        block.Fields.Add(new StudioFieldDefinition
+        {
+            Key = uniqueKey,
+            Label = "بند إدخال جديد",
+            FieldType = "text",
+            IsReportFilter = true
+        });
+    }
+
+    private void UpdateManualOptions(StudioFieldDefinition field, string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) field.ManualOptions = new();
+        else field.ManualOptions = raw.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+    }
+
+    private void AddColumnToTable(FormStudioBlock block)
+    {
+        string key = "col_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+        block.Columns.Add(new StudioTableColumn
+        {
+            Key = key,
+            Title = "عمود جديد",
+            ColumnType = "text"
+        });
+    }
+
+    private void AddRowToTable(FormStudioBlock block)
+    {
+        string rowId = "row_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        block.Rows.Add(new StudioTableRow { Id = rowId, Label = "بند فحص جديد" });
+    }
+
+    private void AddApprovalStage(FormStudioBlock block)
+    {
+        string stageId = "stage_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+        block.ApprovalStages.Add(new StudioApprovalStage
+        {
+            StageId = stageId,
+            RoleTitle = "مستوى اعتماد جديد",
+            HasSignature = true,
+            DecisionOptions = new() { "أوافق", "لا أوافق" }
+        });
+    }
+
+    private async Task SaveStudioDesign()
+    {
+        if (string.IsNullOrWhiteSpace(editingSchema.FormTitle) || string.IsNullOrWhiteSpace(editingSchema.FormCode))
+        {
+            statusMessage = "⚠️ يرجى التأكد من كتابة اسم وكود النموذج.";
+            isSuccess = false;
+            return;
+        }
+
+        var payload = new DynamicFormDto
+        {
+            Id = currentEditingFormId,
+            FormName = editingSchema.FormTitle,
+            FormCode = editingSchema.FormCode,
+            FieldsSchema = JsonSerializer.Serialize(editingSchema),
+            IsActive = true
+        };
 
         try
         {
-            var response = await Http.PostAsJsonAsync(apiUrl, newForm);
-            if (response.IsSuccessStatusCode)
+            HttpResponseMessage res;
+            if (currentEditingFormId > 0)
+                res = await Http.PutAsJsonAsync($"{apiUrl}/{currentEditingFormId}", payload);
+            else
+                res = await Http.PostAsJsonAsync(apiUrl, payload);
+
+            if (res.IsSuccessStatusCode)
             {
-                showBuilderModal = false;
+                showStudioModal = false;
+                statusMessage = "✅ تم حفظ واعتماد تصميم النموذج وتجهيزه للميدان والتقارير بنجاح!";
+                isSuccess = true;
                 await LoadForms();
             }
             else
             {
-                errorMessage = await response.Content.ReadAsStringAsync();
+                statusMessage = "فشل في حفظ التصميم من السيرفر.";
+                isSuccess = false;
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"خطأ اتصال: {ex.Message}";
+            statusMessage = $"خطأ اتصال: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private void OnImportFileSelected(InputFileChangeEventArgs e) => selectedFile = e.File;
+
+    private async Task UploadAndGenerateFormAsync()
+    {
+        if (selectedFile == null) return;
+        isImporting = true;
+        try
+        {
+            var content = new MultipartFormDataContent();
+            var fileStream = selectedFile.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            content.Add(new StreamContent(fileStream), "file", selectedFile.Name);
+
+            string url = $"api/FormImport/upload-and-generate-form?formCode={Uri.EscapeDataString(importFormCode)}";
+            var res = await Http.PostAsync(url, content);
+
+            if (res.IsSuccessStatusCode)
+            {
+                showImportModal = false;
+                statusMessage = "✅ تم استيراد مسودة النموذج بنجاح! اضغط 'تخصيص في الأستوديو' لضبط الأدوات.";
+                isSuccess = true;
+                await LoadForms();
+            }
+            else
+            {
+                statusMessage = "فشل استيراد المسودة.";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isImporting = false;
         }
     }
 
@@ -227,6 +684,36 @@
         await Http.PatchAsync($"{apiUrl}/toggle-active/{id}", null);
         await LoadForms();
     }
+
+    private async Task DeleteFormAsync(long id)
+    {
+        var res = await Http.DeleteAsync($"api/FormImport/delete/{id}");
+        if (res.IsSuccessStatusCode) await LoadForms();
+    }
+
+    private async Task ClearAllFormsAsync()
+    {
+        var res = await Http.DeleteAsync("api/FormImport/clear-all");
+        if (res.IsSuccessStatusCode) await LoadForms();
+    }
+
+    private string GetBlockTypeName(string type) => type switch
+    {
+        "fields" => "حقول إدخال وقوائم",
+        "table" => "جدول فحص وتدقيق",
+        "approval" => "مسار موافقات",
+        "instruction" => "توجيهات ولوائح",
+        _ => "قسم عام"
+    };
+
+    private string GetBlockBadgeClass(string type) => type switch
+    {
+        "fields" => "bg-primary",
+        "table" => "bg-success",
+        "approval" => "bg-warning text-dark",
+        "instruction" => "bg-secondary",
+        _ => "bg-dark"
+    };
 
     public class DynamicFormDto
     {
@@ -238,9 +725,62 @@
         public DateTime CreatedAt { get; set; }
     }
 
-    public class FormField
+    public class FormStudioSchema
     {
+        public string FormCode { get; set; } = string.Empty;
+        public string FormTitle { get; set; } = string.Empty;
+        public string Category { get; set; } = "عام";
+        public List<FormStudioBlock> Blocks { get; set; } = new();
+    }
+
+    public class FormStudioBlock
+    {
+        public string Id { get; set; } = "blk_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+        public string BlockType { get; set; } = "fields";
+        public string Title { get; set; } = string.Empty;
+        public string InstructionText { get; set; } = string.Empty;
+        public List<StudioFieldDefinition> Fields { get; set; } = new();
+        public List<StudioTableColumn> Columns { get; set; } = new();
+        public List<StudioTableRow> Rows { get; set; } = new();
+        public List<StudioApprovalStage> ApprovalStages { get; set; } = new();
+    }
+
+    public class StudioFieldDefinition
+    {
+        public string Id { get; set; } = "fld_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+        public string Key { get; set; } = string.Empty;
         public string Label { get; set; } = string.Empty;
-        public string Type { get; set; } = "text";
+        public string FieldType { get; set; } = "text";
+        public string? ErpSource { get; set; }
+        public List<string> ManualOptions { get; set; } = new();
+        public bool IsRequired { get; set; }
+        public bool IsReportFilter { get; set; } = true;
+        public bool IsKpiMetric { get; set; }
+    }
+
+    public class StudioTableColumn
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string ColumnType { get; set; } = "text";
+        public List<string> Options { get; set; } = new();
+        public bool IsComplianceScore { get; set; }
+    }
+
+    public class StudioTableRow
+    {
+        public string Id { get; set; } = "row_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        public string Label { get; set; } = string.Empty;
+        public string? ItemCategory { get; set; }
+    }
+
+    public class StudioApprovalStage
+    {
+        public string StageId { get; set; } = "stage_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+        public string RoleTitle { get; set; } = string.Empty;
+        public string Condition { get; set; } = string.Empty;
+        public List<string> DecisionOptions { get; set; } = new() { "أوافق", "لا أوافق" };
+        public bool HasNotes { get; set; } = true;
+        public bool HasSignature { get; set; } = true;
     }
 }

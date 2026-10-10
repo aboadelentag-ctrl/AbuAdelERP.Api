@@ -21,15 +21,29 @@ namespace AbuAdelERP.Api.Controllers
         [HttpGet("ratings")]
         public async Task<ActionResult<List<VendorQcScoreDto>>> GetRatings([FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate)
         {
-            var data = await _vendorQcService.GetVendorRatingsAsync(fromDate, toDate);
-            return Ok(data);
+            try
+            {
+                var data = await _vendorQcService.GetVendorRatingsAsync(fromDate, toDate);
+                return Ok(data);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في استخراج تقييمات الموردين: {ex.GetBaseException().Message}");
+            }
         }
 
         [HttpGet("history")]
         public async Task<ActionResult<List<QcInspectionHistoryDto>>> GetHistory([FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate)
         {
-            var data = await _vendorQcService.GetInspectionHistoryAsync(fromDate, toDate);
-            return Ok(data);
+            try
+            {
+                var data = await _vendorQcService.GetInspectionHistoryAsync(fromDate, toDate);
+                return Ok(data);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب سجل فحص الجودة: {ex.GetBaseException().Message}");
+            }
         }
     }
 }

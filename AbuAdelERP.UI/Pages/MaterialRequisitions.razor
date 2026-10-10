@@ -1,5 +1,6 @@
 ﻿@page "/material-requisitions"
 @page "/material-requisition"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using AbuAdelERP.UI.Models
 @using AbuAdelERP.UI.Services
 @using System.Net.Http.Json
@@ -88,7 +89,7 @@
         {
             <li class="nav-item">
                 <button class="nav-link fw-bold @(activeTab == "REQUEST" ? "active" : "")" @onclick='() => ChangeTab("REQUEST")'>
-                    ✍️️ 1. طلب خامات (مشرف الصالة)
+                    ✍ 1. طلب خامات (مشرف الصالة)
                 </button>
             </li>
         }
@@ -120,7 +121,7 @@
         {
             <li class="nav-item">
                 <button class="nav-link fw-bold @(activeTab == "DISPUTE" ? "active bg-danger text-white" : "text-danger")" @onclick='() => ChangeTab("DISPUTE")'>
-                    ⚖️️ 4. فض النزاعات وتسوية الفروق
+                    ⚖ 4. فض النزاعات وتسوية الفروق
                     @if (requisitions.Any(r => r.Status == "DISPUTED"))
                     {
                         <span class="badge bg-white text-danger fw-bold ms-1">@(requisitions.Count(r => r.Status == "DISPUTED")) نزاع</span>
@@ -136,7 +137,7 @@
     </ul>
 
     <!-- ======================================================== -->
-    <!-- محطة 1: تسجيل طلب جديد                                  -->
+    <!-- محطة 1: تسجيل طلب جديد                                   -->
     <!-- ======================================================== -->
     @if (activeTab == "REQUEST" && State.HasAnyPermission("Requisition.Create", "Production.OperationsHub", "Production.Execution"))
     {
@@ -227,7 +228,7 @@
     }
 
     <!-- ======================================================== -->
-    <!-- محطة 2: صرف المخزن وتخصيص اللوطات                         -->
+    <!-- محطة 2: صرف المخزن وتخصيص اللوطات                        -->
     <!-- ======================================================== -->
     @if (activeTab == "DISPATCH" && State.HasAnyPermission("Requisition.Issue", "Warehouse.View"))
     {
@@ -297,7 +298,7 @@
                         </div>
                         <div class="col-md-7">
                             <div class="alert alert-info py-2 px-3 mb-0 small border-0">
-                                💡 <strong>ملاحظة:</strong> تم حصر المخازن في <strong>المخزن الرئيسي وإدارة المخازن</strong> فقط، مع اقتراح تشغيلة FEFO الأقرب انتهاءً تلقائياً.
+                                💡 <strong>ملاحظة:</strong> يتم توجيه الصرف على المخازن المعتمدة مع اقتراح تشغيلة FEFO الأقرب انتهاءً تلقائياً.
                             </div>
                         </div>
                     </div>
@@ -509,7 +510,7 @@
     }
 
     <!-- ======================================================== -->
-    <!-- محطة 4: فض النزاعات وتسوية الفروق                         -->
+    <!-- محطة 4: فض النزاعات وتسوية الفروق                        -->
     <!-- ======================================================== -->
     @if (activeTab == "DISPUTE" && State.HasAnyPermission("Transfers.SettleDispute", "Warehouse.View", "Roles.Manage"))
     {
@@ -782,18 +783,16 @@
                                                 <span class="text-muted">-</span>
                                             }
                                         </td>
-
-                                        <!-- حالة ومسار النزاع -->
                                         <td>
-                                            @if (row.DisputeStatusTitle.Contains("معلق"))
+                                            @if (row.DisputeStatusTitle?.Contains("معلق") == true)
                                             {
                                                 <span class="badge bg-danger">@row.DisputeStatusTitle</span>
                                             }
-                                            else if (row.DisputeStatusTitle.Contains("فض النزاع"))
+                                            else if (row.DisputeStatusTitle?.Contains("فض النزاع") == true)
                                             {
                                                 <span class="badge bg-info text-dark">@row.DisputeStatusTitle</span>
                                             }
-                                            else if (row.DisputeStatusTitle.Contains("مطابق"))
+                                            else if (row.DisputeStatusTitle?.Contains("مطابق") == true)
                                             {
                                                 <span class="badge bg-success">@row.DisputeStatusTitle</span>
                                             }
@@ -802,8 +801,6 @@
                                                 <span class="badge bg-light text-dark border">@row.DisputeStatusTitle</span>
                                             }
                                         </td>
-
-                                        <!-- قرار ومحضر تسوية النزاع -->
                                         <td class="text-start ps-2">
                                             @if (!string.IsNullOrWhiteSpace(row.DiscrepancyReason) || !string.IsNullOrWhiteSpace(row.ResolutionNotes))
                                             {
@@ -821,18 +818,12 @@
                                                 <span class="text-muted small">مطابق 100%</span>
                                             }
                                         </td>
-
-                                        <!-- رصيد الصالة قبل الطلب (تراكمي تاريخي حقيقي) -->
                                         <td class="table-primary fw-bold font-monospace text-dark">
                                             @row.FloorStockBefore.ToString("N2") @row.Unit
                                         </td>
-
-                                        <!-- رصيد الصالة بعد الاعتماد (تراكمي) -->
                                         <td class="table-success fw-bold font-monospace text-success">
                                             @row.FloorStockAfter.ToString("N2") @row.Unit
                                         </td>
-
-                                        <!-- الرصيد الفعلي الحالي التراكمي في مخزن الصالة -->
                                         <td class="table-info fw-bold font-monospace text-primary">
                                             @row.CurrentFloorStock.ToString("N2") @row.Unit
                                         </td>
@@ -965,7 +956,6 @@
     private string searchTerm = "";
     private long selectedDeptFilter = 0;
 
-    // بيانات التقرير الرقابي الشامل المنقحة
     private List<RequisitionLifecycleAuditDto> auditRows = new();
     private DateTime auditStartDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
     private DateTime auditEndDate = DateTime.Now;
@@ -1115,7 +1105,10 @@
                 rawMaterials = res.RawMaterials ?? new();
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"خطأ في تحميل القوائم المرجعية: {ex.Message}";
+        }
     }
 
     private async Task LoadRequisitions()
@@ -1172,14 +1165,6 @@
 
             return query;
         }
-    }
-
-    private bool HasActiveFilters => !string.IsNullOrWhiteSpace(searchTerm) || selectedDeptFilter > 0;
-
-    private void ResetFilters()
-    {
-        searchTerm = "";
-        selectedDeptFilter = 0;
     }
 
     private void AddReqLine() => newReq.Lines.Add(new CreateRequisitionLineDto());
@@ -1414,7 +1399,8 @@
 
     private async Task ExportAuditReportToCsv()
     {
-        if (!auditRows.Any())
+        var list = auditRows.ToList();
+        if (!list.Any())
         {
             feedbackMessage = "لا توجد بيانات مطابقة لتصديرها.";
             return;
@@ -1425,7 +1411,7 @@
             var sb = new StringBuilder();
             sb.AppendLine("رقم_الطلب,تاريخ_الطلب,الصالة,المشرف,كود_الخامة,اسم_الخامة,الوحدة,الكمية_المطلوبة,المنصرف,رقم_اللوط,تاريخ_الصلاحية,المستلم_بالصالة,الهالك_العجز,حالة_النزاع,سبب_الخلاف,قرار_التسوية,رصيد_الصالة_قبل_الطلب,رصيد_الصالة_بعد_الاعتماد,الرصيد_الفعلي_الحالي_بالصالة");
 
-            foreach (var r in auditRows)
+            foreach (var r in list)
             {
                 var expDate = r.ExpiryDate?.ToString("yyyy-MM-dd") ?? "-";
                 var discReason = (r.DiscrepancyReason ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
@@ -1436,7 +1422,7 @@
 
             var fileName = $"تقرير_الأثر_الرقابي_لدورة_الخامات_{DateTime.Now:yyyyMMdd_HHmm}.csv";
             await TriggerBrowserDownload(fileName, sb.ToString());
-            feedbackMessage = $"✅ تم تصدير بيانات ({auditRows.Count}) حركة بنجاح.";
+            feedbackMessage = $"✅ تم تصدير بيانات ({list.Count}) حركة بنجاح.";
         }
         catch (Exception ex)
         {
@@ -1625,16 +1611,10 @@
 
     private async Task TriggerBrowserDownload(string fileName, string content)
     {
-        var utf8WithBom = "\uFEFF" + content;
-        var jsCommand = $@"
-            const a = document.createElement('a');
-            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(`{utf8WithBom}`);
-            a.download = '{fileName}';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        ";
-        await JS.InvokeVoidAsync("eval", jsCommand);
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+        var js = $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);";
+        await JS.InvokeVoidAsync("eval", js);
     }
 
     private string EscapeCsv(string val)

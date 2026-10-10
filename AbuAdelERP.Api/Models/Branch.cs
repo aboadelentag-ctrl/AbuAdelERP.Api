@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AbuAdelERP.Api.Models;
 
-[Table("branches", Schema = "erp")]
+[Table("branches")]
 public partial class Branch
 {
     [Column("id")]
@@ -29,13 +29,23 @@ public partial class Branch
     public bool Active { get; set; } = true;
 
     [Column("created_at")]
-    public DateTime? CreatedAt { get; set; }
+    public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
 
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
-    // العلاقات التي يحتاجها AppDbContext
+    // العلاقات الأساسية التي تحتاجها الخدمات والمستودعات
     public virtual Company Company { get; set; } = null!;
-    public virtual ICollection<SalesOrder> SalesOrders { get; set; } = new List<SalesOrder>();
     public virtual ICollection<Warehouse> Warehouses { get; set; } = new List<Warehouse>();
+    public virtual ICollection<SalesOrder> SalesOrders { get; set; } = new List<SalesOrder>();
+
+    // خصائص إضافية ميسرة لدعم واجهة بوابة الفروع المركزية
+    [NotMapped]
+    public string Code => BranchCode;
+
+    [NotMapped]
+    public string NameAr => BranchName;
+
+    [NotMapped]
+    public bool IsActive => Active;
 }

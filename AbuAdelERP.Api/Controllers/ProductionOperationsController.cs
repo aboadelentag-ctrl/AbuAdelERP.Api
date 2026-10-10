@@ -31,7 +31,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب بيانات صالات الإنتاج: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب بيانات صالات الإنتاج: {ex.GetBaseException().Message}");
             }
         }
 
@@ -48,13 +48,16 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب أوامر التشغيل: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب أوامر التشغيل: {ex.GetBaseException().Message}");
             }
         }
 
         [HttpPost("create-order")]
         public async Task<IActionResult> CreateOrder([FromBody] CreateBatchOrderDto dto)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             try
             {
                 var result = await _operationsService.CreateOrderAsync(dto);
@@ -65,7 +68,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"فشل إصدار أمر التشغيل: {ex.InnerException?.Message ?? ex.Message}");
+                return StatusCode(500, $"فشل إصدار أمر التشغيل: {ex.GetBaseException().Message}");
             }
         }
 
@@ -85,13 +88,16 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في استخراج بيانات التنفيذ: {ex.Message}");
+                return StatusCode(500, $"خطأ في استخراج بيانات التنفيذ: {ex.GetBaseException().Message}");
             }
         }
 
         [HttpPost("finalize-order-complete")]
         public async Task<IActionResult> FinalizeOrderComplete([FromBody] CompleteOrderFinalizeDto dto)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             try
             {
                 var success = await _operationsService.FinalizeOrderCompleteAsync(dto);
@@ -102,7 +108,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في تقفيل أمر التشغيل: {ex.Message}");
+                return StatusCode(500, $"خطأ في تقفيل أمر التشغيل: {ex.GetBaseException().Message}");
             }
         }
 
@@ -112,6 +118,9 @@ namespace AbuAdelERP.Api.Controllers
         [HttpPost("submit-shift-productivity")]
         public async Task<IActionResult> SubmitShiftProductivity([FromBody] ShiftProductivityDto dto)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             try
             {
                 var message = await _operationsService.SubmitShiftProductivityAsync(dto);
@@ -121,7 +130,7 @@ namespace AbuAdelERP.Api.Controllers
             {
                 var detailedError = ex.InnerException?.InnerException?.Message
                                  ?? ex.InnerException?.Message
-                                 ?? ex.Message;
+                                 ?? ex.GetBaseException().Message;
                 return StatusCode(500, $"خطأ في تسجيل إنتاجية الوردية: {detailedError}");
             }
         }
@@ -139,7 +148,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في استخراج مؤشرات الأداء: {ex.Message}");
+                return StatusCode(500, $"خطأ في استخراج مؤشرات الأداء: {ex.GetBaseException().Message}");
             }
         }
 
@@ -153,7 +162,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب يوميات الحضور والإنتاج: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب يوميات الحضور والإنتاج: {ex.GetBaseException().Message}");
             }
         }
 
@@ -170,13 +179,16 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في جلب ملف الموظف: {ex.Message}");
+                return StatusCode(500, $"خطأ في جلب ملف الموظف: {ex.GetBaseException().Message}");
             }
         }
 
         [HttpPost("calculate-cost")]
         public async Task<ActionResult<BatchCostCalculationResultDto>> CalculateBatchCost([FromBody] BatchCostCalculationRequestDto req)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             try
             {
                 var result = await _operationsService.CalculateBatchCostAsync(req);
@@ -187,7 +199,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في حساب التكلفة: {ex.Message}");
+                return StatusCode(500, $"خطأ في حساب التكلفة: {ex.GetBaseException().Message}");
             }
         }
     }

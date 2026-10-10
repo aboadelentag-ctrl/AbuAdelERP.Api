@@ -111,7 +111,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"خطأ في احتساب ملخص لوحة القيادة: {ex.Message}");
+                return StatusCode(500, $"خطأ في احتساب ملخص لوحة القيادة: {ex.GetBaseException().Message}");
             }
         }
 
@@ -135,7 +135,9 @@ namespace AbuAdelERP.Api.Controllers
                 if (!string.IsNullOrWhiteSpace(search))
                 {
                     var term = search.Trim();
-                    query = query.Where(b => (b.Item != null && (b.Item.ItemName.Contains(term) || b.Item.ItemCode.Contains(term))));
+                    query = query.Where(b =>
+                        (b.Item != null && (b.Item.ItemName.Contains(term) || b.Item.ItemCode.Contains(term))) ||
+                        (b.Warehouse != null && b.Warehouse.WarehouseName.Contains(term)));
                 }
 
                 var list = await query
@@ -163,7 +165,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء جلب الأرصدة: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء جلب الأرصدة: {ex.GetBaseException().Message}");
             }
         }
 
@@ -175,6 +177,9 @@ namespace AbuAdelERP.Api.Controllers
         {
             if (items == null || !items.Any())
                 return BadRequest("لا توجد بيانات للاستيراد.");
+
+            var company = await _context.Companies.FirstOrDefaultAsync();
+            long companyId = company?.Id ?? 1;
 
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -201,7 +206,7 @@ namespace AbuAdelERP.Api.Controllers
                     {
                         _context.StockBalances.Add(new StockBalance
                         {
-                            CompanyId = 1,
+                            CompanyId = companyId,
                             WarehouseId = dto.WarehouseId,
                             ItemId = dto.ItemId,
                             Quantity = dto.Quantity,
@@ -214,7 +219,7 @@ namespace AbuAdelERP.Api.Controllers
 
                     _context.StockMovements.Add(new StockMovement
                     {
-                        CompanyId = 1,
+                        CompanyId = companyId,
                         WarehouseId = dto.WarehouseId,
                         ItemId = dto.ItemId,
                         MovementType = "STOCK_ADJUSTMENT",
@@ -242,7 +247,7 @@ namespace AbuAdelERP.Api.Controllers
         // ==============================================================
         // 4. جلب بطاقة حركة الصنف (Item Ledger)
         // ==============================================================
-        [HttpGet("ledger/{itemId}")]
+        [HttpGet("ledger/{itemId:long}")]
         public async Task<IActionResult> GetItemLedger(long itemId)
         {
             try
@@ -251,7 +256,7 @@ namespace AbuAdelERP.Api.Controllers
                     .Include(m => m.Warehouse)
                     .Where(m => m.ItemId == itemId)
                     .OrderByDescending(m => m.MovementAt)
-                    .Take(150)
+                    .Take(250)
                     .Select(m => new StockMovementDto
                     {
                         Id = m.Id,
@@ -270,7 +275,7 @@ namespace AbuAdelERP.Api.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"خطأ أثناء جلب حركة الصنف: {ex.Message}");
+                return StatusCode(500, $"خطأ أثناء جلب حركة الصنف: {ex.GetBaseException().Message}");
             }
         }
 

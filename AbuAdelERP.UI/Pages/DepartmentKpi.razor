@@ -1,19 +1,32 @@
 ﻿@page "/department-kpis"
 @page "/department-kpi"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @inject HttpClient Http
+@inject IJSRuntime JS
 @using System.Net.Http.Json
+@using System.Text
 
 <PageTitle>لوحة مؤشرات الأداء (KPIs) - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid px-4 py-3" dir="rtl">
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom flex-wrap gap-2">
         <div>
-            <h3 class="text-primary fw-bold m-0 mb-1">🎯 لوحة مؤشرات الأداء (KPIs) للأقسام</h3>
-            <span class="text-muted">مراقبة حية لكفاءة الإنتاج ونسب الهالك لكل قسم تشغيلي</span>
+            <h3 class="text-primary fw-bold m-0 mb-1">
+                <i class="bi bi-speedometer2 me-2"></i>🎯 لوحة مؤشرات الأداء (KPIs) للأقسام وصالات الإنتاج
+            </h3>
+            <span class="text-muted small">مراقبة حية لكفاءة الإنتاج، نسب الهالك، وساعات التشغيل لكل صالة وقسم</span>
         </div>
-        <button class="btn btn-outline-primary fw-bold shadow-sm" @onclick="LoadKpiData" disabled="@isLoading">
-            🔄 تحديث المؤشرات
-        </button>
+        <div class="d-flex gap-2">
+            @if (departmentEfficiencies.Any())
+            {
+                <button class="btn btn-outline-success fw-bold btn-sm shadow-sm" @onclick="ExportKpiToCsv" disabled="@isLoading">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير التقرير (Excel)
+                </button>
+            }
+            <button class="btn btn-outline-primary fw-bold btn-sm shadow-sm" @onclick="LoadKpiData" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise me-1"></i> 🔄 تحديث المؤشرات
+            </button>
+        </div>
     </div>
 
     @if (!string.IsNullOrEmpty(errorMessage))
@@ -25,18 +38,28 @@
     }
 
     <!-- فلاتر سريعة للمؤشرات -->
-    <div class="card shadow-sm border-0 mb-4 bg-light">
+    <div class="card shadow-sm border-0 mb-4 bg-light rounded-3">
         <div class="card-body p-3">
             <div class="row align-items-end g-3">
-                <div class="col-md-4">
-                    <label class="form-label fw-bold small text-secondary">تحليل الأداء للفترة من</label>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-secondary mb-1">تحليل الأداء للفترة من</label>
                     <input type="date" class="form-control form-control-sm border-primary fw-bold font-monospace" @bind="startDate" />
                 </div>
-                <div class="col-md-4">
-                    <label class="form-label fw-bold small text-secondary">إلى تاريخ</label>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-secondary mb-1">إلى تاريخ</label>
                     <input type="date" class="form-control form-control-sm border-primary fw-bold font-monospace" @bind="endDate" />
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-secondary mb-1">تحديد الصالة / القسم</label>
+                    <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedDepartmentId">
+                        <option value="0">-- كافة الصالات والأقسام --</option>
+                        @foreach (var d in departmentsList)
+                        {
+                            <option value="@d.Id">@d.DepartmentName (@d.DepartmentCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
                     <button class="btn btn-primary btn-sm fw-bold w-100 shadow-sm py-2" @onclick="LoadKpiData" disabled="@isLoading">
                         📊 تطبيق الفلتر وحساب الكفاءة
                     </button>
@@ -89,37 +112,40 @@
             <div class="row g-3">
                 @foreach (var dept in departmentEfficiencies)
                 {
+                    var eff = dept.EfficiencyPercentage;
+                    var progressWidth = Math.Clamp(eff, 0, 100);
+
                     <div class="col-md-6 col-lg-4">
-                        <div class="card h-100 shadow-sm border-0 border-top border-4 @(dept.EfficiencyPercentage >= 90 ? "border-success" : (dept.EfficiencyPercentage >= 75 ? "border-warning" : "border-danger"))">
+                        <div class="card h-100 shadow-sm border-0 border-top border-4 @(eff >= 90 ? "border-success" : (eff >= 75 ? "border-warning" : "border-danger")) rounded-3">
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <h6 class="fw-bold text-dark m-0">@dept.DepartmentName</h6>
-                                    @if (dept.EfficiencyPercentage >= 90)
+                                    @if (eff >= 90)
                                     {
-                                        <span class="badge bg-success">ممتاز</span>
+                                        <span class="badge bg-success">ممتاز ✓</span>
                                     }
-                                    else if (dept.EfficiencyPercentage >= 75)
+                                    else if (eff >= 75)
                                     {
-                                        <span class="badge bg-warning text-dark">مقبول</span>
+                                        <span class="badge bg-warning text-dark">مقبول ⚠️</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-danger">حرج</span>
+                                        <span class="badge bg-danger">حرج ⛔</span>
                                     }
                                 </div>
 
                                 <div class="mb-3 text-center">
-                                    <div class="display-6 fw-bold font-monospace @(dept.EfficiencyPercentage >= 90 ? "text-success" : (dept.EfficiencyPercentage >= 75 ? "text-warning" : "text-danger"))">
-                                        @dept.EfficiencyPercentage%
+                                    <div class="display-6 fw-bold font-monospace @(eff >= 90 ? "text-success" : (eff >= 75 ? "text-warning" : "text-danger"))">
+                                        @eff%
                                     </div>
-                                    <span class="text-muted small fw-bold">نسبة الكفاءة</span>
+                                    <span class="text-muted small fw-bold">نسبة الكفاءة الفعلية</span>
                                 </div>
 
                                 <div class="progress mb-3 shadow-sm" style="height: 12px; border-radius: 10px;">
-                                    <div class="progress-bar progress-bar-striped progress-bar-animated @(dept.EfficiencyPercentage >= 90 ? "bg-success" : (dept.EfficiencyPercentage >= 75 ? "bg-warning" : "bg-danger"))"
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated @(eff >= 90 ? "bg-success" : (eff >= 75 ? "bg-warning" : "bg-danger"))"
                                          role="progressbar"
-                                         style="width: @(dept.EfficiencyPercentage > 100 ? 100 : dept.EfficiencyPercentage)%;"
-                                         aria-valuenow="@dept.EfficiencyPercentage" aria-valuemin="0" aria-valuemax="100">
+                                         style="width: @(progressWidth)%;"
+                                         aria-valuenow="@eff" aria-valuemin="0" aria-valuemax="100">
                                     </div>
                                 </div>
 
@@ -150,25 +176,42 @@
     private bool isLoading = true;
     private string errorMessage = "";
 
-    // افتراضياً: نجلب بيانات الشهر الحالي
     private DateOnly startDate = new DateOnly(DateTime.Now.Year, DateTime.Now.Month, 1);
     private DateOnly endDate = DateOnly.FromDateTime(DateTime.Now);
+    private long selectedDepartmentId = 0;
 
+    private List<DepartmentLookupDto> departmentsList = new();
     private List<DepartmentEfficiencyDto> departmentEfficiencies = new();
     private KpiSummaryDto summaryKpi = new();
 
     protected override async Task OnInitializedAsync()
     {
+        await LoadDepartmentsList();
         await LoadKpiData();
+    }
+
+    private async Task LoadDepartmentsList()
+    {
+        try
+        {
+            departmentsList = await Http.GetFromJsonAsync<List<DepartmentLookupDto>>("api/departments") ?? new();
+        }
+        catch { }
     }
 
     private async Task LoadKpiData()
     {
+        if (startDate > endDate)
+        {
+            errorMessage = "تاريخ البداية لا يمكن أن يكون بعد تاريخ النهاية.";
+            return;
+        }
+
         isLoading = true;
         errorMessage = "";
         try
         {
-            string url = $"api/Reports/efficiency?startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}&departmentId=0";
+            string url = $"api/Reports/efficiency?startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}&departmentId={selectedDepartmentId}";
             var result = await Http.GetFromJsonAsync<ReportResultDto>(url);
 
             if (result != null)
@@ -187,9 +230,31 @@
         }
     }
 
-    // ==========================================
-    // DTOs متوافقة مع الـ ReportsController
-    // ==========================================
+    private async Task ExportKpiToCsv()
+    {
+        if (!departmentEfficiencies.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("القسم,المخطط,المنفذ,الهالك,نسبة_الكفاءة");
+
+            foreach (var d in departmentEfficiencies)
+            {
+                sb.AppendLine($"\"{d.DepartmentName}\",{d.TotalPlanned:F2},{d.TotalProduced:F2},{d.TotalWaste:F2},{d.EfficiencyPercentage:F2}%");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"تقرير_كفاءة_الأقسام_{startDate:yyyyMMdd}_إلى_{endDate:yyyyMMdd}.csv";
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تصدير التقرير: {ex.Message}";
+        }
+    }
+
     public class ReportResultDto
     {
         public KpiSummaryDto Summary { get; set; } = new();
@@ -211,5 +276,12 @@
         public decimal TotalProduced { get; set; }
         public decimal EfficiencyPercentage { get; set; }
         public decimal TotalWaste { get; set; }
+    }
+
+    public class DepartmentLookupDto
+    {
+        public long Id { get; set; }
+        public string DepartmentCode { get; set; } = string.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
     }
 }

@@ -88,7 +88,7 @@ namespace AbuAdelERP.Api.Controllers
                 if (item == null)
                     return NotFound("الصنف غير موجود بالنظام.");
 
-                var movementsQuery = _context.StockMovements
+                var baseMovementsQuery = _context.StockMovements
                     .Include(m => m.Warehouse)
                         .ThenInclude(w => w.Branch)
                     .AsNoTracking()
@@ -96,36 +96,42 @@ namespace AbuAdelERP.Api.Controllers
 
                 if (warehouseId.HasValue && warehouseId.Value > 0)
                 {
-                    movementsQuery = movementsQuery.Where(m => m.WarehouseId == warehouseId.Value);
+                    baseMovementsQuery = baseMovementsQuery.Where(m => m.WarehouseId == warehouseId.Value);
                 }
 
-                DateTime startUtc = fromDate.HasValue
-                    ? DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc)
-                    : DateTime.MinValue;
-
-                DateTime endUtc = toDate.HasValue
-                    ? DateTime.SpecifyKind(toDate.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc)
-                    : DateTime.MaxValue;
-
-                // 1. احتساب رصيد أول المدة قبل تاريخ البداية بدقة
+                // 1. احتساب رصيد أول المدة بدقة متناهية قبل تاريخ البداية
                 decimal openingBalance = 0;
+                var periodQuery = baseMovementsQuery;
+
                 if (fromDate.HasValue)
                 {
-                    var priorMovements = await movementsQuery
+                    DateTime startUtc = DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc);
+
+                    var priorMovements = await baseMovementsQuery
                         .Where(m => m.MovementAt < startUtc)
                         .Select(m => new { m.MovementType, m.Quantity })
                         .ToListAsync();
 
                     foreach (var m in priorMovements)
                     {
+                        if (string.Equals(m.MovementType, "QC_REJECTED", StringComparison.OrdinalIgnoreCase))
+                            continue; // المرفوضات لا تؤثر على الرصيد
+
                         decimal qty = Math.Abs(m.Quantity);
                         openingBalance += IsInbound(m.MovementType) ? qty : -qty;
                     }
+
+                    periodQuery = periodQuery.Where(m => m.MovementAt >= startUtc);
+                }
+
+                if (toDate.HasValue)
+                {
+                    DateTime endUtc = DateTime.SpecifyKind(toDate.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+                    periodQuery = periodQuery.Where(m => m.MovementAt <= endUtc);
                 }
 
                 // 2. جلب الحركات داخل الفترة المحددة
-                var periodMovements = await movementsQuery
-                    .Where(m => m.MovementAt >= startUtc && m.MovementAt <= endUtc)
+                var periodMovements = await periodQuery
                     .OrderBy(m => m.MovementAt)
                     .ThenBy(m => m.Id)
                     .ToListAsync();
@@ -136,20 +142,45 @@ namespace AbuAdelERP.Api.Controllers
 
                 foreach (var m in periodMovements)
                 {
-                    bool inbound = IsInbound(m.MovementType);
-                    decimal qty = Math.Abs(m.Quantity);
-                    decimal inQty = inbound ? qty : 0;
-                    decimal outQty = !inbound ? qty : 0;
-
-                    runningBalance += (inQty - outQty);
-
-                    // استخراج رقم اللوط من الملاحظات بدعم كافة البادئات
+                    // استخراج رقم اللوط وتاريخ الصلاحية
                     string batchNumber = ExtractValue(m.Notes, "تشغيلة:", "|");
                     if (string.IsNullOrEmpty(batchNumber)) batchNumber = ExtractValue(m.Notes, "لوط:", "|");
                     if (string.IsNullOrEmpty(batchNumber)) batchNumber = ExtractValue(m.Notes, "LOT:", "|");
                     if (string.IsNullOrEmpty(batchNumber)) batchNumber = ExtractValue(m.Notes, "تشغيلة/تتبع:", "|");
 
                     string expiryDate = ExtractValue(m.Notes, "صلاحية:", "|");
+
+                    // معالجة المرفوضات الفنية: تظهر للمعاينة والرقابة لكنها لا تؤثر على الرصيد المخزني
+                    if (string.Equals(m.MovementType, "QC_REJECTED", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ledgerLines.Add(new StockLedgerLineDto
+                        {
+                            MovementId = m.Id,
+                            MovementDate = m.MovementAt,
+                            MovementType = m.MovementType,
+                            MovementTypeLabel = "فحص جودة - مرفوض (خارج المخزون)",
+                            WarehouseName = m.Warehouse != null ? m.Warehouse.WarehouseName : "مستودع غير محدد",
+                            BranchName = m.Warehouse?.Branch != null ? m.Warehouse.Branch.BranchName : "الفرع الرئيسي",
+                            InQuantity = 0,
+                            OutQuantity = 0,
+                            BalanceAfter = runningBalance,
+                            UnitCost = m.UnitCost,
+                            TotalCost = 0,
+                            BatchNumber = !string.IsNullOrEmpty(batchNumber) ? batchNumber : "---",
+                            ExpiryDate = !string.IsNullOrEmpty(expiryDate) ? expiryDate : "---",
+                            ReferenceType = m.ReferenceType ?? "---",
+                            ReferenceId = m.ReferenceId,
+                            Notes = m.Notes
+                        });
+                        continue;
+                    }
+
+                    bool inbound = IsInbound(m.MovementType);
+                    decimal qty = Math.Abs(m.Quantity);
+                    decimal inQty = inbound ? qty : 0;
+                    decimal outQty = !inbound ? qty : 0;
+
+                    runningBalance += (inQty - outQty);
 
                     ledgerLines.Add(new StockLedgerLineDto
                     {
@@ -195,7 +226,7 @@ namespace AbuAdelERP.Api.Controllers
         }
 
         // ==============================================================
-        // دوال مساعدة في التصنيف والتحليل (محصنة لكافة الحركات)
+        // دوال مساعدة في التصنيف والتحليل
         // ==============================================================
         private static bool IsInbound(string movementType) => movementType switch
         {
@@ -224,6 +255,7 @@ namespace AbuAdelERP.Api.Controllers
             "FG_TRANSFER_IN" => "استلام منتج تام بمخزن الكنترول",
             "QC_SAMPLE" => "سحب عينات فحص الجودة المعملي",
             "QC_SCRAP" => "إهلاك وتالف فني غير مطابق للجودة",
+            "QC_REJECTED" => "فحص جودة - مرفوض (خارج المخزون)",
             "FG_TRANSIT_DEFICIT" => "تسوية عجز استلام كنترول",
             "ADJUSTMENT_IN" => "تسوية جردية (إضافة)",
             "ADJUSTMENT_OUT" => "تسوية جردية (خصم)",

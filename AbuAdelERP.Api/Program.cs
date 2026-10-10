@@ -1,4 +1,3 @@
-using System;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,13 +13,24 @@ using AbuAdelERP.Api.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // ==============================================================
-// 1. قاعدة البيانات (PostgreSQL)
+// 1. إعداد قاعدة البيانات (PostgreSQL - Neon) وضبط معيار Snake-Case
 // ==============================================================
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    options.UseNpgsql(connectionString)
+           .UseSnakeCaseNamingConvention(); // يضمن تطابق أسماء الجداول والأعمدة 100% مع PostgreSQL
+});
 
 // ==============================================================
-// 2. تسجيل كافة خدمات النظام بحاوية الاعتمادية (Dependency Injection)
+// 2. تفعيل محرك الـ SaaS وإدارة سياق المستأجر (Tenant Context)
+// ==============================================================
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+
+// ==============================================================
+// 3. تسجيل خدمات النظام بحاوية الاعتمادية (Dependency Injection)
 // ==============================================================
 
 // قطاع التصنيع والتشغيل (MES & Production)
@@ -58,7 +68,7 @@ builder.Services.AddScoped<ICostingService, CostingService>();
 builder.Services.AddScoped<ISalesService, SalesService>();
 
 // ==============================================================
-// 3. منظومة حماية الـ JWT
+// 4. منظومة حماية الـ JWT
 // ==============================================================
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "AbuAdelSuperSecretKeyForJwtAuthentication2026";
 var keyBytes = Encoding.ASCII.GetBytes(jwtKey);
@@ -82,7 +92,7 @@ builder.Services.AddAuthentication(options =>
 });
 
 // ==============================================================
-// 4. ضبط الـ Controllers وحل مشاكل الحلقات التكرارية JSON
+// 5. ضبط الـ Controllers ومنع مشاكل التسلسل (JSON Cycles)
 // ==============================================================
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -98,7 +108,7 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // ==============================================================
-// 5. ضبط سياسة الـ CORS الشاملة لمنع حجب المتصفح
+// 6. ضبط سياسة الـ CORS لمنع تعارض المتصفح مع Blazor
 // ==============================================================
 builder.Services.AddCors(options =>
 {
@@ -113,7 +123,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // ==============================================================
-// 6. خط أنابيب الطلبات بالترتيب السليم الصارم (Pipeline Ordering)
+// 7. خط أنابيب المعالجة (HTTP Request Pipeline)
 // ==============================================================
 if (app.Environment.IsDevelopment())
 {
@@ -123,6 +133,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
+
 app.UseAuthentication();
 app.UseAuthorization();
 

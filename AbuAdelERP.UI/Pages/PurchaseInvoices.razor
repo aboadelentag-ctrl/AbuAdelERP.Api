@@ -1,8 +1,11 @@
 ﻿@page "/purchase-invoices"
 @page "/purchase-orders"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
+@using System.Text
 @using AbuAdelERP.UI.DTOs
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>أوامر وفواتير الشراء والتوريد - حلواني أبو عادل</PageTitle>
 
@@ -16,10 +19,16 @@
             <p class="text-muted small mb-0">إصدار أوامر الشراء، اعتماد فواتير الموردين، وتجهيز الشحنات للفحص المخزني (GMP)</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-primary px-4 shadow-sm" @onclick="OpenCreateModal">
+            @if (orders.Any())
+            {
+                <button class="btn btn-outline-success px-3 shadow-sm btn-sm fw-bold" @onclick="ExportOrdersToExcel">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير (Excel)
+                </button>
+            }
+            <button class="btn btn-primary px-4 shadow-sm btn-sm fw-bold" @onclick="OpenCreateModal">
                 <i class="bi bi-plus-circle me-1"></i> أمر شراء جديد
             </button>
-            <button class="btn btn-outline-secondary px-3" @onclick="LoadOrders" disabled="@isLoading">
+            <button class="btn btn-outline-secondary px-3 btn-sm" @onclick="LoadOrders" disabled="@isLoading" title="تحديث">
                 <i class="bi bi-arrow-clockwise"></i>
             </button>
         </div>
@@ -28,16 +37,16 @@
     <!-- رسائل التنبيه -->
     @if (!string.IsNullOrEmpty(statusMessage))
     {
-        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+        <div class="alert alert-success alert-dismissible fade show shadow-sm py-2 fw-bold" role="alert">
             <i class="bi bi-check-circle-fill me-2"></i>@statusMessage
-            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+            <button type="button" class="btn-close py-2" @onclick="() => statusMessage = null"></button>
         </div>
     }
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm py-2 fw-bold" role="alert">
             <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
-            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+            <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
         </div>
     }
 
@@ -46,44 +55,44 @@
         <div class="col-md-3">
             <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-primary">
                 <span class="text-muted small fw-bold d-block">إجمالي أوامر الشراء</span>
-                <h4 class="fw-bold text-dark mb-0 font-monospace">@orders.Count</h4>
+                <h4 class="fw-bold text-dark mb-0 font-monospace mt-1">@orders.Count</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-warning">
                 <span class="text-muted small fw-bold d-block">قيد المراجعة والاعتماد</span>
-                <h4 class="fw-bold text-warning mb-0 font-monospace">@orders.Count(o => o.Status == "Pending_Procurement")</h4>
+                <h4 class="fw-bold text-warning mb-0 font-monospace mt-1">@orders.Count(o => o.Status == "Pending_Procurement")</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-success">
-                <span class="text-muted small fw-bold d-block">فواتير جاهزة للتوريد والفحص</span>
-                <h4 class="fw-bold text-success mb-0 font-monospace">@orders.Count(o => o.Status == "Approved" || o.Status == "Partially_Received")</h4>
+                <span class="text-muted small fw-bold d-block">فواتير معتمدة للتوريد</span>
+                <h4 class="fw-bold text-success mb-0 font-monospace mt-1">@orders.Count(o => o.Status == "Approved" || o.Status == "Partially_Received")</h4>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-info">
                 <span class="text-muted small fw-bold d-block">إجمالي القيمة المالية للمشتريات</span>
-                <h4 class="fw-bold text-info mb-0 font-monospace">@orders.Sum(o => o.TotalAmount).ToString("N0") <span class="fs-6 text-muted">ج.م</span></h4>
+                <h4 class="fw-bold text-info mb-0 font-monospace mt-1">@orders.Sum(o => o.Lines.Sum(l => l.Quantity * l.UnitPrice)).ToString("N0") <span class="fs-6 text-muted">ج.م</span></h4>
             </div>
         </div>
     </div>
 
     <!-- فلاتر العرض والبحث -->
-    <div class="card shadow-sm border-0 rounded-3 mb-4">
-        <div class="card-body p-3">
-            <div class="row g-3 align-items-center">
+    <div class="card shadow-sm border-0 rounded-3 mb-4 bg-light">
+        <div class="card-body p-2">
+            <div class="row g-2 align-items-center">
                 <div class="col-md-6">
                     <div class="btn-group w-100" role="group">
-                        <button type="button" class="btn btn-sm @(selectedStatus == null ? "btn-primary" : "btn-outline-primary")" 
+                        <button type="button" class="btn btn-sm @(selectedStatus == null ? "btn-primary" : "btn-outline-primary") fw-bold" 
                                 @onclick="() => FilterByStatus(null)">الكل (@orders.Count)</button>
-                        <button type="button" class="btn btn-sm @(selectedStatus == "Pending_Procurement" ? "btn-warning" : "btn-outline-warning")" 
+                        <button type="button" class="btn btn-sm @(selectedStatus == "Pending_Procurement" ? "btn-warning" : "btn-outline-warning") fw-bold" 
                                 @onclick='() => FilterByStatus("Pending_Procurement")'>قيد الاعتماد ⏳</button>
-                        <button type="button" class="btn btn-sm @(selectedStatus == "Approved" ? "btn-success" : "btn-outline-success")" 
+                        <button type="button" class="btn btn-sm @(selectedStatus == "Approved" ? "btn-success" : "btn-outline-success") fw-bold" 
                                 @onclick='() => FilterByStatus("Approved")'>معتمد للتوريد ✅</button>
-                        <button type="button" class="btn btn-sm @(selectedStatus == "Partially_Received" ? "btn-info" : "btn-outline-info")" 
+                        <button type="button" class="btn btn-sm @(selectedStatus == "Partially_Received" ? "btn-info" : "btn-outline-info") fw-bold" 
                                 @onclick='() => FilterByStatus("Partially_Received")'>توريد جزئي 🚚</button>
-                        <button type="button" class="btn btn-sm @(selectedStatus == "Closed" ? "btn-secondary" : "btn-outline-secondary")" 
+                        <button type="button" class="btn btn-sm @(selectedStatus == "Closed" ? "btn-secondary" : "btn-outline-secondary") fw-bold" 
                                 @onclick='() => FilterByStatus("Closed")'>مكتمل ومغلق 🔒</button>
                     </div>
                 </div>
@@ -122,8 +131,7 @@
                                 <th>التاريخ</th>
                                 <th class="text-start ps-3">المورد</th>
                                 <th>عدد البنود</th>
-                                <th>إجمالي القيمة</th>
-                                <th>الضريبة</th>
+                                <th>إجمالي القيمة التقديرية</th>
                                 <th>الحالة الرقابية</th>
                                 <th>الإجراءات</th>
                             </tr>
@@ -131,6 +139,7 @@
                         <tbody>
                             @foreach (var o in FilteredOrders)
                             {
+                                var orderTotal = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
                                 <tr>
                                     <td class="fw-bold font-monospace text-primary">@o.OrderNumber</td>
                                     <td class="small text-muted font-monospace">@o.OrderDate.ToString("yyyy-MM-dd")</td>
@@ -138,12 +147,11 @@
                                         <i class="bi bi-building me-1 text-muted"></i>@o.SupplierName
                                     </td>
                                     <td>
-                                        <span class="badge bg-secondary">@o.Lines.Count أصناف</span>
+                                        <span class="badge bg-secondary font-monospace">@o.Lines.Count أصناف</span>
                                     </td>
                                     <td class="fw-bold fs-6 text-dark font-monospace">
-                                        @o.TotalAmount.ToString("N2") <span class="small text-muted fw-normal">ج.م</span>
+                                        @orderTotal.ToString("N2") <span class="small text-muted fw-normal">ج.م</span>
                                     </td>
-                                    <td class="small text-muted font-monospace">@o.TaxAmount.ToString("N2")</td>
                                     <td>
                                         <span class="badge @GetStatusBadge(o.Status) px-2 py-1">
                                             @GetStatusLabel(o.Status)
@@ -172,9 +180,7 @@
     </div>
 </div>
 
-<!-- ========================================== -->
-<!-- Modal 1: إنشاء أمر شراء جديد               -->
-<!-- ========================================== -->
+<!-- Modal 1: إنشاء أمر شراء جديد -->
 @if (showCreateModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
@@ -186,15 +192,15 @@
                     </h6>
                     <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showCreateModal = false"></button>
                 </div>
-                <div class="modal-body p-3">
+                <div class="modal-body p-3 bg-light">
                     @if (!string.IsNullOrEmpty(modalError))
                     {
-                        <div class="alert alert-danger py-2 small mb-3">@modalError</div>
+                        <div class="alert alert-danger py-2 small mb-3 fw-bold">@modalError</div>
                     }
 
-                    <div class="row g-2 mb-3 bg-light p-3 rounded-3 border">
+                    <div class="row g-2 mb-3 bg-white p-3 rounded-3 border">
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">المورد المعتمد <span class="text-danger">*</span></label>
+                            <label class="form-label small fw-bold text-dark mb-1">المورد المعتمد <span class="text-danger">*</span></label>
                             <select class="form-select form-select-sm fw-bold border-primary" @bind="newOrder.SupplierId">
                                 <option value="0">-- اختر المورد --</option>
                                 @foreach (var s in lookups.Suppliers)
@@ -204,7 +210,7 @@
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">مستودع الاستلام المستهدف <span class="text-danger">*</span></label>
+                            <label class="form-label small fw-bold text-dark mb-1">مستودع الاستلام المستهدف <span class="text-danger">*</span></label>
                             <select class="form-select form-select-sm fw-bold border-primary" @bind="newOrder.WarehouseId">
                                 <option value="0">-- اختر المستودع --</option>
                                 @foreach (var w in lookups.Warehouses)
@@ -214,16 +220,16 @@
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">تاريخ إصدار الطلب</label>
+                            <label class="form-label small fw-bold text-dark mb-1">تاريخ إصدار الطلب</label>
                             <input type="date" class="form-control form-control-sm font-monospace" @bind="newOrder.OrderDate" />
                         </div>
                     </div>
 
                     <!-- بنود الطلب -->
-                    <div class="card border rounded-3 mb-3">
+                    <div class="card border rounded-3 mb-3 bg-white">
                         <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
                             <h6 class="mb-0 fw-bold text-dark">📋 بنود الخامات ومواد التعبئة المطلوبة</h6>
-                            <button type="button" class="btn btn-sm btn-success fw-bold py-1 px-3" @onclick="AddNewLine">
+                            <button type="button" class="btn btn-sm btn-success fw-bold py-1 px-3 shadow-sm" @onclick="AddNewLine">
                                 <i class="bi bi-plus-circle me-1"></i> إضافة بند خامة
                             </button>
                         </div>
@@ -232,27 +238,26 @@
                                 <table class="table table-sm align-middle mb-0 text-center small">
                                     <thead class="table-light">
                                         <tr>
-                                            <th class="text-start ps-3" style="width: 35%;">الصنف / الخامة</th>
-                                            <th style="width: 15%;">الكمية المطلوبة</th>
-                                            <th style="width: 15%;">سعر الوحدة التقديري</th>
-                                            <th style="width: 12%;">الضريبة</th>
-                                            <th style="width: 15%;">إجمالي البند</th>
-                                            <th style="width: 8%;">إجراء</th>
+                                            <th class="text-start ps-3" style="width: 45%;">الصنف / الخامة</th>
+                                            <th style="width: 20%;">الكمية المطلوبة</th>
+                                            <th style="width: 20%;">سعر الوحدة التقديري</th>
+                                            <th style="width: 15%;">الإجمالي</th>
+                                            <th style="width: 10%;">إجراء</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         @if (!newOrder.Lines.Any())
                                         {
                                             <tr>
-                                                <td colspan="6" class="py-4 text-muted">انقر على "إضافة بند خامة" لإدراج الخامات في أمر الشراء.</td>
+                                                <td colspan="5" class="py-4 text-muted fw-bold">انقر على "إضافة بند خامة" لإدراج الخامات في أمر الشراء.</td>
                                             </tr>
                                         }
                                         @foreach (var line in newOrder.Lines)
                                         {
-                                            var itemTotal = (line.Quantity * line.UnitPrice) - line.DiscountAmount + line.TaxAmount;
+                                            var itemTotal = line.Quantity * line.UnitPrice;
                                             <tr>
                                                 <td class="text-start ps-3">
-                                                    <select class="form-select form-select-sm" @bind="line.ItemId" @bind:after="() => OnItemChanged(line)">
+                                                    <select class="form-select form-select-sm fw-bold" @bind="line.ItemId" @bind:after="() => OnItemChanged(line)">
                                                         <option value="0">-- اختر الصنف --</option>
                                                         @foreach (var itm in lookups.Items)
                                                         {
@@ -261,13 +266,10 @@
                                                     </select>
                                                 </td>
                                                 <td>
-                                                    <input type="number" step="0.5" min="0.1" class="form-control form-control-sm text-center fw-bold" @bind="line.Quantity" />
+                                                    <input type="number" step="0.5" min="0.1" class="form-control form-control-sm text-center fw-bold font-monospace" @bind="line.Quantity" />
                                                 </td>
                                                 <td>
-                                                    <input type="number" step="0.1" min="0" class="form-control form-control-sm text-center" @bind="line.UnitPrice" />
-                                                </td>
-                                                <td>
-                                                    <input type="number" step="0.1" min="0" class="form-control form-control-sm text-center" @bind="line.TaxAmount" />
+                                                    <input type="number" step="0.1" min="0" class="form-control form-control-sm text-center font-monospace" @bind="line.UnitPrice" />
                                                 </td>
                                                 <td class="fw-bold font-monospace text-primary">
                                                     @itemTotal.ToString("N2") ج.م
@@ -288,27 +290,19 @@
                     <!-- إجماليات الطلب الحية -->
                     <div class="row justify-content-end text-end">
                         <div class="col-md-5">
-                            <div class="bg-light p-3 rounded-3 border">
-                                <div class="d-flex justify-content-between mb-1 small">
-                                    <span>المجموع قبل الضريبة:</span>
-                                    <span class="fw-bold font-monospace">@newOrder.Lines.Sum(l => l.Quantity * l.UnitPrice).ToString("N2") ج.م</span>
-                                </div>
-                                <div class="d-flex justify-content-between mb-2 small text-muted">
-                                    <span>إجمالي الضريبة:</span>
-                                    <span class="font-monospace">@newOrder.Lines.Sum(l => l.TaxAmount).ToString("N2") ج.م</span>
-                                </div>
-                                <div class="d-flex justify-content-between fs-6 fw-bold text-primary border-top pt-2">
+                            <div class="bg-white p-3 rounded-3 border shadow-sm">
+                                <div class="d-flex justify-content-between fs-6 fw-bold text-primary">
                                     <span>الإجمالي الكلي التقديري:</span>
-                                    <span class="font-monospace">@newOrder.Lines.Sum(l => (l.Quantity * l.UnitPrice) + l.TaxAmount - l.DiscountAmount).ToString("N2") ج.م</span>
+                                    <span class="font-monospace">@newOrder.Lines.Sum(l => l.Quantity * l.UnitPrice).ToString("N2") ج.م</span>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer bg-light py-2">
+                <div class="modal-footer bg-white py-2 d-flex justify-content-between">
                     <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => showCreateModal = false">إلغاء</button>
-                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold" @onclick="SaveOrder" disabled="@isSaving">
-                        @(isSaving ? "جاري الحفظ..." : "حفظ وإصدار أمر الشراء")
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SaveOrder" disabled="@isSaving">
+                        @(isSaving ? "جاري الحفظ..." : "💾 حفظ وإصدار أمر الشراء")
                     </button>
                 </div>
             </div>
@@ -316,9 +310,7 @@
     </div>
 }
 
-<!-- ========================================== -->
-<!-- Modal 2: عرض تفاصيل أمر الشراء              -->
-<!-- ========================================== -->
+<!-- Modal 2: عرض تفاصيل أمر الشراء -->
 @if (showDetailsModal && selectedOrder != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
@@ -330,15 +322,15 @@
                     </h6>
                     <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showDetailsModal = false"></button>
                 </div>
-                <div class="modal-body p-3">
-                    <div class="row g-2 mb-3 small bg-light p-3 rounded-3 border">
+                <div class="modal-body p-3 bg-light">
+                    <div class="row g-2 mb-3 small bg-white p-3 rounded-3 border">
                         <div class="col-md-4"><strong>المورد:</strong> @selectedOrder.SupplierName</div>
                         <div class="col-md-4"><strong>التاريخ:</strong> @selectedOrder.OrderDate.ToString("yyyy-MM-dd")</div>
                         <div class="col-md-4"><strong>الحالة:</strong> <span class="badge @GetStatusBadge(selectedOrder.Status)">@GetStatusLabel(selectedOrder.Status)</span></div>
                     </div>
 
                     <div class="table-responsive">
-                        <table class="table table-bordered align-middle text-center mb-0 small">
+                        <table class="table table-bordered align-middle text-center mb-0 small bg-white">
                             <thead class="table-light">
                                 <tr>
                                     <th class="text-start ps-3">الصنف</th>
@@ -370,7 +362,7 @@
                         </table>
                     </div>
                 </div>
-                <div class="modal-footer bg-light py-2">
+                <div class="modal-footer bg-white py-2">
                     <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => showDetailsModal = false">إغلاق</button>
                 </div>
             </div>
@@ -378,9 +370,7 @@
     </div>
 }
 
-<!-- ========================================== -->
-<!-- Modal 3: اعتماد أمر الشراء والفاتورة        -->
-<!-- ========================================== -->
+<!-- Modal 3: اعتماد أمر الشراء والفاتورة -->
 @if (showApproveModal && approveModel != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);">
@@ -392,12 +382,12 @@
                     </h6>
                     <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showApproveModal = false"></button>
                 </div>
-                <div class="modal-body p-3">
+                <div class="modal-body p-3 bg-light">
                     <div class="alert alert-info py-2 small mb-3">
                         مراجعة الأسعار المعتمدة مع المورد لترحيل أمر الشراء مباشرة إلى محطة <strong>فحص الجودة واستلام الخامات (GMP)</strong>:
                     </div>
                     <div class="table-responsive">
-                        <table class="table table-sm align-middle text-center mb-0 small">
+                        <table class="table table-sm align-middle text-center mb-0 small bg-white">
                             <thead class="table-light">
                                 <tr>
                                     <th class="text-start ps-3">الصنف</th>
@@ -413,7 +403,7 @@
                                     <tr>
                                         <td class="text-start ps-3 fw-bold">@(itemInfo?.ItemName ?? $"صنف {line.ItemId}")</td>
                                         <td>
-                                            <input type="number" step="0.5" class="form-control form-control-sm text-center fw-bold" @bind="line.Quantity" />
+                                            <input type="number" step="0.5" class="form-control form-control-sm text-center fw-bold font-monospace" @bind="line.Quantity" />
                                         </td>
                                         <td>
                                             <input type="number" step="0.1" class="form-control form-control-sm text-center fw-bold text-success font-monospace" @bind="line.UnitPrice" />
@@ -427,7 +417,7 @@
                         </table>
                     </div>
                 </div>
-                <div class="modal-footer bg-light py-2">
+                <div class="modal-footer bg-white py-2 d-flex justify-content-between">
                     <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => showApproveModal = false">إلغاء</button>
                     <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SubmitApproval" disabled="@isSaving">
                         ✓ تأكيد الاعتماد وترحيل الأمر لمحطة الاستلام
@@ -458,10 +448,20 @@
     private bool showApproveModal = false;
 
     private IEnumerable<PurchaseOrderDto> FilteredOrders =>
-        string.IsNullOrWhiteSpace(searchTerm)
-            ? (string.IsNullOrEmpty(selectedStatus) ? orders : orders.Where(o => o.Status == selectedStatus))
-            : orders.Where(o => (o.OrderNumber?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
-                             || (o.SupplierName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+        orders.Where(o =>
+        {
+            if (!string.IsNullOrEmpty(selectedStatus) && o.Status != selectedStatus)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                return (o.OrderNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (o.SupplierName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+            }
+
+            return true;
+        });
 
     protected override async Task OnInitializedAsync()
     {
@@ -522,9 +522,7 @@
         newOrder.Lines.Add(new PurchaseOrderCreateLineDto
         {
             Quantity = 1,
-            UnitPrice = 0,
-            TaxAmount = 0,
-            DiscountAmount = 0
+            UnitPrice = 0
         });
     }
 
@@ -634,6 +632,42 @@
         finally
         {
             isSaving = false;
+        }
+    }
+
+    private async Task ExportOrdersToExcel()
+    {
+        var list = FilteredOrders.ToList();
+        if (!list.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("رقم_الأمر,التاريخ,المورد,عدد_البنود,القيمة_الإجمالية,الحالة");
+
+            foreach (var o in list)
+            {
+                var total = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                sb.AppendLine($"\"{o.OrderNumber}\",\"{o.OrderDate:yyyy-MM-dd}\",\"{o.SupplierName}\",{o.Lines.Count},{total:F2},\"{GetStatusLabel(o.Status)}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"أوامر_وفواتير_الشراء_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+            var js = $@"
+                const link = document.createElement('a');
+                link.href = 'data:text/csv;charset=utf-8;base64,{base64}';
+                link.download = '{fileName}';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            ";
+            await JS.InvokeVoidAsync("eval", js);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل التصدير: {ex.Message}";
         }
     }
 

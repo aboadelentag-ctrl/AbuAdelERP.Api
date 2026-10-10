@@ -18,79 +18,119 @@ namespace AbuAdelERP.Api.Controllers
             _context = context;
         }
 
-        // GET: api/UsersManagement/users
+        // ==========================================
+        // 1. استعراض كافة المستخدمين
+        // ==========================================
         [HttpGet("users")]
         public async Task<ActionResult<IEnumerable<AppUser>>> GetUsers()
         {
-            return await _context.Users.OrderBy(u => u.Id).ToListAsync();
+            try
+            {
+                var users = await _context.Users.OrderBy(u => u.Id).ToListAsync();
+                return Ok(users);
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب المستخدمين: {ex.GetBaseException().Message}");
+            }
         }
 
-        // GET: api/UsersManagement/roles
+        // ==========================================
+        // 2. استعراض قوالب الأدوار (Roles)
+        // ==========================================
         [HttpGet("roles")]
         public async Task<ActionResult<IEnumerable<AppRole>>> GetRoles()
         {
-            return await _context.Roles.OrderBy(r => r.Id).ToListAsync();
+            try
+            {
+                var roles = await _context.Roles.OrderBy(r => r.Id).ToListAsync();
+                return Ok(roles);
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(500, $"خطأ في جلب الأدوار: {ex.GetBaseException().Message}");
+            }
         }
 
-        // GET: api/UsersManagement/permissions-catalog
-        [HttpGet("permissions-catalog")]
-        public ActionResult<IEnumerable<PermissionItem>> GetPermissionsCatalog()
-        {
-            return Ok(AppPermissions.GetAllPermissions());
-        }
-
-        // POST: api/UsersManagement/users
+        // ==========================================
+        // 3. إنشاء مستخدم جديد
+        // ==========================================
         [HttpPost("users")]
         public async Task<ActionResult<AppUser>> CreateUser([FromBody] AppUser newUser)
         {
-            if (await _context.Users.AnyAsync(u => u.Username.ToLower() == newUser.Username.ToLower()))
+            try
             {
-                return BadRequest("اسم المستخدم هذا مستخدم بالفعل.");
-            }
+                if (await _context.Users.AnyAsync(u => u.Username.ToLower() == newUser.Username.ToLower()))
+                {
+                    return BadRequest("اسم المستخدم هذا مستخدم بالفعل.");
+                }
 
-            if (string.IsNullOrWhiteSpace(newUser.PasswordHash))
+                if (string.IsNullOrWhiteSpace(newUser.PasswordHash))
+                {
+                    newUser.PasswordHash = "123456"; // كلمة مرور افتراضية
+                }
+
+                _context.Users.Add(newUser);
+                await _context.SaveChangesAsync();
+                return Ok(newUser);
+            }
+            catch (System.Exception ex)
             {
-                newUser.PasswordHash = "123456"; // كلمة مرور افتراضية
+                return StatusCode(500, $"خطأ في إنشاء المستخدم: {ex.GetBaseException().Message}");
             }
-
-            _context.Users.Add(newUser);
-            await _context.SaveChangesAsync();
-            return Ok(newUser);
         }
 
-        // PUT: api/UsersManagement/users/{id}
-        [HttpPut("users/{id}")]
+        // ==========================================
+        // 4. تحديث بيانات مستخدم موجود
+        // ==========================================
+        [HttpPut("users/{id:long}")]
         public async Task<IActionResult> UpdateUser(long id, [FromBody] AppUser updatedUser)
         {
-            var user = await _context.Users.FindAsync(id);
-            if (user == null) return NotFound("المستخدم غير موجود");
-
-            user.FullName = updatedUser.FullName;
-            user.Role = updatedUser.Role;
-            user.DepartmentId = updatedUser.DepartmentId;
-            user.DepartmentName = updatedUser.DepartmentName;
-            user.IsActive = updatedUser.IsActive;
-            user.CustomPermissions = updatedUser.CustomPermissions;
-
-            if (!string.IsNullOrWhiteSpace(updatedUser.PasswordHash) && updatedUser.PasswordHash != user.PasswordHash)
+            try
             {
-                user.PasswordHash = updatedUser.PasswordHash;
-            }
+                var user = await _context.Users.FindAsync(id);
+                if (user == null) return NotFound("المستخدم غير موجود");
 
-            await _context.SaveChangesAsync();
-            return NoContent();
+                user.FullName = updatedUser.FullName;
+                user.Role = updatedUser.Role;
+                user.DepartmentId = updatedUser.DepartmentId;
+                user.DepartmentName = updatedUser.DepartmentName;
+                user.IsActive = updatedUser.IsActive;
+                user.CustomPermissions = updatedUser.CustomPermissions;
+
+                if (!string.IsNullOrWhiteSpace(updatedUser.PasswordHash) && updatedUser.PasswordHash != user.PasswordHash)
+                {
+                    user.PasswordHash = updatedUser.PasswordHash;
+                }
+
+                await _context.SaveChangesAsync();
+                return NoContent();
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(500, $"خطأ في تحديث المستخدم: {ex.GetBaseException().Message}");
+            }
         }
 
-        // PUT: api/UsersManagement/roles/{id}/permissions
-        [HttpPut("roles/{id}/permissions")]
+        // ==========================================
+        // 5. تحديث صلاحيات دور وظيفي
+        // ==========================================
+        [HttpPut("roles/{id:int}/permissions")]
         public async Task<IActionResult> UpdateRolePermissions(int id, [FromBody] string permissionsCommaSeparated)
         {
-            var role = await _context.Roles.FindAsync(id);
-            if (role == null) return NotFound("الدور غير موجود");
+            try
+            {
+                var role = await _context.Roles.FindAsync(id);
+                if (role == null) return NotFound("الدور غير موجود");
 
-            role.Permissions = permissionsCommaSeparated;
-            await _context.SaveChangesAsync();
-            return NoContent();
+                role.Permissions = permissionsCommaSeparated ?? string.Empty;
+                await _context.SaveChangesAsync();
+                return NoContent();
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(500, $"خطأ في تحديث صلاحيات الدور: {ex.GetBaseException().Message}");
+            }
         }
     }
 }

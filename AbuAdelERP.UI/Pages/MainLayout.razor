@@ -3,64 +3,275 @@
 @using Blazored.LocalStorage
 @implements IDisposable
 @inject AppState State
+@inject IBranchContextService BranchContext
 @inject ILocalStorageService LocalStorage
 @inject NavigationManager Nav
 
-<div class="page" dir="rtl">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
-
-    <main>
-        <!-- الشريط العلوي المعتمد: بيانات الموظف + زر تسجيل الخروج دائماً -->
-        <div class="top-row px-4 d-flex justify-content-between align-items-center bg-white shadow-sm border-bottom py-2">
-            <div class="d-flex align-items-center gap-2">
-                <span class="badge bg-danger p-2 fs-6 shadow-sm">حلواني أبو عادل</span>
-                <span class="text-muted small fw-bold d-none d-md-inline">نظام تخطيط وإدارة الموارد والإنتاج (ERP)</span>
+<div class="kayan-shell" dir="rtl">
+    <!-- الشريط التنفيذي العلوي (كامل العرض 100% بدون أي قائمة جانبية) -->
+    <header class="kayan-topbar shadow-sm">
+        <!-- اليمين: هوية المنصة والمستأجر والفرع المقفل -->
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <!-- هوية منصة كيان -->
+            <div class="brand-badge" @onclick="@(() => Nav.NavigateTo("/workspace"))" title="مساحة العمل">
+                <span class="brand-tag">KAYAN</span>
+                <span class="brand-title">ENTERPRISE</span>
             </div>
 
-            <!-- بيانات الموظف وزر تسجيل الخروج الظاهر دوماً -->
-            <div class="d-flex align-items-center gap-3">
-                <div class="text-end">
-                    <div class="fw-bold text-dark small">
-                        👤 @(!string.IsNullOrEmpty(State.FullName) ? State.FullName : "أحمد عبد العزيز (مدير النظام)")
-                    </div>
-                    <div class="d-flex gap-1 justify-content-end align-items-center mt-1">
-                        <span class="badge bg-light text-primary border" style="font-size: 10px;">
-                            @(!string.IsNullOrEmpty(State.DepartmentName) ? State.DepartmentName : "الإدارة العليا والتشغيل")
-                        </span>
-                        <span class="badge bg-dark" style="font-size: 10px;">
-                            @(!string.IsNullOrEmpty(State.Role) ? State.Role : "Admin")
-                        </span>
-                    </div>
+            <!-- الشركة المستأجرة النشطة -->
+            <span class="tenant-badge">
+                <span class="live-indicator"></span>
+                <span>@(!string.IsNullOrEmpty(State.TenantName) ? State.TenantName : "مجموعة حلواني أبو عادل")</span>
+            </span>
+
+            <!-- شارة الفرع المعزول المقفل (للعرض والتوثيق فقط - بدون زر تبديل الفرع) -->
+            @if (BranchContext.HasActiveBranch)
+            {
+                <div class="branch-lock-badge">
+                    <span class="branch-pill">سياق الفرع المقفل</span>
+                    <span class="branch-label">📍 @BranchContext.CurrentBranch?.NameAr</span>
                 </div>
+            }
 
-                <button class="btn btn-danger btn-sm fw-bold px-3 py-1 shadow-sm d-flex align-items-center gap-2" @onclick="HandleLogout">
-                    <i class="bi bi-box-arrow-right fs-6"></i>
-                    <span>تسجيل الخروج</span>
-                </button>
-            </div>
+            <!-- زر العودة لمساحة العمل المركزية -->
+            <button class="nav-workspace-btn" @onclick="@(() => Nav.NavigateTo("/workspace"))" title="العودة لمساحة العمل">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+                    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                </svg>
+                <span>مساحة العمل</span>
+            </button>
         </div>
 
-        <article class="content px-4 py-3">
-            @Body
-        </article>
+        <!-- اليسار: بيانات الموظف الفعلي (زيزو) وزر تسجيل الخروج -->
+        <div class="d-flex align-items-center gap-3">
+            <div class="text-end">
+                <div class="user-name">
+                    👤 @(!string.IsNullOrEmpty(State.FullName) ? State.FullName : "أحمد عبدالعزيز (زيزو)")
+                </div>
+                <div class="d-flex gap-1 justify-content-end align-items-center mt-1">
+                    <span class="user-dept-badge">
+                        @(!string.IsNullOrEmpty(State.DepartmentName) ? State.DepartmentName : "الإدارة العامة")
+                    </span>
+                    <span class="user-role-badge">
+                        @(!string.IsNullOrEmpty(State.Role) ? State.Role : "Admin")
+                    </span>
+                </div>
+            </div>
+
+            <button class="logout-btn" @onclick="HandleLogout">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                <span>تسجيل الخروج</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- مساحة المحتوى التنفيذي بكامل العرض بدون هوامش جانبية -->
+    <main class="kayan-content-area">
+        @Body
     </main>
 </div>
 
+<style>
+    /* إخفاء القائمة الجانبية القديمة بصورة قطعية */
+    .sidebar {
+        display: none !important;
+        width: 0 !important;
+        visibility: hidden !important;
+    }
+
+    .kayan-shell {
+        min-height: 100vh;
+        width: 100vw;
+        display: flex;
+        flex-direction: column;
+        background-color: #F8FAFC;
+        overflow-x: hidden;
+    }
+
+    .kayan-topbar {
+        background: #0F172A;
+        color: #FFFFFF;
+        padding: 0.75rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+    }
+
+    .brand-badge {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: #1E293B;
+        border: 1px solid #334155;
+        padding: 0.35rem 0.75rem;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: transform 0.15s ease;
+    }
+
+        .brand-badge:hover {
+            transform: scale(1.02);
+        }
+
+    .brand-tag {
+        background: #4F46E5;
+        color: #FFF;
+        font-weight: 800;
+        font-size: 0.75rem;
+        padding: 0.1rem 0.45rem;
+        border-radius: 4px;
+        letter-spacing: 0.05em;
+    }
+
+    .brand-title {
+        font-weight: 700;
+        font-size: 0.8rem;
+        color: #E2E8F0;
+        letter-spacing: 0.04em;
+    }
+
+    .tenant-badge {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: rgba(220, 38, 38, 0.15);
+        color: #FCA5A5;
+        border: 1px solid rgba(220, 38, 38, 0.3);
+        padding: 0.35rem 0.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.8rem;
+    }
+
+    .live-indicator {
+        width: 7px;
+        height: 7px;
+        background: #EF4444;
+        border-radius: 50%;
+        box-shadow: 0 0 6px #EF4444;
+    }
+
+    .branch-lock-badge {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: #1E293B;
+        border: 1px solid #3B82F6;
+        padding: 0.35rem 0.75rem;
+        border-radius: 8px;
+        font-size: 0.8rem;
+    }
+
+    .branch-pill {
+        background: #2563EB;
+        color: #FFF;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+    }
+
+    .branch-label {
+        color: #FFFFFF;
+        font-weight: 700;
+    }
+
+    .nav-workspace-btn {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #E2E8F0;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.8rem;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+        .nav-workspace-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #FFFFFF;
+        }
+
+    .user-name {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #FFFFFF;
+    }
+
+    .user-dept-badge {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #94A3B8;
+        font-size: 0.65rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+    }
+
+    .user-role-badge {
+        background: #3B82F6;
+        color: #FFF;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+    }
+
+    .logout-btn {
+        background: #DC2626;
+        border: none;
+        color: #FFF;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.45rem 0.9rem;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+
+        .logout-btn:hover {
+            background: #B91C1C;
+        }
+
+    .kayan-content-area {
+        flex: 1;
+        width: 100%;
+        box-sizing: border-box;
+    }
+</style>
+
 @code {
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         State.OnChange += StateHasChanged;
+        BranchContext.OnBranchChanged += StateHasChanged;
+        await BranchContext.LoadSavedBranchAsync();
     }
 
     private async Task HandleLogout()
     {
-        // مسح بيانات الجلسة بالكامل وإعادة التوجيه الإجباري لصفحة الدخول
         try
         {
             await LocalStorage.ClearAsync();
             State.ClearSession();
+            await BranchContext.ClearBranchContextAsync();
         }
         catch { }
 
@@ -70,5 +281,6 @@
     public void Dispose()
     {
         State.OnChange -= StateHasChanged;
+        BranchContext.OnBranchChanged -= StateHasChanged;
     }
 }

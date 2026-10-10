@@ -70,7 +70,7 @@ namespace AbuAdelERP.Api.Services
             existing.SafetyStock = item.SafetyStock;
             existing.MaxStock = item.MaxStock;
 
-            // الخصائص التوافقية الجديدة مع نظام كيان
+            // الخصائص التوافقية
             existing.BasePrice = item.BasePrice;
             existing.Barcode = item.Barcode;
             existing.IsVariant = item.IsVariant;
@@ -87,6 +87,14 @@ namespace AbuAdelERP.Api.Services
         {
             var existing = await _context.Items.FindAsync(id);
             if (existing == null) return false;
+
+            bool hasMovements = await _context.StockMovements.AnyAsync(m => m.ItemId == id);
+            if (hasMovements)
+            {
+                existing.Active = false; // تعطيل ناعم للحفاظ على سلامة القيود المحاسبية
+                await _context.SaveChangesAsync();
+                return false;
+            }
 
             _context.Items.Remove(existing);
             await _context.SaveChangesAsync();

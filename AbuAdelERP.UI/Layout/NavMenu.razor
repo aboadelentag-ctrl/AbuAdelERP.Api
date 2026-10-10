@@ -2,74 +2,71 @@
 @implements IDisposable
 @inject AppState State
 
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand fw-bold text-white d-flex align-items-center gap-2" href="">
-            <span class="fs-4">AbuAdelERP</span>
+<div class="top-row ps-3 navbar navbar-dark bg-dark border-bottom border-secondary">
+    <div class="container-fluid d-flex justify-content-between align-items-center">
+        <a class="navbar-brand fw-bold text-white d-flex align-items-center gap-2 m-0" href="">
+            <span class="fs-4 text-warning">AbuAdelERP</span>
         </a>
     </div>
 </div>
 
-<div class="nav-scrollable" dir="rtl">
+<div class="nav-scrollable" dir="rtl" style="max-height: calc(100vh - 56px); overflow-y: auto;">
     <nav class="flex-column p-2">
+
+        <!-- ==================================================== -->
+        <!-- شريط البحث السريع والذكي في القائمة -->
+        <!-- ==================================================== -->
+        <div class="px-2 pt-1 pb-2 mb-2 border-bottom border-secondary border-opacity-50">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-dark border-secondary text-muted"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" 
+                       placeholder="بحث سريع بالشاشات..." @bind="menuSearch" @bind:event="oninput" />
+                @if (!string.IsNullOrEmpty(menuSearch))
+                {
+                    <button class="btn btn-outline-secondary btn-sm" @onclick='() => menuSearch = ""'>✕</button>
+                }
+            </div>
+        </div>
 
         <!-- ==================================================== -->
         <!-- 1. الرئيسية ولوحات المؤشرات والـ KPIs -->
         <!-- ==================================================== -->
-        <AuthorizePermission Permission="Dashboard.View">
-            <div class="nav-item px-2 mb-1">
-                <NavLink class="nav-link rounded-2" href="" Match="NavLinkMatch.All">
-                    <span class="bi bi-speedometer2 me-2" aria-hidden="true"></span>
-                    <span>الرئيسية (لوحة المؤشرات)</span>
-                </NavLink>
-            </div>
-        </AuthorizePermission>
-
-        <AuthorizePermission Permission="Dashboard.View, DepartmentKPIS.View">
-            <div class="nav-item px-2 mb-1">
-                <NavLink class="nav-link rounded-2 text-info" href="department-kpis">
-                    <span class="bi bi-graph-up-arrow me-2" aria-hidden="true"></span>
-                    <span>مؤشرات أداء الأقسام (KPIs) 📈</span>
-                </NavLink>
-            </div>
-        </AuthorizePermission>
-
-        <AuthorizePermission Permission="Reports.View, ReportsArchive.View">
-            <div class="nav-item px-2 mb-1">
-                <NavLink class="nav-link rounded-2" href="reports-archive">
-                    <span class="bi bi-archive-fill me-2" aria-hidden="true"></span>
-                    <span>أرشيف التقارير والسجلات 🗄️</span>
-                </NavLink>
-            </div>
-        </AuthorizePermission>
-
-        <!-- ==================================================== -->
-        <!-- 2. غرفة عمليات الطوارئ والاستجابة السريعة (SOS) -->
-        <!-- ==================================================== -->
-        <AuthorizePermission Permission="Emergency.View">
-            <div class="nav-item px-2 mb-1">
-                <NavLink class="nav-link rounded-2 text-danger fw-bold" href="emergency-tasks">
-                    <span class="bi bi-bell-fill me-2" aria-hidden="true"></span>
-                    <span>(SOS) المهام الطارئة والأعطال 🚨</span>
-                </NavLink>
-            </div>
-        </AuthorizePermission>
-
-        <AuthorizePermission Permission="Emergency.Reports">
-            <div class="nav-item px-2 mb-1">
-                <NavLink class="nav-link rounded-2 text-warning fw-bold" href="emergency-tasks-reports">
-                    <span class="bi bi-bar-chart-line-fill me-2" aria-hidden="true"></span>
-                    <span>تقارير مؤشرات الطوارئ (SLA) 📊</span>
-                </NavLink>
-            </div>
-        </AuthorizePermission>
-
-        <!-- ==================================================== -->
-        <!-- 3. العمليات الصناعية والتصنيع الموحد (MES) -->
-        <!-- ==================================================== -->
-        @if (State.HasAnyPermission("Production.OperationsHub", "Production.OrdersView", "Production.Execution", "BOM.View", "Requisition.View", "BatchCosting.View", "Productivity.View"))
+        @if (MatchesSearch("الرئيسية لوحة المؤشرات مؤشرات أداء الأقسام تقارير أرشيف"))
         {
-            <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+            <AuthorizePermission Permission="Dashboard.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="" Match="NavLinkMatch.All">
+                        <span class="bi bi-speedometer2 me-2 text-info" aria-hidden="true"></span>
+                        <span>الرئيسية (لوحة المؤشرات)</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Dashboard.View, DepartmentKPIS.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2 text-info" href="department-kpis">
+                        <span class="bi bi-graph-up-arrow me-2" aria-hidden="true"></span>
+                        <span>مؤشرات أداء الأقسام (KPIs) 📈</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Reports.View, ReportsArchive.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2" href="reports-archive">
+                        <span class="bi bi-archive-fill me-2" aria-hidden="true"></span>
+                        <span>أرشيف التقارير والسجلات 🗄️</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
+
+        <!-- ==================================================== -->
+        <!-- 2. العمليات الصناعية والتصنيع الموحد (MES Hub) -->
+        <!-- ==================================================== -->
+        @if (MatchesSearch("الإنتاج العمليات الصناعية غرفة عمليات التكاليف وصفات BOM طلب وصرف خامات كتالوج تسليم"))
+        {
+            <div class="nav-heading text-warning text-opacity-75 px-3 mt-3 mb-1 small fw-bold">
                 ─── الإنتاج والعمليات الصناعية (MES) ───
             </div>
 
@@ -120,9 +117,40 @@
         }
 
         <!-- ==================================================== -->
+        <!-- 3. المبيعات والتوزيع والعملاء (Sales & Distribution) -->
+        <!-- ==================================================== -->
+        @if (MatchesSearch("المبيعات التوزيع فواتير سجل العملاء والمنافذ التجار الفروع"))
+        {
+            <div class="nav-heading text-success text-opacity-75 px-3 mt-3 mb-1 small fw-bold">
+                ─── المبيعات والتوزيع والشجرة ───
+            </div>
+
+            <div class="nav-item px-2 mb-1">
+                <NavLink class="nav-link rounded-2 text-success fw-bold border border-success border-opacity-25" href="customers">
+                    <span class="bi bi-people-fill me-2 text-success" aria-hidden="true"></span>
+                    <span>سجل العملاء والتجار والمنافذ 👥</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-2 mb-1">
+                <NavLink class="nav-link rounded-2 text-info" href="branches">
+                    <span class="bi bi-shop me-2" aria-hidden="true"></span>
+                    <span>إدارة الفروع ومنافذ التوزيع 🏢</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-2 mb-1">
+                <NavLink class="nav-link rounded-2 text-light" href="sales-invoices">
+                    <span class="bi bi-receipt me-2" aria-hidden="true"></span>
+                    <span>فواتير المبيعات اليومية 🧾</span>
+                </NavLink>
+            </div>
+        }
+
+        <!-- ==================================================== -->
         <!-- 4. المستودعات وسلاسل الإمداد وتتبع الأصول -->
         <!-- ==================================================== -->
-        @if (State.HasAnyPermission("Warehouse.View", "Receipt.Create", "Transfers.View", "Crates.View", "AssetTracking.View"))
+        @if (MatchesSearch("المخازن المستودعات فحص استلام أرصدة كارت الصنف تحويلات الأسبات حوكمة الأصول تتبع الحاويات"))
         {
             <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
                 ─── المخازن واللوجستيات والأصول ───
@@ -150,7 +178,7 @@
                 <div class="nav-item px-2 mb-1">
                     <NavLink class="nav-link rounded-2" href="warehouses">
                         <span class="bi bi-house-door me-2" aria-hidden="true"></span>
-                        <span>إدارة المخازن</span>
+                        <span>إدارة المخازن والمستودعات</span>
                     </NavLink>
                 </div>
             </AuthorizePermission>
@@ -204,7 +232,7 @@
         <!-- ==================================================== -->
         <!-- 5. دليل الأصناف والمواد الشامل -->
         <!-- ==================================================== -->
-        @if (State.HasAnyPermission("Items.View", "Categories.View"))
+        @if (MatchesSearch("الأصناف دليل المواد الهيكل الشجري تصنيفات"))
         {
             <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
                 ─── دليل الأصناف والمواد ───
@@ -239,30 +267,9 @@
         }
 
         <!-- ==================================================== -->
-        <!-- 6. المبيعات وإدارة العملاء (Sales & Distribution) -->
+        <!-- 6. المشتريات وإدارة الموردين والجودة -->
         <!-- ==================================================== -->
-        <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
-            ─── المبيعات والتوزيع ───
-        </div>
-
-        <div class="nav-item px-2 mb-1">
-            <NavLink class="nav-link rounded-2 text-success fw-bold" href="sales-invoices">
-                <span class="bi bi-receipt me-2" aria-hidden="true"></span>
-                <span>فواتير المبيعات 🧾</span>
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-2 mb-1">
-            <NavLink class="nav-link rounded-2" href="customers">
-                <span class="bi bi-person-lines-fill me-2" aria-hidden="true"></span>
-                <span>سجل العملاء والمنافذ 👥</span>
-            </NavLink>
-        </div>
-
-        <!-- ==================================================== -->
-        <!-- 7. المشتريات وإدارة الموردين والجودة -->
-        <!-- ==================================================== -->
-        @if (State.HasAnyPermission("Suppliers.View", "PurchaseOrders.View", "PurchaseInvoices.View"))
+        @if (MatchesSearch("المشتريات الموردين أسعار التوريد أوامر الشراء PO فواتير تقييم جودة COA"))
         {
             <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
                 ─── المشتريات والموردين ───
@@ -313,11 +320,45 @@
                 </div>
             </AuthorizePermission>
         }
+        <div class="nav-heading text-warning text-opacity-75 px-3 mt-3 mb-1 small fw-bold">
+    ─── الإدارة المالية والحسابات العامة ───
+</div>
+
+<div class="nav-item px-2 mb-1">
+    <NavLink class="nav-link rounded-2 text-warning fw-bold border border-warning border-opacity-25" href="chart-of-accounts">
+        <span class="bi bi-bank2 me-2 text-warning" aria-hidden="true"></span>
+        <span>شجرة الحسابات والمركز المالي 🏛️</span>
+    </NavLink>
+</div>
+<div class="nav-item px-2 mb-1">
+    <NavLink class="nav-link rounded-2 text-success fw-bold border border-success border-opacity-25" href="treasury-vouchers">
+        <span class="bi bi-cash-coin me-2 text-success" aria-hidden="true"></span>
+        <span>سندات القبض والصرف والخزائن 💵</span>
+    </NavLink>
+</div>
+<div class="nav-item px-2 mb-1">
+    <NavLink class="nav-link rounded-2 text-info fw-bold border border-info border-opacity-25" href="journal-entries">
+        <span class="bi bi-book-half me-2 text-info" aria-hidden="true"></span>
+        <span>دفتر قيود اليومية العامة 📖</span>
+    </NavLink>
+</div>
+<div class="nav-item px-2 mb-1">
+    <NavLink class="nav-link rounded-2 text-danger fw-bold border border-danger border-opacity-25" href="expenses-payables">
+        <span class="bi bi-wallet2 me-2 text-danger" aria-hidden="true"></span>
+        <span>الموردين والغاز ومصروفات التشغيل 🏭</span>
+    </NavLink>
+</div>
+<div class="nav-item px-2 mb-1">
+    <NavLink class="nav-link rounded-2 text-warning fw-bold border border-warning border-opacity-50" href="financial-statements">
+        <span class="bi bi-graph-up me-2 text-warning" aria-hidden="true"></span>
+        <span>القوائم المالية والأرباح والمركز المالي 📊</span>
+    </NavLink>
+</div>
 
         <!-- ==================================================== -->
-        <!-- 8. منظومة النماذج ومحاضر الفحص الرقمية (Dynamic Forms) -->
+        <!-- 7. منظومة النماذج ومحاضر الفحص الرقمية (HACCP) -->
         <!-- ==================================================== -->
-        @if (State.HasAnyPermission("DynamicForms.Manage", "DynamicForms.View"))
+        @if (MatchesSearch("النماذج محاضر الفحص مصمم النماذج تعبئة تقارير استجابات HACCP"))
         {
             <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
                 ─── النماذج ومحاضر الفحص الرقمية ───
@@ -352,9 +393,37 @@
         }
 
         <!-- ==================================================== -->
+        <!-- 8. منظومة الطوارئ والتدخل السريع (SOS) -->
+        <!-- ==================================================== -->
+        @if (MatchesSearch("الطوارئ المهام الطارئة الأعطال SOS مؤشرات SLA"))
+        {
+            <div class="nav-heading text-danger text-opacity-75 px-3 mt-3 mb-1 small fw-bold">
+                ─── الطوارئ والتدخل السريع (SOS) ───
+            </div>
+
+            <AuthorizePermission Permission="Emergency.View">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2 text-danger fw-bold" href="emergency-tasks">
+                        <span class="bi bi-bell-fill me-2" aria-hidden="true"></span>
+                        <span>(SOS) المهام الطارئة والأعطال 🚨</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+
+            <AuthorizePermission Permission="Emergency.Reports">
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2 text-warning fw-bold" href="emergency-tasks-reports">
+                        <span class="bi bi-bar-chart-line-fill me-2" aria-hidden="true"></span>
+                        <span>تقارير مؤشرات الطوارئ (SLA) 📊</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
+
+        <!-- ==================================================== -->
         <!-- 9. الهيكل الإداري والموارد البشرية (HR) -->
         <!-- ==================================================== -->
-        @if (State.HasAnyPermission("Companies.View", "Departments.View", "Employees.View"))
+        @if (MatchesSearch("الهيكل الإداري الشركات الكيانات الفروع الأقسام الصالات العاملين الورديات جدول"))
         {
             <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
                 ─── الهيكل الإداري (HR) ───
@@ -365,15 +434,6 @@
                     <NavLink class="nav-link rounded-2" href="companies">
                         <span class="bi bi-buildings me-2" aria-hidden="true"></span>
                         <span>إدارة الشركات والكيانات</span>
-                    </NavLink>
-                </div>
-            </AuthorizePermission>
-
-            <AuthorizePermission Permission="Companies.Manage, Companies.View">
-                <div class="nav-item px-2 mb-1">
-                    <NavLink class="nav-link rounded-2" href="branches">
-                        <span class="bi bi-geo-alt-fill me-2 text-info" aria-hidden="true"></span>
-                        <span>إدارة الفروع 🏢</span>
                     </NavLink>
                 </div>
             </AuthorizePermission>
@@ -407,25 +467,30 @@
         }
 
         <!-- ==================================================== -->
-        <!-- 10. إدارة المستخدمين والأمان -->
+        <!-- 10. أمن النظام والصلاحيات (RBAC) -->
         <!-- ==================================================== -->
-        <AuthorizePermission Permission="Users.View">
-            <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
-                ─── أمن النظام والصلاحيات ───
-            </div>
+        @if (MatchesSearch("أمن النظام الصلاحيات المستخدمين RBAC الأدوار"))
+        {
+            <AuthorizePermission Permission="Users.View">
+                <div class="nav-heading text-light text-opacity-50 px-3 mt-3 mb-1 small fw-bold">
+                    ─── أمن النظام والصلاحيات ───
+                </div>
 
-            <div class="nav-item px-2 mb-1">
-                <NavLink class="nav-link rounded-2 text-info fw-bold" href="users-management">
-                    <span class="bi bi-shield-lock-fill me-2" aria-hidden="true"></span>
-                    <span>المستخدمين والصلاحيات 🛡️</span>
-                </NavLink>
-            </div>
-        </AuthorizePermission>
+                <div class="nav-item px-2 mb-1">
+                    <NavLink class="nav-link rounded-2 text-info fw-bold" href="users-management">
+                        <span class="bi bi-shield-lock-fill me-2" aria-hidden="true"></span>
+                        <span>المستخدمين والصلاحيات 🛡️</span>
+                    </NavLink>
+                </div>
+            </AuthorizePermission>
+        }
 
     </nav>
 </div>
 
 @code {
+    private string menuSearch = "";
+
     protected override void OnInitialized()
     {
         State.OnChange += StateHasChanged;
@@ -434,5 +499,13 @@
     public void Dispose()
     {
         State.OnChange -= StateHasChanged;
+    }
+
+    private bool MatchesSearch(string sectionKeywords)
+    {
+        if (string.IsNullOrWhiteSpace(menuSearch)) return true;
+
+        var term = menuSearch.Trim();
+        return sectionKeywords.Contains(term, StringComparison.OrdinalIgnoreCase);
     }
 }

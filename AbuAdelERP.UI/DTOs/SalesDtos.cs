@@ -53,6 +53,10 @@ namespace AbuAdelERP.UI.DTOs
     public class SalesInvoiceResultDto
     {
         public bool Success { get; set; }
+        public long InvoiceId { get; set; }
+        public string InvoiceNumber { get; set; } = string.Empty;
+        public decimal TotalAmount { get; set; }
+        public int ItemsCount { get; set; }
         public string Message { get; set; } = string.Empty;
     }
 
@@ -79,6 +83,7 @@ namespace AbuAdelERP.UI.DTOs
         public long Id { get; set; }
         public string CustomerName { get; set; } = string.Empty;
         public string CustomerCode { get; set; } = string.Empty;
+        public string? Phone { get; set; }
     }
 
     public class SalesFinishedItemLookupDto
@@ -86,7 +91,11 @@ namespace AbuAdelERP.UI.DTOs
         public long Id { get; set; }
         public string ItemCode { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
+        public string? ItemType { get; set; }
         public string? Unit { get; set; }
+        public long? DepartmentId { get; set; }
+        public int? ShelfLifeDays { get; set; }
+        public decimal SellingPrice { get; set; } // <--- تم التثبيت
     }
 
     public class SalesWarehouseLookupDto
@@ -95,7 +104,9 @@ namespace AbuAdelERP.UI.DTOs
         public long? BranchId { get; set; }
         public string WarehouseName { get; set; } = string.Empty;
         public string WarehouseCode { get; set; } = string.Empty;
+        public string? WarehouseType { get; set; }
     }
+
     public class CustomerItemDto
     {
         public long Id { get; set; }

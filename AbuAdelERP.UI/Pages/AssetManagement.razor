@@ -1,4 +1,5 @@
 ﻿@page "/asset-management"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @page "/crate-tracking"
 @page "/crates-tracking"
 @using System.Net.Http.Json
@@ -40,7 +41,7 @@
 
                     <AuthorizePermission Permission="FixedAssets.Manage">
                         <button class="btn btn-primary btn-sm fw-bold px-3 py-2 shadow-sm d-flex align-items-center gap-2" @onclick="OpenMachineTransferModal">
-                            <i class="bi bi-arrow-left-right"></i> نقل عهدة ماكينة / أصل رأسمالي (1)
+                            <i class="bi bi-arrow-left-right"></i> نقل عهدة ماكينة / أصل رأسمالي
                         </button>
                     </AuthorizePermission>
 
@@ -258,10 +259,9 @@
         </div>
     }
 
-    <!-- التبويب 2: دورة تداول الأسبات والمحاضر الميدانية المكتملة -->
+    <!-- التبويب 2: دورة تداول الأسبات والمحاضر الميدانية -->
     @if (activeTab == "circulating")
     {
-        <!-- موقف الأرصدة اللحظية للحاويات -->
         <div class="card shadow-sm border-0 rounded-3 mb-4">
             <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                 <h6 class="fw-bold text-dark m-0">🧺 موقف الأرصدة اللحظية للحاويات والأسبات بالمصنع</h6>
@@ -300,7 +300,6 @@
             </div>
         </div>
 
-        <!-- جدول سجل دورات الاستلام والتسليم الميداني -->
         <div class="card shadow-sm border-0 rounded-3 mb-4 border-top border-4 border-primary">
             <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                 <h6 class="fw-bold text-dark m-0">🚚 سجل أذون صرف واستلام الأسبات ومحاضر النزاع (@crateMovementsHistory.Count حركة)</h6>
@@ -322,12 +321,12 @@
                             <th>تاريخ الحركة</th>
                             <th>نوع الحركة</th>
                             <th>نوع الوعاء</th>
-                            <th>الكمية المنصرفة</th>
+                            <th>المنصرف</th>
                             <th>الموقع المُرسل</th>
                             <th>القائم بالصرف (HR)</th>
                             <th>الموقع المستلم</th>
                             <th>المستلم الفعلي (HR)</th>
-                            <th>الكمية المستلمة</th>
+                            <th>المستلم</th>
                             <th>العجز والكسر</th>
                             <th>الحالة</th>
                             <th>الإجراء الميداني</th>
@@ -470,7 +469,7 @@
 
 </div>
 
-<!-- مودال 1: إصدار إذن تسليم وصرف أسبات وأوعية -->
+<!-- مودال 1: صرف أسبات -->
 @if (isCrateDispatchModalOpen)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
@@ -534,9 +533,12 @@
     </div>
 }
 
-<!-- مودال 2: فحص وتأكيد الاستلام الميداني للأسبات (مع فحص SoD والعجز) -->
+<!-- مودال 2: تأكيد الاستلام الميداني للأسبات (مرن للمسؤولين) -->
 @if (isCrateReceiveModalOpen && selectedMovementForReceive != null)
 {
+    var isSameUser = !string.IsNullOrWhiteSpace(State.EmployeeCode) && selectedMovementForReceive.DispatchedByCode.Equals(State.EmployeeCode, StringComparison.OrdinalIgnoreCase);
+    var canBypassSoD = State.HasAnyPermission("Roles.Manage", "Crates.SettleDispute") || (State.EmployeeCode?.Contains("ADMIN") == true);
+
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg">
@@ -545,10 +547,16 @@
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isCrateReceiveModalOpen = false"></button>
                 </div>
                 <div class="modal-body bg-light p-4">
-                    @if (selectedMovementForReceive.DispatchedByCode.Equals(State.EmployeeCode, StringComparison.OrdinalIgnoreCase))
+                    @if (isSameUser && !canBypassSoD)
                     {
                         <div class="alert alert-danger py-2 small fw-bold mb-3 border-danger">
                             ⛔ <strong>حظر رقابي (Segregation of Duties):</strong> أنت مسجل كـ "المُسلِّم" لهذا الإذن، ولا يجوز لك قانوناً ورقابياً تأكيد الاستلام لنفسك. يجب أن يدخل الطرف المستلم بحسابه لتأكيد الاستلام.
+                        </div>
+                    }
+                    else if (isSameUser && canBypassSoD)
+                    {
+                        <div class="alert alert-info py-2 small fw-bold mb-3 border-info">
+                            ℹ️ <strong>تنبيه إداري:</strong> تم تمكين تأكيد الاستلام بحساب المسؤول لأغراض الاختبار والمطابقة الشاملة.
                         </div>
                     }
 
@@ -599,8 +607,8 @@
                 </div>
                 <div class="modal-footer py-2 bg-white d-flex justify-content-between">
                     <button class="btn btn-secondary btn-sm px-4" @onclick="() => isCrateReceiveModalOpen = false">إلغاء</button>
-                    <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
-                            disabled="@(isSubmittingCrate || selectedMovementForReceive.DispatchedByCode.Equals(State.EmployeeCode, StringComparison.OrdinalIgnoreCase))" 
+                    <button class="btn btn-success btn-sm px-4 fw-bold shadow-sm"
+                            disabled="@(isSubmittingCrate || (isSameUser && !canBypassSoD))"
                             @onclick="SubmitCrateReceive">
                         @(isSubmittingCrate ? "⏳ جاري المعالجة..." : "✅ تأكيد المعاينة والاستلام")
                     </button>
@@ -610,7 +618,7 @@
     </div>
 }
 
-<!-- مودال 3: فض وتسوية النزاع والعجز (لجنة الرقابة والتحكيم) -->
+<!-- مودال 3: فض وتسوية النزاع والعجز -->
 @if (isCrateSettleModalOpen && selectedMovementForSettle != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
@@ -657,7 +665,7 @@
     </div>
 }
 
-<!-- بقية المودالات الخاصة بالأصول الثابتة (SOS, نقل ماكينة, قيد أصل, تاريخ الأصل) تبقى كما هي ممتازة -->
+<!-- مودال 4: إطلاق بلاغ طوارئ مباشر (SOS) -->
 @if (isDirectSOSModalOpen && assetForSOS != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
@@ -689,6 +697,7 @@
     </div>
 }
 
+<!-- مودال 5: نقل عهدة ماكينة -->
 @if (isMachineTransferModalOpen && selectedMachineToTransfer != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
@@ -701,7 +710,7 @@
                 <div class="modal-body bg-light p-4">
                     <div class="row g-2 mb-3">
                         <div class="col-md-6">
-                            <label class="small text-muted fw-bold">الصالة الحالية (المصدر المغلق):</label>
+                            <label class="small text-muted fw-bold">الصالة الحالية (المصدر):</label>
                             <input type="text" class="form-control fw-bold bg-light" value="@selectedMachineToTransfer.Department" readonly disabled />
                         </div>
                         <div class="col-md-6">
@@ -740,6 +749,7 @@
     </div>
 }
 
+<!-- مودال 6: قيد / تعديل أصل ثابت -->
 @if (isFixedAssetModalOpen)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
@@ -806,6 +816,7 @@
     </div>
 }
 
+<!-- مودال 7: سجل عمليات الماكينة -->
 @if (isAssetHistoryModalOpen && selectedHistoryAsset != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
@@ -834,7 +845,7 @@
                     </table>
                 </div>
                 <div class="modal-footer py-2 bg-white">
-                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isAssetHistoryModalOpen = false">إلغاء</button>
+                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isAssetHistoryModalOpen = false">إغلاق</button>
                 </div>
             </div>
         </div>
@@ -921,7 +932,6 @@
         public string DisplayName => !string.IsNullOrWhiteSpace(FullName) ? FullName : (!string.IsNullOrWhiteSpace(Name) ? Name : $"عامل #{Id}");
     }
 
-    // DTOs المحلية للتفاعل مع الواجهة
     public class DispatchCrateDto
     {
         public string MovementType { get; set; } = "DISPATCH_BRANCH";
@@ -997,9 +1007,9 @@
     private List<CirculatingContainerModel> circulatingAssetsList = new();
     private List<CrateHandoverMovementModel> crateMovementsHistory = new();
 
-    private string CurrentCustodianDisplayName => 
-        !string.IsNullOrWhiteSpace(State.FullName) 
-            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]" 
+    private string CurrentCustodianDisplayName =>
+        !string.IsNullOrWhiteSpace(State.FullName)
+            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]"
             : "المسؤول المعتمد";
 
     protected override async Task OnInitializedAsync()
@@ -1066,8 +1076,8 @@
             var invRes = await Http.GetFromJsonAsync<List<CirculatingContainerModel>>("api/Crates/inventory");
             if (invRes != null) circulatingAssetsList = invRes;
 
-            var url = string.IsNullOrWhiteSpace(crateFilterStatus) 
-                ? "api/Crates/movements" 
+            var url = string.IsNullOrWhiteSpace(crateFilterStatus)
+                ? "api/Crates/movements"
                 : $"api/Crates/movements?status={crateFilterStatus}";
 
             var movRes = await Http.GetFromJsonAsync<List<CrateHandoverMovementModel>>(url);
@@ -1090,7 +1100,7 @@
             if (!string.IsNullOrWhiteSpace(fixedAssetSearch))
             {
                 var term = fixedAssetSearch.Trim();
-                list = list.Where(a => 
+                list = list.Where(a =>
                     a.AssetCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     a.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     a.CustodianName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
@@ -1110,9 +1120,6 @@
         fixedStatusFilter = "";
     }
 
-    // ========================================================
-    // دوال دورة الأسبات والحاويات (كاملة ومربوطة بالـ API)
-    // ========================================================
     private void OpenCrateDispatchModal()
     {
         newCrateDispatch = new DispatchCrateDto
@@ -1245,7 +1252,6 @@
         finally { isSubmittingCrate = false; }
     }
 
-    // دوال الماكينات والأصول
     private void OpenDirectSOSModal(FixedAssetModel asset)
     {
         assetForSOS = asset;
@@ -1382,19 +1388,19 @@
     private void OpenNewFixedAssetModal()
     {
         var initialEmp = employeesCatalog.FirstOrDefault();
-        editingFixedAsset = new FixedAssetModel 
-        { 
-            AssetCode = $"AST-{new Random().Next(100, 999)}", 
-            Department = dbDepartments.FirstOrDefault()?.DisplayName ?? "قسم الشرقي والمخبوزات", 
-            CustodianCode = initialEmp?.DisplayCode ?? State.EmployeeCode, 
+        editingFixedAsset = new FixedAssetModel
+        {
+            AssetCode = $"AST-{new Random().Next(100, 999)}",
+            Department = dbDepartments.FirstOrDefault()?.DisplayName ?? "قسم الشرقي والمخبوزات",
+            CustodianCode = initialEmp?.DisplayCode ?? State.EmployeeCode,
             CustodianName = initialEmp?.DisplayName ?? State.FullName,
             Status = "OPERATIONAL"
         };
         isFixedAssetModalOpen = true;
     }
 
-    private void EditFixedAsset(FixedAssetModel asset) 
-    { 
+    private void EditFixedAsset(FixedAssetModel asset)
+    {
         editingFixedAsset = new FixedAssetModel
         {
             Id = asset.Id,
@@ -1408,7 +1414,7 @@
             CustodianName = asset.CustodianName,
             Status = asset.Status
         };
-        isFixedAssetModalOpen = true; 
+        isFixedAssetModalOpen = true;
     }
 
     private async Task SaveFixedAsset()
@@ -1477,7 +1483,7 @@
         try
         {
             var history = await Http.GetFromJsonAsync<FixedAssetModel>($"api/FixedAssets/{asset.Id}/history");
-            if (history != null && history.HistoryLogs != null) 
+            if (history != null && history.HistoryLogs != null)
                 selectedHistoryAsset.HistoryLogs = history.HistoryLogs;
         }
         catch { }
@@ -1516,7 +1522,7 @@
 
     private string GetAssetStatusBadge(string s) => s == "OPERATIONAL" ? "bg-success" : (s == "UNDER_MAINTENANCE" ? "bg-warning text-dark" : "bg-danger");
     private string TranslateAssetStatus(string s) => s == "OPERATIONAL" ? "تعمل بكفاءة ✓" : (s == "UNDER_MAINTENANCE" ? "تحت الصيانة والإصلاح ⚙️" : "معطلة ⛔");
-    
+
     private string GetCrateStatusBadge(string s) => s switch
     {
         "COMPLETED" => "bg-success",
@@ -1531,7 +1537,7 @@
         "COMPLETED" => "مكتمل ومستلم بالكامل ✓",
         "DISPUTED" => "نزاع عجز وكسر معلق ⚠️",
         "PENDING_RECEIPT" => "بانتظار تأكيد المستلم ⏳",
-        "RESOLVED" => "تم التحكيم وفض النزاع ⚖️️",
+        "RESOLVED" => "تم التحكيم وفض النزاع ⚖️",
         _ => s
     };
 }

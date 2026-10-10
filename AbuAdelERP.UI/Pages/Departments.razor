@@ -1,20 +1,22 @@
 ﻿@page "/departments"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using System.Text
 @using System.IO
 @inject HttpClient Http
 @inject IJSRuntime JS
 
+<PageTitle>إدارة الأقسام وصالات الإنتاج - حلواني أبو عادل</PageTitle>
+
 <div class="container-fluid px-4 py-3" dir="rtl">
-    
+
     <!-- رأس الصفحة وأزرار التصدير والاستيراد -->
-    <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded shadow-sm border-start border-primary border-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded shadow-sm border-start border-primary border-4 flex-wrap gap-2">
         <div>
-            <h4 class="mb-1 text-dark fw-bold">🏢 إدارة الأقسام والإدارات</h4>
+            <h4 class="mb-1 text-dark fw-bold">🏢 إدارة الأقسام وصالات الإنتاج</h4>
             <small class="text-muted">تعريف وتصفية الهيكل التنظيمي للمصنع (إدارة عليا ──> إدارة ──> صالة / قسم إنتاجي)</small>
         </div>
-        <div class="d-flex gap-2">
-            <!-- أزرار الإكسيل الاحترافية -->
+        <div class="d-flex flex-wrap gap-2">
             <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportToExcelAsync">
                 <i class="bi bi-file-earmark-excel me-1"></i> تصدير إكسيل
             </button>
@@ -24,7 +26,7 @@
             <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
                 <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد من إكسيل
             </button>
-            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadDepartmentsAsync">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadDepartmentsAsync" disabled="@isLoading">
                 <i class="bi bi-arrow-clockwise"></i> تحديث
             </button>
         </div>
@@ -33,14 +35,14 @@
     <!-- تنبيهات النظام -->
     @if (!string.IsNullOrEmpty(successMessage))
     {
-        <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+        <div class="alert alert-success alert-dismissible fade show py-2 fw-bold" role="alert">
             <i class="bi bi-check-circle me-1"></i> @successMessage
             <button type="button" class="btn-close py-2" @onclick="() => successMessage = null"></button>
         </div>
     }
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+        <div class="alert alert-danger alert-dismissible fade show py-2 fw-bold" role="alert">
             <i class="bi bi-exclamation-triangle me-1"></i> @errorMessage
             <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
         </div>
@@ -49,20 +51,14 @@
     <div class="row g-3">
         <!-- 1. شريط الفلاتر وجدول عرض الأقسام والإدارات (الجانب الأيمن) -->
         <div class="col-lg-8">
-            
-            <!-- شريط الفلاتر الشامل للهيكل التنظيمي -->
             <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
                 <div class="card-body p-3">
                     <div class="row g-2 align-items-center">
-                        
-                        <!-- 1. بحث بالاسم أو الكود -->
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary mb-1">🔍 بحث (اسم، كود، أو وصف)</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="ابحث باسم القسم أو الكود..." 
+                            <input type="text" class="form-control form-control-sm" placeholder="ابحث باسم القسم أو الكود..."
                                    @bind="searchTerm" @bind:event="oninput" />
                         </div>
-
-                        <!-- 2. فلتر المستوى الهيكلي -->
                         <div class="col-md-3">
                             <label class="form-label small fw-bold text-secondary mb-1">👑 المستوى الهيكلي</label>
                             <select class="form-select form-select-sm" @bind="selectedLevelFilter">
@@ -71,8 +67,6 @@
                                 <option value="sub">└── صالات وأقسام فرعية</option>
                             </select>
                         </div>
-
-                        <!-- 3. فلتر الإدارة الأب -->
                         <div class="col-md-3">
                             <label class="form-label small fw-bold text-secondary mb-1">🏢 تتبع لإدارة</label>
                             <select class="form-select form-select-sm" @bind="selectedParentFilter">
@@ -83,8 +77,6 @@
                                 }
                             </select>
                         </div>
-
-                        <!-- 4. فلتر الحالة -->
                         <div class="col-md-2">
                             <label class="form-label small fw-bold text-secondary mb-1">⚡ الحالة</label>
                             <select class="form-select form-select-sm" @bind="selectedStatusFilter">
@@ -93,10 +85,8 @@
                                 <option value="inactive">🔴 معطل</option>
                             </select>
                         </div>
-
                     </div>
 
-                    <!-- شريط معلومات التصفية النشطة -->
                     @if (HasActiveFilters)
                     {
                         <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
@@ -112,21 +102,21 @@
             </div>
 
             <!-- بطاقة جدول الأقسام -->
-            <div class="card shadow-sm border-0 h-100">
+            <div class="card shadow-sm border-0 h-100 rounded-3">
                 <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
                     <span class="small fw-bold">قائمة الأقسام المسجلة بالهيكل التنظيمي</span>
                     <span class="badge bg-primary">المعروض: @FilteredDepartments.Count() هيكل</span>
                 </div>
-                <div class="table-responsive">
+                <div class="card-body p-0 table-responsive">
                     <table class="table table-hover align-middle mb-0 text-center small">
                         <thead class="table-light">
                             <tr>
                                 <th style="width: 80px;">الكود</th>
-                                <th class="text-start">الاسم</th>
+                                <th class="text-start ps-3">الاسم</th>
                                 <th>الجهة التابع لها (الأب)</th>
                                 <th>الوصف / الملاحظات</th>
                                 <th>الحالة</th>
-                                <th style="width: 140px;">إجراءات</th>
+                                <th style="width: 150px;">إجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -156,7 +146,7 @@
                                 {
                                     <tr class="@(dept.Id == currentDept.Id ? "table-primary" : "")" @key="dept.Id">
                                         <td class="font-monospace fw-bold text-secondary">@dept.DepartmentCode</td>
-                                        <td class="text-start fw-bold text-dark">
+                                        <td class="text-start ps-3 fw-bold text-dark">
                                             @if (dept.ParentDepartmentId == null)
                                             {
                                                 <span class="badge bg-primary me-1">إدارة رئيسية</span>
@@ -179,7 +169,7 @@
                                                 <span class="text-muted small">👑 إدارة رئيسية</span>
                                             }
                                         </td>
-                                        <td class="text-muted">@(string.IsNullOrEmpty(dept.Description) ? "-" : dept.Description)</td>
+                                        <td class="text-muted small">@(string.IsNullOrEmpty(dept.Description) ? "-" : dept.Description)</td>
                                         <td>
                                             <span class="badge @(dept.Active ? "bg-success" : "bg-danger")">
                                                 @(dept.Active ? "مفعل" : "معطل")
@@ -189,9 +179,12 @@
                                             <button class="btn btn-outline-primary btn-sm py-0 px-2 me-1" @onclick="() => EditDepartment(dept)">
                                                 <i class="bi bi-pencil"></i> تعديل
                                             </button>
-                                            <button class="btn btn-outline-@(dept.Active ? "danger" : "success") btn-sm py-0 px-2" 
+                                            <button class="btn btn-outline-@(dept.Active ? "danger" : "success") btn-sm py-0 px-2 me-1"
                                                     @onclick="() => ToggleDepartmentStatus(dept)">
                                                 @(dept.Active ? "إيقاف" : "تفعيل")
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm py-0 px-2" title="حذف" @onclick="() => DeleteDepartmentAsync(dept)">
+                                                <i class="bi bi-trash"></i>
                                             </button>
                                         </td>
                                     </tr>
@@ -205,7 +198,7 @@
 
         <!-- 2. بطاقة إضافة / تعديل هيكل (الجانب الأيسر) -->
         <div class="col-lg-4">
-            <div class="card shadow-sm border-0 border-top border-primary border-3">
+            <div class="card shadow-sm border-0 border-top border-primary border-3 rounded-3">
                 <div class="card-header bg-white py-2">
                     <h6 class="mb-0 fw-bold text-primary">
                         @(currentDept.Id > 0 ? "✏️ تعديل بيانات هيكل" : "➕ إضافة هيكل جديد")
@@ -214,13 +207,13 @@
                 <div class="card-body p-3">
                     <div class="mb-2">
                         <label class="form-label small fw-bold text-secondary">كود القسم / الإدارة <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="مثال: 101 أو 300" 
+                        <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="مثال: 101 أو 300"
                                @bind="currentDept.DepartmentCode" />
                     </div>
 
                     <div class="mb-2">
                         <label class="form-label small fw-bold text-secondary">اسم القسم / الإدارة <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control form-control-sm fw-bold" placeholder="مثال: قسم الشرقي / الإدارة المالية" 
+                        <input type="text" class="form-control form-control-sm fw-bold" placeholder="مثال: قسم الشرقي / الإدارة المالية"
                                @bind="currentDept.DepartmentName" />
                     </div>
 
@@ -237,7 +230,7 @@
 
                     <div class="mb-3">
                         <label class="form-label small fw-bold text-secondary">ملاحظات / وصف</label>
-                        <textarea class="form-control form-control-sm" rows="3" placeholder="توصيف نشاط القسم أو اختصاصاته..." 
+                        <textarea class="form-control form-control-sm" rows="3" placeholder="توصيف نشاط القسم أو اختصاصاته..."
                                   @bind="currentDept.Description"></textarea>
                     </div>
 
@@ -251,7 +244,7 @@
                         {
                             <button type="button" class="btn btn-secondary btn-sm flex-fill" @onclick="ResetForm">إلغاء</button>
                         }
-                        <button type="button" class="btn btn-primary btn-sm flex-fill fw-bold shadow-sm" 
+                        <button type="button" class="btn btn-primary btn-sm flex-fill fw-bold shadow-sm"
                                 disabled="@isSaving" @onclick="SaveDepartmentAsync">
                             @if (isSaving)
                             {
@@ -278,7 +271,7 @@
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
         <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content shadow-lg border-0" dir="rtl">
-                
+
                 <div class="modal-header bg-success text-white py-2 px-3">
                     <h5 class="modal-title fw-bold fs-6">
                         <i class="bi bi-file-earmark-excel me-1"></i> استيراد الهيكل التنظيمي من ملف إكسيل
@@ -288,9 +281,9 @@
 
                 <div class="modal-body p-3">
                     <div class="alert alert-info py-2 small mb-3">
-                        <i class="bi bi-info-circle me-1"></i> 
-                        يمكنك حفظ شيت الإكسيل بصيغة <strong>CSV (UTF-8)</strong> ثم رفعه هنا مباشرة. 
-                        أو استخدم 
+                        <i class="bi bi-info-circle me-1"></i>
+                        يمكنك حفظ شيت الإكسيل بصيغة <strong>CSV (UTF-8)</strong> ثم رفعه هنا مباشرة.
+                        أو استخدم
                         <a href="javascript:void(0)" class="fw-bold text-decoration-underline" @onclick="DownloadTemplateAsync">تحميل القالب النموذجي</a>
                         لتعبئة البيانات بدقة.
                     </div>
@@ -340,13 +333,13 @@
 
                 <div class="modal-footer bg-light py-2 d-flex justify-content-between">
                     <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
-                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
-                            disabled="@(isSavingImport || !importedPreviewList.Any())" 
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm"
+                            disabled="@(isSavingImport || !importedPreviewList.Any())"
                             @onclick="ProcessAndSaveImportAsync">
                         @if (isSavingImport)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
-                            <span>جاري حفظ السجلات في قاعدة البيانات...</span>
+                            <span>جاري حفظ وتحديث السجلات...</span>
                         }
                         else
                         {
@@ -361,9 +354,6 @@
 }
 
 @code {
-    // ==========================================
-    // DTOs & Models
-    // ==========================================
     public class DepartmentItemDto
     {
         public long Id { get; set; }
@@ -384,14 +374,10 @@
         public bool Active { get; set; } = true;
     }
 
-    // ==========================================
-    // States & Filter Variables
-    // ==========================================
     private List<DepartmentItemDto> departments = new();
     private DepartmentItemDto currentDept = new();
     private List<DepartmentImportRowDto> importedPreviewList = new();
 
-    // متغيرات الفلاتر
     private string searchTerm = "";
     private string selectedLevelFilter = "all";
     private long selectedParentFilter = -1;
@@ -427,9 +413,6 @@
         }
     }
 
-    // ==========================================
-    // محرك الفلترة المتعددة الذكي
-    // ==========================================
     private bool HasActiveFilters =>
         !string.IsNullOrWhiteSpace(searchTerm) ||
         selectedLevelFilter != "all" ||
@@ -450,7 +433,6 @@
         {
             var query = departments.AsEnumerable();
 
-            // 1. فلتر البحث السريع (الاسم أو الكود أو الوصف)
             if (!string.IsNullOrWhiteSpace(searchTerm))
             {
                 var term = searchTerm.Trim();
@@ -460,7 +442,6 @@
                     (!string.IsNullOrEmpty(d.Description) && d.Description.Contains(term, StringComparison.OrdinalIgnoreCase)));
             }
 
-            // 2. فلتر المستوى الهيكلي (إدارة رئيسية vs صالة/قسم فرعي)
             if (selectedLevelFilter == "root")
             {
                 query = query.Where(d => d.ParentDepartmentId == null);
@@ -470,13 +451,11 @@
                 query = query.Where(d => d.ParentDepartmentId != null);
             }
 
-            // 3. فلتر الإدارة الأب
             if (selectedParentFilter != -1)
             {
                 query = query.Where(d => d.ParentDepartmentId == selectedParentFilter);
             }
 
-            // 4. فلتر الحالة (مفعل / معطل)
             if (selectedStatusFilter == "active")
             {
                 query = query.Where(d => d.Active);
@@ -573,20 +552,46 @@
                 successMessage = $"تم تغيير حالة القسم إلى: {(dept.Active ? "مفعل" : "معطل")}";
                 await LoadDepartmentsAsync();
             }
+            else
+            {
+                dept.Active = !dept.Active;
+                errorMessage = "تعذر تعديل الحالة.";
+            }
         }
         catch (Exception ex)
         {
+            dept.Active = !dept.Active;
             errorMessage = $"تعذر تعديل الحالة: {ex.Message}";
         }
     }
 
-    // ==========================================
-    // محرك التصدير إلى إكسيل (يدعم نتائج الفلترة المحددة)
-    // ==========================================
+    private async Task DeleteDepartmentAsync(DepartmentItemDto dept)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف أو إيقاف القسم [{dept.DepartmentName}]؟");
+        if (!confirmed) return;
+
+        try
+        {
+            var res = await Http.DeleteAsync($"api/departments/{dept.Id}");
+            if (res.IsSuccessStatusCode)
+            {
+                successMessage = "تمت معالجة حذف / إيقاف القسم بنجاح.";
+                await LoadDepartmentsAsync();
+            }
+            else
+            {
+                errorMessage = await res.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في الحذف: {ex.Message}";
+        }
+    }
+
     private async Task ExportToExcelAsync()
     {
         var listToExport = FilteredDepartments.ToList();
-
         if (!listToExport.Any())
         {
             errorMessage = "لا توجد سجلات مطابقة للفلترة لتصديرها.";
@@ -600,15 +605,15 @@
 
             foreach (var d in listToExport)
             {
-                var parentName = GetParentName(d.ParentDepartmentId).Replace(",", " - ");
-                var desc = (d.Description ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+                var parentName = GetParentName(d.ParentDepartmentId);
+                var desc = d.Description ?? "";
                 var status = d.Active ? "مفعل" : "معطل";
                 sb.AppendLine($"{EscapeCsv(d.DepartmentCode)},{EscapeCsv(d.DepartmentName)},{EscapeCsv(parentName)},{EscapeCsv(desc)},{status}");
             }
 
             var fileName = $"الهيكل_التنظيمي_أبو_عادل_{DateTime.Now:yyyyMMdd_HHmm}.csv";
             await TriggerBrowserDownload(fileName, sb.ToString());
-            successMessage = $"تم تصدير ({listToExport.Count}) قسماً إلى إكسيل بنجاح.";
+            successMessage = $"تم تصدير ({listToExport.Count}) قسماً بنجاح.";
         }
         catch (Exception ex)
         {
@@ -637,30 +642,22 @@
 
     private async Task TriggerBrowserDownload(string fileName, string content)
     {
-        var utf8WithBom = "\uFEFF" + content;
-        var jsCommand = $@"
-            const a = document.createElement('a');
-            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(`{utf8WithBom}`);
-            a.download = '{fileName}';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        ";
-        await JS.InvokeVoidAsync("eval", jsCommand);
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+        var js = $"const link = document.createElement('a'); link.href = 'data:text/csv;charset=utf-8;base64,{base64}'; link.download = '{fileName}'; document.body.appendChild(link); link.click(); document.body.removeChild(link);";
+        await JS.InvokeVoidAsync("eval", js);
     }
 
     private string EscapeCsv(string val)
     {
-        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
         {
             return $"\"{val.Replace("\"", "\"\"")}\"";
         }
         return val;
     }
 
-    // ==========================================
-    // محرك الاستيراد من الإكسيل (Excel / CSV Parser)
-    // ==========================================
     private void OpenImportModal()
     {
         importedPreviewList.Clear();
@@ -712,11 +709,6 @@
                     });
                 }
             }
-
-            if (!importedPreviewList.Any())
-            {
-                errorMessage = "تعذر استخراج بيانات من الملف. يرجى التأكد من التنسيق.";
-            }
         }
         catch (Exception ex)
         {
@@ -754,31 +746,41 @@
         try
         {
             int successCount = 0;
-
             var roots = importedPreviewList.Where(r => string.IsNullOrEmpty(r.ParentCode)).ToList();
             var children = importedPreviewList.Where(r => !string.IsNullOrEmpty(r.ParentCode)).ToList();
 
+            // 1. استيراد أو تحديث الإدارات الرئيسية أولاً
             foreach (var r in roots)
             {
+                var existing = departments.FirstOrDefault(d => d.DepartmentCode.Equals(r.DepartmentCode, StringComparison.OrdinalIgnoreCase));
                 var dto = new DepartmentItemDto
                 {
+                    Id = existing?.Id ?? 0,
                     CompanyId = 1,
                     DepartmentCode = r.DepartmentCode,
                     DepartmentName = r.DepartmentName,
                     Description = r.Description,
                     Active = r.Active
                 };
-                var res = await Http.PostAsJsonAsync("api/departments", dto);
+
+                HttpResponseMessage res = (existing != null)
+                    ? await Http.PutAsJsonAsync($"api/departments/{existing.Id}", dto)
+                    : await Http.PostAsJsonAsync("api/departments", dto);
+
                 if (res.IsSuccessStatusCode) successCount++;
             }
 
             await LoadDepartmentsAsync();
 
+            // 2. استيراد أو تحديث الصالات والأقسام الفرعية مع ربط الأب
             foreach (var c in children)
             {
-                var parent = departments.FirstOrDefault(d => d.DepartmentCode == c.ParentCode);
+                var existing = departments.FirstOrDefault(d => d.DepartmentCode.Equals(c.DepartmentCode, StringComparison.OrdinalIgnoreCase));
+                var parent = departments.FirstOrDefault(d => d.DepartmentCode.Equals(c.ParentCode, StringComparison.OrdinalIgnoreCase));
+
                 var dto = new DepartmentItemDto
                 {
+                    Id = existing?.Id ?? 0,
                     CompanyId = 1,
                     ParentDepartmentId = parent?.Id,
                     DepartmentCode = c.DepartmentCode,
@@ -786,11 +788,15 @@
                     Description = c.Description,
                     Active = c.Active
                 };
-                var res = await Http.PostAsJsonAsync("api/departments", dto);
+
+                HttpResponseMessage res = (existing != null)
+                    ? await Http.PutAsJsonAsync($"api/departments/{existing.Id}", dto)
+                    : await Http.PostAsJsonAsync("api/departments", dto);
+
                 if (res.IsSuccessStatusCode) successCount++;
             }
 
-            successMessage = $"تم استيراد ({successCount}) قسماً وإدراجها بالهيكل التنظيمي بنجاح.";
+            successMessage = $"تم حفظ وتحديث ({successCount}) قسماً بالهيكل التنظيمي بنجاح.";
             CloseImportModal();
             await LoadDepartmentsAsync();
         }

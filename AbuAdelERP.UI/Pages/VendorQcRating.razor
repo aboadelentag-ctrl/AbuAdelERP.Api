@@ -1,4 +1,5 @@
 ﻿@page "/vendor-qc-rating"
+@layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
 @using System.Text
 @using System.Text.Json
@@ -6,6 +7,8 @@
 @using System.IO
 @inject HttpClient Http
 @inject IJSRuntime JS
+
+<PageTitle>مؤشرات جودة الموردين وسجل الفحص الفني - حلواني أبو عادل</PageTitle>
 
 <div class="container-fluid px-4 py-3" dir="rtl">
 
@@ -46,7 +49,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <div class="text-muted small fw-bold">إجمالي الموردين المفحوصين</div>
-                        <div class="fs-3 fw-bold text-success mt-1">@FilteredRatings.Count()</div>
+                        <div class="fs-3 fw-bold text-success mt-1 font-monospace">@FilteredRatings.Count()</div>
                     </div>
                     <div class="bg-light p-2 rounded-circle border">
                         <i class="bi bi-truck fs-4 text-success"></i>
@@ -60,7 +63,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <div class="text-muted small fw-bold">موردين بتصنيف ممتاز (Grade A)</div>
-                        <div class="fs-3 fw-bold text-primary mt-1">@FilteredRatings.Count(r => r.QualityGrade == "A")</div>
+                        <div class="fs-3 fw-bold text-primary mt-1 font-monospace">@FilteredRatings.Count(r => r.QualityGrade == "A")</div>
                     </div>
                     <div class="bg-light p-2 rounded-circle border">
                         <i class="bi bi-award fs-4 text-primary"></i>
@@ -74,7 +77,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <div class="text-muted small fw-bold">موردين تحت الملاحظة (Grade B)</div>
-                        <div class="fs-3 fw-bold text-warning mt-1">@FilteredRatings.Count(r => r.QualityGrade == "B")</div>
+                        <div class="fs-3 fw-bold text-warning mt-1 font-monospace">@FilteredRatings.Count(r => r.QualityGrade == "B")</div>
                     </div>
                     <div class="bg-light p-2 rounded-circle border">
                         <i class="bi bi-exclamation-circle fs-4 text-warning"></i>
@@ -88,7 +91,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <div class="text-muted small fw-bold">موردين ذوو خطورة جودة (Grade C)</div>
-                        <div class="fs-3 fw-bold text-danger mt-1">@FilteredRatings.Count(r => r.QualityGrade == "C")</div>
+                        <div class="fs-3 fw-bold text-danger mt-1 font-monospace">@FilteredRatings.Count(r => r.QualityGrade == "C")</div>
                     </div>
                     <div class="bg-light p-2 rounded-circle border">
                         <i class="bi bi-shield-slash fs-4 text-danger"></i>
@@ -99,17 +102,15 @@
     </div>
 
     <!-- شريط البحث والفلترة المتعددة -->
-    <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
+    <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3 rounded-3">
         <div class="card-body p-3">
             <div class="row g-2 align-items-center">
-                <!-- 1. بحث عام بالاسم، الخامة، أو الملاحظات -->
                 <div class="col-md-3">
                     <label class="form-label small fw-bold text-secondary mb-1">🔍 بحث (مورد، خامة، LOT، أو ملاحظات)</label>
                     <input type="text" class="form-control form-control-sm" placeholder="ابحث باسم المورد أو الخامة أو رقم التشغيلة..." 
                            @bind="searchTerm" @bind:event="oninput" />
                 </div>
 
-                <!-- 2. فلتر تصنيف الجودة -->
                 <div class="col-md-2">
                     <label class="form-label small fw-bold text-secondary mb-1">🏆 تصنيف الجودة</label>
                     <select class="form-select form-select-sm fw-bold" @bind="selectedGradeFilter">
@@ -120,7 +121,6 @@
                     </select>
                 </div>
 
-                <!-- 3. فلتر القرار الفني -->
                 <div class="col-md-2">
                     <label class="form-label small fw-bold text-secondary mb-1">⚖️ القرار الفني للفحص</label>
                     <select class="form-select form-select-sm fw-bold" @bind="selectedDecisionFilter">
@@ -130,20 +130,18 @@
                     </select>
                 </div>
 
-                <!-- 4. من تاريخ -->
                 <div class="col-md-2">
                     <label class="form-label small fw-bold text-secondary mb-1">📅 من تاريخ</label>
                     <input type="date" class="form-control form-control-sm font-monospace" @bind="fromDate" />
                 </div>
 
-                <!-- 5. إلى تاريخ -->
                 <div class="col-md-2">
                     <label class="form-label small fw-bold text-secondary mb-1">📅 إلى تاريخ</label>
                     <input type="date" class="form-control form-control-sm font-monospace" @bind="toDate" />
                 </div>
 
                 <div class="col-md-1 d-flex align-items-end">
-                    <button class="btn btn-outline-danger btn-sm w-100" title="تفريغ الفلاتر" @onclick="ResetFilter">✕</button>
+                    <button class="btn btn-outline-danger btn-sm w-100 fw-bold" title="تفريغ الفلاتر" @onclick="ResetFilter">✕</button>
                 </div>
             </div>
 
@@ -162,7 +160,7 @@
     </div>
 
     <!-- جدول تقييم أداء الموردين ومعدل مطابقة الجودة -->
-    <div class="card shadow-sm border-0 mb-4 bg-white">
+    <div class="card shadow-sm border-0 mb-4 bg-white rounded-3">
         <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
             <h6 class="mb-0 fw-bold small">🏆 تقييم أداء الموردين ومعدل مطابقة الجودة (% Acceptance Rate)</h6>
             <span class="badge bg-primary">المعروض: @FilteredRatings.Count() مورد</span>
@@ -182,7 +180,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (ratings == null)
+                        @if (isLoading && ratings == null)
                         {
                             <tr><td colspan="7" class="py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري حساب التقييمات للفترة المحددة...</td></tr>
                         }
@@ -196,13 +194,13 @@
                             {
                                 <tr>
                                     <td class="text-start ps-3 fw-bold text-primary">@r.SupplierName</td>
-                                    <td><span class="badge bg-secondary">@r.TotalShipments شحنة</span></td>
+                                    <td><span class="badge bg-secondary font-monospace">@r.TotalShipments شحنة</span></td>
                                     <td class="fw-bold font-monospace">@r.TotalReceivedQty.ToString("N2")</td>
                                     <td class="text-success fw-bold font-monospace">@r.TotalAcceptedQty.ToString("N2")</td>
                                     <td class="text-danger fw-bold font-monospace">@r.TotalRejectedQty.ToString("N2")</td>
                                     <td>
                                         <div class="progress" style="height: 20px;">
-                                            <div class="progress-bar @(r.AcceptanceRate >= 95 ? "bg-success" : r.AcceptanceRate >= 85 ? "bg-warning text-dark" : "bg-danger") fw-bold"
+                                            <div class="progress-bar @(r.AcceptanceRate >= 95 ? "bg-success" : r.AcceptanceRate >= 85 ? "bg-warning text-dark" : "bg-danger") fw-bold font-monospace"
                                                  role="progressbar" style="width: @(Math.Min(r.AcceptanceRate, 100))%;">
                                                 @r.AcceptanceRate.ToString("N1")%
                                             </div>
@@ -232,7 +230,7 @@
     </div>
 
     <!-- سجل الفحوصات التفصيلية وأسباب الرفض -->
-    <div class="card shadow-sm border-0 mb-3 bg-white">
+    <div class="card shadow-sm border-0 mb-3 bg-white rounded-3">
         <div class="card-header bg-secondary text-white py-2 d-flex justify-content-between align-items-center">
             <h6 class="mb-0 fw-bold small">📜 سجل الفحوصات الفنية للخامات وأسباب الرفض</h6>
             <span class="badge bg-light text-dark">المعروض: @FilteredHistory.Count() حركة استلام وفحص</span>
@@ -251,7 +249,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (history == null)
+                        @if (isLoading && history == null)
                         {
                             <tr><td colspan="6" class="py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري تحميل السجل...</td></tr>
                         }
@@ -296,11 +294,9 @@
     private List<VendorQcScoreDto>? ratings;
     private List<QcInspectionHistoryDto>? history;
 
-    // افتراضياً: آخر 30 يوماً
     private DateTime? fromDate = DateTime.Today.AddDays(-30);
     private DateTime? toDate = DateTime.Today;
 
-    // فلاتر البحث المحلية
     private string searchTerm = "";
     private string selectedGradeFilter = "all";
     private string selectedDecisionFilter = "all";
@@ -320,31 +316,14 @@
         statusMessage = null;
         try
         {
-            string queryParams = "";
-            if (fromDate.HasValue && toDate.HasValue)
-            {
-                queryParams = $"?fromDate={fromDate.Value:yyyy-MM-dd}&toDate={toDate.Value:yyyy-MM-dd}";
-            }
-            else if (fromDate.HasValue)
-            {
-                queryParams = $"?fromDate={fromDate.Value:yyyy-MM-dd}";
-            }
-            else if (toDate.HasValue)
-            {
-                queryParams = $"?toDate={toDate.Value:yyyy-MM-dd}";
-            }
+            var queryList = new List<string>();
+            if (fromDate.HasValue) queryList.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) queryList.Add($"toDate={toDate.Value:yyyy-MM-dd}");
 
-            try
-            {
-                ratings = await Http.GetFromJsonAsync<List<VendorQcScoreDto>>($"api/VendorQc/ratings{queryParams}");
-                history = await Http.GetFromJsonAsync<List<QcInspectionHistoryDto>>($"api/VendorQc/history{queryParams}");
-            }
-            catch
-            {
-                // مسار احتياطي في حال اختلاف الـ Port
-                ratings = await Http.GetFromJsonAsync<List<VendorQcScoreDto>>($"https://localhost:7273/api/VendorQc/ratings{queryParams}");
-                history = await Http.GetFromJsonAsync<List<QcInspectionHistoryDto>>($"https://localhost:7273/api/VendorQc/history{queryParams}");
-            }
+            string queryString = queryList.Any() ? "?" + string.Join("&", queryList) : "";
+
+            ratings = await Http.GetFromJsonAsync<List<VendorQcScoreDto>>($"api/VendorQc/ratings{queryString}") ?? new();
+            history = await Http.GetFromJsonAsync<List<QcInspectionHistoryDto>>($"api/VendorQc/history{queryString}") ?? new();
         }
         catch (Exception ex)
         {
@@ -422,9 +401,6 @@
         }
     }
 
-    // ==========================================
-    // محرك التصدير إلى إكسيل (UTF-8 BOM)
-    // ==========================================
     private async Task ExportRatingsToExcelAsync()
     {
         var list = FilteredRatings.ToList();
@@ -451,8 +427,11 @@
                 sb.AppendLine($"{EscapeCsv(r.SupplierName)},{r.TotalShipments},{r.TotalReceivedQty:F2},{r.TotalAcceptedQty:F2},{r.TotalRejectedQty:F2},{r.AcceptanceRate:F1}%,{gradeTitle}");
             }
 
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
             var fileName = $"تقرير_تقييم_جودة_الموردين_{DateTime.Now:yyyyMMdd_HHmm}.csv";
-            await TriggerBrowserDownload(fileName, sb.ToString());
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+
             isSuccess = true;
             statusMessage = $"تم تصدير تقييم ({list.Count}) مورد إلى إكسيل بنجاح.";
         }
@@ -485,8 +464,11 @@
                 sb.AppendLine($"{h.InspectionDate:yyyy-MM-dd HH:mm},{EscapeCsv(h.SupplierName)},{EscapeCsv(h.ItemCode)},{EscapeCsv(h.ItemName)},{h.Quantity:F2},{decision},{EscapeCsv(notes)}");
             }
 
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
             var fileName = $"سجل_الفحوصات_الفنية_للخامات_{DateTime.Now:yyyyMMdd_HHmm}.csv";
-            await TriggerBrowserDownload(fileName, sb.ToString());
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+
             isSuccess = true;
             statusMessage = $"تم تصدير ({list.Count}) حركة فحص واستلام إلى إكسيل بنجاح.";
         }
@@ -497,23 +479,10 @@
         }
     }
 
-    private async Task TriggerBrowserDownload(string fileName, string content)
-    {
-        var utf8WithBom = "\uFEFF" + content;
-        var jsCommand = $@"
-            const a = document.createElement('a');
-            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(`{utf8WithBom}`);
-            a.download = '{fileName}';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        ";
-        await JS.InvokeVoidAsync("eval", jsCommand);
-    }
-
     private string EscapeCsv(string val)
     {
-        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
             return $"\"{val.Replace("\"", "\"\"")}\"";
         return val;
     }

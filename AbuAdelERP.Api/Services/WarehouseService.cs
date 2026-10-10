@@ -1,42 +1,56 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using AbuAdelERP.Api.Models;
 using AbuAdelERP.Api.DTOs;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
-namespace AbuAdelERP.Api.Services;
-
-public class WarehouseService : IWarehouseService
+namespace AbuAdelERP.Api.Services
 {
-    private readonly AppDbContext _context;
-
-    public WarehouseService(AppDbContext context)
+    public class WarehouseService : IWarehouseService
     {
-        _context = context;
-    }
+        private readonly AppDbContext _context;
 
-    public async Task<List<Warehouse>> GetAllWarehousesAsync()
-    {
-        return await _context.Warehouses.ToListAsync();
-    }
-
-    public async Task<Warehouse> AddWarehouseAsync(WarehouseCreateDto dto)
-    {
-        var newWarehouse = new Warehouse
+        public WarehouseService(AppDbContext context)
         {
-            WarehouseCode = dto.WarehouseCode,
-            WarehouseName = dto.WarehouseName,
-            WarehouseType = dto.WarehouseType,
-            Description = dto.Description,
+            _context = context;
+        }
 
-            // بيانات يتحكم بها النظام (تمت إضافة الفرع)
-            BranchId = 1,    // <--- إجبار المخزن على التبعية للفرع رقم 1 لتخطي قيد قاعدة البيانات
-            Active = true,
-            CompanyId = 6,
-            CreatedAt = DateTime.UtcNow
-        };
+        public async Task<List<Warehouse>> GetAllWarehousesAsync()
+        {
+            return await _context.Warehouses
+                .Include(w => w.Branch)
+                .Include(w => w.ParentWarehouse)
+                .AsNoTracking()
+                .ToListAsync();
+        }
 
-        _context.Warehouses.Add(newWarehouse);
-        await _context.SaveChangesAsync();
+        public async Task<Warehouse> AddWarehouseAsync(WarehouseCreateDto dto)
+        {
+            var companyId = await _context.Companies.Select(c => c.Id).FirstOrDefaultAsync();
+            if (companyId <= 0) companyId = 1;
 
-        return newWarehouse;
+            var branchId = await _context.Branches.Select(b => b.Id).FirstOrDefaultAsync();
+            if (branchId <= 0) branchId = 1;
+
+            var newWarehouse = new Warehouse
+            {
+                WarehouseCode = dto.WarehouseCode?.Trim() ?? string.Empty,
+                WarehouseName = dto.WarehouseName?.Trim() ?? string.Empty,
+                WarehouseType = dto.WarehouseType?.Trim() ?? "خامات",
+                Description = dto.Description?.Trim() ?? string.Empty,
+                BranchId = branchId,
+                Active = true,
+                CompanyId = companyId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _context.Warehouses.Add(newWarehouse);
+            await _context.SaveChangesAsync();
+
+            return newWarehouse;
+        }
     }
 }
