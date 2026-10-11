@@ -2,89 +2,195 @@
 
 namespace AbuAdelERP.Api.Models
 {
-    public class PermissionItem
-    {
-        public string Code { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string Module { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-    }
-
     public static class AppPermissions
     {
-        public static List<PermissionItem> GetAllPermissions()
+        public static readonly List<PermissionGroupDto> Catalog = new()
         {
-            return new List<PermissionItem>
+            new PermissionGroupDto
             {
-                // ================= 1. إدارة المستخدمين والأمان =================
-                new() { Code = "Users.View", Name = "عرض شاشة المستخدمين", Module = "🛡️ المستخدمين والأمان", Description = "الوصول لشاشة إدارة المستخدمين والصلاحيات" },
-                new() { Code = "Users.Create", Name = "زر إضافة مستخدم جديد", Module = "🛡️ المستخدمين والأمان", Description = "صلاحية إنشاء حساب جديد وتعيين كلمة المرور" },
-                new() { Code = "Users.Edit", Name = "زر تعديل بيانات المستخدم", Module = "🛡️ المستخدمين والأمان", Description = "تعديل بيانات الحساب والقسم والدور" },
-                new() { Code = "Users.Permissions", Name = "زر مصفوفة الصلاحيات", Module = "🛡️ المستخدمين والأمان", Description = "فتح شاشة توزيع وتعديل صلاحيات الأزرار للمستخدم" },
+                GroupCode = "MES",
+                GroupName = "🏭 قطاع العمليات الصناعية والتصنيع (MES)",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Production.Orders.View", "معاينة أوامر التشغيل والصالات", "استعراض خطط الإنتاج وأوامر التصنيع النشطة"),
+                    new("Production.Orders.Create", "زر إصدار أمر تشغيل جديد", "فتح تشغيلة صناعية وتحديد خط الإنتاج والمخرجات"),
+                    new("Production.Orders.Edit", "زر تعديل أمر التشغيل", "تعديل الكميات المستهدفة أو الصالة المعنية"),
+                    new("Production.Execute.Start", "زر بدء الخلط وصرف الخامات التلقائي", "خصم المواد الخام معيارياً من مستودع الصالة"),
+                    new("Production.Waste.Record", "زر تسجيل الهالك والانحرافات", "توثيق نسب الهدر الفعلية أثناء الصب والخبز"),
+                    new("Production.Cost.Approve", "زر اعتماد ميزان تكاليف التشغيلة", "صلاحية مالية حساسة لحساب التكلفة الفعلية للوجبة"),
+                    new("Production.FGTransfer.Submit", "زر تسليم وترحيل المنتج التام", "تصدير المنتج النهائي بعد اكتمال الصب والتغليف"),
+                    new("Production.Orders.Print", "زر طباعة أوامر التشغيل والبطاقات", "توليد كروت المتابعة الميدانية للصالات")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "BOM",
+                GroupName = "📖 وصفات التصنيع والخلطات المعيارية (BOM)",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("BOM.View", "استعراض دليل الوصفات", "مشاهدة قائمة وصفات المنتجات والمقادير"),
+                    new("BOM.Create", "زر إنشاء وصفة تصنيع معيارية جديدة", "إضافة تركيبة خلط جديدة ونسب المكونات"),
+                    new("BOM.Edit", "زر تعديل نسب ومكونات الوصفة", "تحديث المقادير وأوزان الخامات المعيارية"),
+                    new("BOM.Cost.View", "كشف أسرار وتكاليف خلطة الوصفة", "الاطلاع على القيمة المالية لخامات الوصفة"),
+                    new("BOM.Delete", "زر حذف / تعطيل الوصفة", "إيقاف العمل بالخلطة في صالات الإنتاج")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "SCM",
+                GroupName = "🚚 قطاع المخازن والأرصدة واللوجستيات",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Warehouse.Balances.View", "استعراض أرصدة المخازن اللحظية", "الاطلاع على الكميات المتوفرة بالمستودعات والصالات"),
+                    new("Warehouse.StockCard.View", "فحص كارت الصنف ومسار اللوطات", "تتبع التاريخ الحركي والتراكمي وتواريخ الصلاحية"),
+                    new("Warehouse.Receipt.Inspect", "زر فحص واستلام الخامات الموردة (GMP)", "اعتماد دخول الشحنات واستلام الفحص المبدئي"),
+                    new("Warehouse.Adjustment.Create", "زر تحرير تسوية جردية (عجز/زيادة)", "إدخال فروقات الجرد الفعلي للمخازن"),
+                    new("Warehouse.Adjustment.Approve", "زر اعتماد وترحيل التسوية الجردية", "التأثير الفعلي على القيمة المالية للمخزون"),
+                    new("Warehouse.Barcode.Print", "زر طباعة ملصقات الباركود واللوط", "توليد باركود الصناديق والطرود المخزنية"),
+                    new("Warehouse.Export.Excel", "زر تصدير أرصدة المخازن Excel", "استخراج تقارير الجرد والمستودعات خارجياً")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "LOGISTICS",
+                GroupName = "🏢 إمداد الفروع وشحن البضائع ولجنة النزاع",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Logistics.Transfers.View", "استعراض شحنات وتحويلات الفروع", "متابعة مسار بضاعة الفروع الصادرة والواردة"),
+                    new("Logistics.Transfers.Create", "زر إنشاء إذن شحن وإمداد فرع", "حجز البضاعة من المستودع المركزي وتوجيهها"),
+                    new("Logistics.Transfers.Dispatch", "زر توجيه السائق واعتماد خروج الشحنة", "خصم الرصيد من المستودع وبدء خط سير النقل"),
+                    new("Logistics.Transfers.Receive", "زر تأكيد استلام عهدة الفرع", "تأكيد مدير الفرع للكميات وترصيد مخزن المعرض"),
+                    new("Logistics.Transfers.DisputeReport", "زر إثبات عجز / كسر / تلفيات شحنة", "فتح محضر نزاع رسمي بين السائق والفرع"),
+                    new("Logistics.Transfers.DisputeResolve", "زر اعتماد قرار لجنة فض النزاعات", "تحميل العجز على السائق أو تسوية الهالك المعتمد")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "SALES",
+                GroupName = "🧾 المبيعات ونقاط البيع والفواتير اليومية",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Sales.Invoices.View", "عرض سجل فواتير المبيعات", "استعراض فواتير العملاء وإيرادات المنافذ"),
+                    new("Sales.Invoices.Create", "زر تحرير فاتورة مبيعات جديدة", "إصدار فاتورة وخصم المنتجات من رصيد المنفذ"),
+                    new("Sales.Invoices.OverridePrice", "تعديل سعر البيع أو منح خصم استثنائي", "تجاوز السعر المعياري المعتمد للصنف"),
+                    new("Sales.Invoices.Post", "زر ترحيل الفاتورة مالياً", "توليد القيود المحاسبية التلقائية وإقفال الحساب"),
+                    new("Sales.Invoices.Cancel", "زر إلغاء / حذف فاتورة مبيعات مرحلة", "إلغاء أثر الفاتورة ورد البضاعة للمخزن"),
+                    new("Sales.Return.Create", "زر إصدار مرتجع مبيعات", "معالجة بضاعة العميل المرتجعة للفرع"),
+                    new("Sales.Invoices.Print", "زر طباعة الفاتورة والإيصال", "طباعة الفاتورة الضريبية وإيصالات الدفع")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "CRM",
+                GroupName = "👥 العملاء والتجار وحسابات المنافذ",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Customers.View", "استعراض سجل العملاء والتجار", "الاطلاع على بيانات العملاء وأرصدتهم"),
+                    new("Customers.Create", "زر إضافة عميل / منفذ جديد", "تسجيل بيانات تاجر أو عميل جديد"),
+                    new("Customers.Edit", "زر تعديل بيانات وسقف ائتمان العميل", "تحديد الحد الأقصى للمديونية وشروط الدفع"),
+                    new("Customers.Block", "زر حظر / إيقاف التعامل مع العميل", "منع إصدار فواتير آجلة للعميل"),
+                    new("Customers.Statement.Export", "زر تصدير وطباعة كشف حساب العميل", "استخراج مديونيات وحركات العميل المالية")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "FINANCE",
+                GroupName = "💵 الإدارة المالية والخزائن وشجرة الحسابات",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Finance.COA.View", "استعراض شجرة الحسابات ودليل المركز المالي", "الاطلاع على بنود الأصول والخصوم والمصروفات"),
+                    new("Finance.COA.Manage", "زر إضافة / تعديل حساب في الشجرة", "تعديل بنود وهيكل الحسابات المحاسبية"),
+                    new("Finance.Treasury.ReceiptCreate", "زر إنشاء سند قبض نقدية / شيكات", "تحرير استلام مبالغ نقدية أو دفعات عملاء"),
+                    new("Finance.Treasury.PaymentCreate", "زر إنشاء سند صرف نقدية / مصروفات", "صرف مستحقات أو غاز أو نثريات تشغيل"),
+                    new("Finance.Treasury.Approve", "زر اعتماد وترحيل سندات الخزينة", "التأثير الفعلي على رصيد الخزائن وحسابات البنوك"),
+                    new("Finance.Journal.Create", "زر إنشاء وتمرير قيد يومية يدوي", "تسجيل القيود المحاسبية والتسويات"),
+                    new("Finance.Journal.Post", "زر ترحيل القيود لدفتر الأستاذ العام", "إقفال القيود بشكل نهائي غير قابل للتعديل"),
+                    new("Finance.Reports.Statements", "معاينة ميزان المراجعة والأرباح والخسائر", "استعراض القوائم والتقارير المالية الختامية")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "PROCUREMENT",
+                GroupName = "📦 المشتريات والموردين وفواتير التوريد",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Procurement.Suppliers.Manage", "إدارة سجل الموردين المعتمدين", "إضافة وتعديل بيانات شركات التوريد والأسعار"),
+                    new("Procurement.PO.Create", "زر إنشاء أمر شراء (PO)", "إصدار طلب توريد خامات رسمي للمورد"),
+                    new("Procurement.PO.Approve", "زر اعتماد أمر الشراء من الإدارة", "الموافقة الرسمية والمالية على أمر التوريد"),
+                    new("Procurement.Invoice.Create", "زر تسجيل فاتورة شراء وربطها بالاستلام", "إثبات الفاتورة ومطابقتها مع محضر الاستلام"),
+                    new("Procurement.Invoice.Post", "زر اعتماد وترحيل فاتورة المورد", "التأثير على حساب المورد واستحقاقه المالي"),
+                    new("Procurement.Quality.Assess", "زر تقييم جودة المورد والشهادات (COA)", "اعتماد نتائج التحاليل المخبرية للخامات")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "QUALITY",
+                GroupName = "🔬 منظومة الجودة والمعامل وسلامة الغذاء (HACCP)",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Quality.Forms.Design", "زر تصميم وتعديل نماذج الفحص الرقمية", "بناء وتعديل استمارات النظافة والتفتيش"),
+                    new("Quality.Forms.Fill", "زر تعبئة محاضر الفحص الميداني والمعملي", "تسجيل درجات الحرارة، الـ pH، والنظافة"),
+                    new("Quality.Batch.Release", "زر الإفراج الصحي والنوعي عن التشغيلات", "الموافقة الرسمية على صلاحية المنتج للبيع والتوزيع"),
+                    new("Quality.NonConformity.Flag", "زر تسجيل حالة عدم مطابقة وحظر الدفعة", "حجر التشغيلة المخالفة ومنع خروجها")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "EMERGENCY",
+                GroupName = "🚨 منظومة الطوارئ والأعطال (SOS Hub)",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Emergency.Alert.Create", "زر إطلاق بلاغ عطل أو طوارئ SOS", "توجيه إشعار فوري لفرق الصيانة والتشغيل"),
+                    new("Emergency.Alert.Assign", "زر توجيه البلاغ وتكليف الفني المختص", "تحديد المسؤول وقطع الغيار المطلوبة للإصلاح"),
+                    new("Emergency.Alert.Close", "زر اعتماد إغلاق البلاغ واكتمال الإصلاح", "إقفال التذكرة وتوثيق زمن الاستجابة SLA")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "HR",
+                GroupName = "👥 الموارد البشرية والهيكل الإداري",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("HR.Employees.View", "استعراض سجل العاملين والملفات", "الاطلاع على بيانات الموظفين والورديات"),
+                    new("HR.Employees.Manage", "زر إضافة / تعديل بيانات موظف", "تعديل المسميات والرواتب وصالات العمل"),
+                    new("HR.Shifts.Schedule", "زر توزيع وجدولة ورديات العمل اليومية", "تسكين العمال في الورديات الصباحية والمسائية")
+                }
+            },
+            new PermissionGroupDto
+            {
+                GroupCode = "ADMIN",
+                GroupName = "🛡️ إدارة المنظومة وأمن الصلاحيات (RBAC)",
+                Permissions = new List<PermissionItemDto>
+                {
+                    new("Admin.Roles.Create", "زر إنشاء مصفوفة ودور وظيفي جديد", "إضافة رتب جديدة وتحديد مصفوفة صلاحياتها"),
+                    new("Admin.Roles.Manage", "زر حفظ وتعديل صلاحيات الأدوار والأزرار", "منح وسحب الصلاحيات التفصيلية للأدوار"),
+                    new("Admin.Users.Create", "زر إضافة مستخدم وربطه بملف عامل", "توليد حسابات للموظفين مع كلمات المرور"),
+                    new("Admin.Users.Manage", "زر تفعيل / تعطيل حسابات المستخدمين", "إيقاف دخول الموظف فوراً عند الحاجة"),
+                    new("Admin.Users.ResetPassword", "زر إعادة تعيين كلمة المرور للمستخدم", "تغيير وتحديث كلمات المرور"),
+                    new("Admin.Users.CustomPermissions", "زر تخصيص صلاحيات استثنائية للمستخدم", "منح أزرار إضافية محددة تتجاوز رتبته")
+                }
+            }
+        };
+    }
 
-                // ================= 2. غرفة عمليات الطوارئ (SOS) =================
-                new() { Code = "Emergency.View", Name = "عرض شاشة المهام الطارئة", Module = "🚨 غرفة عمليات الطوارئ (SOS)", Description = "استعراض سجل البلاغات والأعطال الحية" },
-                new() { Code = "Emergency.Create", Name = "زر إطلاق بلاغ طارئ (SOS)", Module = "🚨 غرفة عمليات الطوارئ (SOS)", Description = "صلاحية استدعاء الصيانة أو النظافة أو الجودة" },
-                new() { Code = "Emergency.Delegate", Name = "زر تكليف وإحالة فني", Module = "🚨 غرفة عمليات الطوارئ (SOS)", Description = "توجيه وتكليف فني محدد بمباشرة البلاغ" },
-                new() { Code = "Emergency.Respond", Name = "زر بدء التنفيذ الميداني", Module = "🚨 غرفة عمليات الطوارئ (SOS)", Description = "تسجيل بدء الاستجابة الميدانية للأعطال" },
-                new() { Code = "Emergency.Close", Name = "زر إغلاق البلاغ بالدليل", Module = "🚨 غرفة عمليات الطوارئ (SOS)", Description = "رفع صور وفيديو إثبات الحل واعتماد الإغلاق" },
-                new() { Code = "Emergency.Reports", Name = "شاشة تقارير مؤشرات الطوارئ (SLA)", Module = "🚨 غرفة عمليات الطوارئ (SOS)", Description = "تحليل مؤشرات MTTR وسرعة الاستجابة والطباعة" },
+    public class PermissionGroupDto
+    {
+        public string GroupCode { get; set; } = string.Empty;
+        public string GroupName { get; set; } = string.Empty;
+        public List<PermissionItemDto> Permissions { get; set; } = new();
+    }
 
-                // ================= 3. الهيكل الإداري والمؤسسي =================
-                new() { Code = "Companies.View", Name = "عرض شاشة إدارة الشركات", Module = "🏢 الهيكل المؤسسي والعمال", Description = "استعراض بيانات الشركات والفروع" },
-                new() { Code = "Companies.Manage", Name = "إدارة وتعديل الشركات", Module = "🏢 الهيكل المؤسسي والعمال", Description = "إضافة أو تعديل بيانات الشركات والفروع" },
-                new() { Code = "Departments.View", Name = "عرض شاشة إدارة الأقسام والصالات", Module = "🏢 الهيكل المؤسسي والعمال", Description = "استعراض هيكل الإدارات وصالات الإنتاج" },
-                new() { Code = "Departments.Manage", Name = "إدارة وتعديل الأقسام", Module = "🏢 الهيكل المؤسسي والعمال", Description = "إضافة وتعديل صالات الإنتاج والأقسام والربط" },
-                new() { Code = "Employees.View", Name = "عرض شاشة العمال والورديات", Module = "🏢 الهيكل المؤسسي والعمال", Description = "استعراض سجل الموظفين وتوزيع الورديات" },
-                new() { Code = "Employees.Manage", Name = "إدارة العمال والورديات", Module = "🏢 الهيكل المؤسسي والعمال", Description = "إضافة عمال وتوزيعهم على خطوط الإنتاج والورديات" },
+    public class PermissionItemDto
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
 
-                // ================= 4. دليل الأصناف والمواد =================
-                new() { Code = "Items.View", Name = "عرض مركز إدارة الأصناف الشامل", Module = "📦 دليل الأصناف والمواد", Description = "استعراض دليل الخامات والمنتجات التامة والتعبئة" },
-                new() { Code = "Items.Create", Name = "زر إضافة صنف جديد", Module = "📦 دليل الأصناف والمواد", Description = "تسجيل خامة أو منتج جديد وتحديد الوحدات" },
-                new() { Code = "Items.Edit", Name = "زر تعديل بيانات الصنف", Module = "📦 دليل الأصناف والمواد", Description = "تعديل مواصفات الصنف وحدود الأمان والأسعار" },
-                new() { Code = "Categories.View", Name = "عرض شاشة تصنيفات الأصناف", Module = "📦 دليل الأصناف والمواد", Description = "استعراض شجرة مجموعات الأصناف" },
-                new() { Code = "Categories.Manage", Name = "إدارة وتعديل التصنيفات", Module = "📦 دليل الأصناف والمواد", Description = "إضافة وتعديل مجموعات الأصناف" },
-
-                // ================= 5. المشتريات والموردين =================
-                new() { Code = "Suppliers.View", Name = "عرض شاشة إدارة الموردين", Module = "🛒 المشتريات والموردين", Description = "استعراض دليل موردي الخامات ومواد التعبئة" },
-                new() { Code = "Suppliers.Manage", Name = "إدارة وتعديل الموردين", Module = "🛒 المشتريات والموردين", Description = "إضافة مورد جديد وتعديل بيانات الاتصال والشروط" },
-                new() { Code = "SupplierPrices.View", Name = "عرض قوائم أسعار التوريد", Module = "🛒 المشتريات والموردين", Description = "متابعة أسعار الخامات المتفق عليها مع الموردين" },
-                new() { Code = "PurchaseOrders.View", Name = "عرض أوامر الشراء (PO)", Module = "🛒 المشتريات والموردين", Description = "استعراض طلبات وأوامر الشراء الصادرة" },
-                new() { Code = "PurchaseOrders.Create", Name = "زر إنشاء أمر شراء جديد", Module = "🛒 المشتريات والموردين", Description = "إصدار أمر توريد خامات جديد" },
-                new() { Code = "PurchaseInvoices.View", Name = "عرض فواتير الشراء والتسعير", Module = "🛒 المشتريات والموردين", Description = "مراجعة فواتير التوريد وتكاليف الشراء" },
-                new() { Code = "SupplierQuality.View", Name = "عرض شاشة تقييم جودة الموردين", Module = "🛒 المشتريات والموردين", Description = "متابعة درجات تقييم الموردين ونسب الرفض" },
-
-                // ================= 6. المخازن واللوجستيات واللوطات =================
-                new() { Code = "MaterialReceipt.View", Name = "عرض شاشة فحص واستلام الخامات", Module = "🏭 المخازن واللوجستيات", Description = "استعراض شحنات الخامات الواردة للمستودع" },
-                new() { Code = "MaterialReceipt.Create", Name = "زر تسجيل استلام وفحص خامات", Module = "🏭 المخازن واللوجستيات", Description = "إدخال شحنة واردة وتسجيل رقم اللوط وتاريخ الصلاحية" },
-                new() { Code = "Warehouse.View", Name = "عرض شاشة إدارة المخازن", Module = "🏭 المخازن واللوجستيات", Description = "استعراض المستودعات وأماكن التخزين" },
-                new() { Code = "StockCard.View", Name = "عرض كارت الصنف وتتبع اللوطات", Module = "🏭 المخازن واللوجستيات", Description = "تتبع حركة أي خامة برقم اللوط وتواريخ الصلاحية FEFO" },
-                new() { Code = "StockBalances.View", Name = "عرض شاشة أرصدة المخازن اللحظية", Module = "🏭 المخازن واللوجستيات", Description = "متابعة الجرد الفعلي الفوري في المخازن والصالات" },
-                new() { Code = "StockTransfers.View", Name = "عرض شاشة التحويلات بين المخازن", Module = "🏭 المخازن واللوجستيات", Description = "استعراض طلبات نقل البضائع بين الفروع والمستودعات" },
-                new() { Code = "StockTransfers.Create", Name = "زر إنشاء تحويل مخزني", Module = "🏭 المخازن واللوجستيات", Description = "إصدار إذن نقل بضاعة بين مستودعين" },
-                new() { Code = "StockTransfers.Receive", Name = "زر اعتماد استلام التحويل", Module = "🏭 المخازن واللوجستيات", Description = "تأكيد استلام الكميات المحولة ومنع العجز" },
-
-                // ================= 7. عهد الأصول والصواني والأسبات =================
-                new() { Code = "AssetTracking.View", Name = "عرض شاشة تتبع الأصول والعهد (الأسبات والصواني)", Module = "🧺 عهد الأصول والأسبات والصواني", Description = "الوصول لشاشة مراقبة الأسبات والصواني والتروليات" },
-                new() { Code = "AssetTracking.CreateMovement", Name = "زر إصدار إذن حركة عهدة (صرف / استلام)", Module = "🧺 عهد الأصول والأسبات والصواني", Description = "صرف أو استلام أسبات وصواني للصالات أو المعارض أو العملاء" },
-                new() { Code = "AssetTracking.Approve", Name = "زر اعتماد وتسجيل الحركة وتحديث الأرصدة", Module = "🧺 عهد الأصول والأسبات والصواني", Description = "الترحيل النهائي وتعديل ميزان العهدة فوراً" },
-
-                // ================= 8. الإنتاج والتكاليف وبطاقات الـ BOM =================
-                new() { Code = "BOM.View", Name = "عرض شاشة وصفات التصنيع المعيارية (BOM)", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "استعراض مقادير ونسب وتراكيب الأصناف والحلويات" },
-                new() { Code = "BOM.Manage", Name = "زر إنشاء وتعديل وصفات التصنيع (BOM)", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "تعديل نسب مكونات العجين والحشو والهالك المعياري" },
-                new() { Code = "MaterialRequisition.View", Name = "عرض شاشة طلب وصرف خامات الصالة", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "متابعة طلبات الخامات المحولة لصالات التشغيل" },
-                new() { Code = "MaterialRequisition.Create", Name = "زر إصدار طلب صرف خامات", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "طلب صرف دقيق، سكر، زبدة، مكسرات... من المخزن للصالة" },
-                new() { Code = "MaterialRequisition.Approve", Name = "زر اعتماد صرف الخامات من المخزن", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "موافقة أمين المخزن وخصم الكميات من الرصيد" },
-                new() { Code = "ProductionOrders.View", Name = "عرض غرفة عمليات الإنتاج والتكاليف", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "الاطلاع على أوامر التشغيل وحساب تكلفة الوجبات" },
-                new() { Code = "ProductionOrders.Create", Name = "زر إصدار أمر إنتاج وتشغيل جديد", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "إطلاق خطة تصنيع تشغيلة معينة في الصالة" },
-                new() { Code = "ProductionOrders.Start", Name = "زر بدء تشغيل أمر الإنتاج", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "تأكيد بدء الخبز والعجن الفعلي داخل الصالة" },
-                new() { Code = "ProductionOrders.Close", Name = "زر إغلاق أمر التشغيل واستلام التام", Module = "🍰 الإنتاج والتصنيع والـ BOM", Description = "وزن المنتج التام وحساب الهالك وترحيل التكلفة" },
-
-                // ================= 9. الجودة وسلامة الغذاء (GMP / ISO 22000) =================
-                new() { Code = "Quality.InspectBatch", Name = "زر الفحص المعملي للتشغيلات والخامات", Module = "🔬 توكيد الجودة والسلامة", Description = "تسجيل فحص العينات ومطابقتها للمواصفات القياسية" },
-                new() { Code = "Quality.IssueCAPA", Name = "زر إصدار إجراء تصحيحي (CAPA)", Module = "🔬 توكيد الجودة والسلامة", Description = "إصدار مخالفة جودة ونظافة وتكليف الإدارات بحلها" },
-                new() { Code = "Quality.Approve", Name = "زر اعتماد إجازة الدفعة والتشغيلة", Module = "🔬 توكيد الجودة والسلامة", Description = "السماح بتوزيع المنتج التام بعد التأكد من سلامته" }
-            };
+        public PermissionItemDto(string code, string title, string description)
+        {
+            Code = code;
+            Title = title;
+            Description = description;
         }
     }
 }

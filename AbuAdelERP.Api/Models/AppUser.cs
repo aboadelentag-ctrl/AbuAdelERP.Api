@@ -14,9 +14,14 @@ namespace AbuAdelERP.Api.Models
         [Column("company_id")]
         public long? CompanyId { get; set; } = 1;
 
-        // الربط مع عمود رقم الدور الذي تم إنشاؤه في قاعدة البيانات
         [Column("role_id")]
         public long? RoleId { get; set; } = 1;
+
+        [Column("employee_id")]
+        public long? EmployeeId { get; set; }
+
+        [Column("employee_code")]
+        public string? EmployeeCode { get; set; }
 
         [Required]
         [Column("username")]
@@ -42,14 +47,12 @@ namespace AbuAdelERP.Api.Models
         [Column("is_active")]
         public bool IsActive { get; set; } = true;
 
-        // خاصية توافقية لدعم استدعاءات الكود القديمة
         [NotMapped]
         public bool Active => IsActive;
 
         [Column("custom_permissions")]
         public string? CustomPermissions { get; set; }
 
-        // العلاقة مع المنشأة المستأجرة
         [ForeignKey(nameof(CompanyId))]
         public virtual Company? Company { get; set; }
     }
