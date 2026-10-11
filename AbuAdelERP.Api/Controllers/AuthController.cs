@@ -1,147 +1,139 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Security.Claims;
-using System.Text;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
-using Microsoft.IdentityModel.Tokens;
+using Microsoft.EntityFrameworkCore;
 using AbuAdelERP.Api.Models;
-using AbuAdelERP.Api.DTOs;
 
 namespace AbuAdelERP.Api.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
+    [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        private readonly IConfiguration _configuration;
         private readonly AppDbContext _context;
 
-        public AuthController(IConfiguration configuration, AppDbContext context)
+        public AuthController(AppDbContext context)
         {
-            _configuration = configuration;
             _context = context;
         }
 
-        [HttpPost("login")]
-        public IActionResult Login([FromBody] LoginDto request)
+        // ==========================================================
+        // 1. المرحلة الأولى: التحقق من ترخيص وبيانات الشركة المستأجرة
+        // ==========================================================
+        [HttpPost("verify-tenant")]
+        public async Task<IActionResult> VerifyTenant([FromBody] TenantVerifyRequest dto)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.Username))
-            {
-                return BadRequest(new { Error = "يرجى إدخال اسم المستخدم وكلمة المرور." });
-            }
+            if (string.IsNullOrWhiteSpace(dto.TenantCode) || string.IsNullOrWhiteSpace(dto.TenantKey))
+                return BadRequest("يرجى إدخال كود المنشأة ومفتاح الدخول الخاص بها.");
 
-            var cleanUser = request.Username.Trim();
-            var cleanPass = request.Password?.Trim() ?? string.Empty;
+            var company = await _context.Companies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c =>
+                    (c.TenantCode != null && c.TenantCode.ToLower() == dto.TenantCode.Trim().ToLower()) ||
+                    c.CompanyName.ToLower() == dto.TenantCode.Trim().ToLower());
 
-            // استعلام مباشر ومرن يتجاهل حالة الأحرف في اسم المستخدم
-            var user = _context.Users
-                .Where(u => u.Username.ToLower() == cleanUser.ToLower() && u.PasswordHash == cleanPass)
-                .Select(u => new
-                {
-                    u.Id,
-                    u.Username,
-                    u.FullName,
-                    u.Role,
-                    u.DepartmentName,
-                    u.DepartmentId,
-                    u.IsActive,
-                    u.CustomPermissions
-                })
-                .FirstOrDefault();
+            if (company == null)
+                return NotFound("المنشأة المستأجرة غير مسجلة بالنظام السحابي.");
 
-            if (user == null)
-            {
-                return Unauthorized(new { Error = "اسم المستخدم أو كلمة المرور غير صحيحة." });
-            }
+            if (!company.Active)
+                return Unauthorized("اشتراك هذه المنشأة موقوف حالياً، يرجى مراجعة إدارة منصة كيان.");
 
-            if (!user.IsActive)
-            {
-                return Unauthorized(new { Error = "هذا الحساب تم تجميده مؤقتاً، يرجى مراجعة إدارة النظام." });
-            }
-
-            var effectivePermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            if (string.Equals(user.Role, "Admin", StringComparison.OrdinalIgnoreCase))
-            {
-                effectivePermissions.Add("ALL");
-                foreach (var p in AppPermissions.GetAllPermissions())
-                {
-                    effectivePermissions.Add(p.Code);
-                }
-            }
-            else
-            {
-                var roleObj = _context.Roles.FirstOrDefault(r => r.Name == user.Role);
-                if (roleObj != null && !string.IsNullOrWhiteSpace(roleObj.Permissions))
-                {
-                    if (roleObj.Permissions.Trim().Equals("ALL", StringComparison.OrdinalIgnoreCase))
-                    {
-                        foreach (var p in AppPermissions.GetAllPermissions())
-                        {
-                            effectivePermissions.Add(p.Code);
-                        }
-                    }
-                    else
-                    {
-                        foreach (var code in roleObj.Permissions.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                        {
-                            effectivePermissions.Add(code.Trim());
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(user.CustomPermissions))
-                {
-                    foreach (var code in user.CustomPermissions.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        effectivePermissions.Add(code.Trim());
-                    }
-                }
-            }
-
-            string secretKey = _configuration["Jwt:Key"] ?? "AbuAdelSuperSecretKeyForJwtAuthentication2026";
-            var keyBytes = Encoding.ASCII.GetBytes(secretKey);
-
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role),
-                new Claim("UserId", user.Id.ToString()),
-                new Claim("FullName", user.FullName ?? user.Username),
-                new Claim("DepartmentName", user.DepartmentName ?? "الإدارة العامة"),
-                new Claim("DepartmentId", user.DepartmentId?.ToString() ?? "0")
-            };
-
-            foreach (var perm in effectivePermissions)
-            {
-                claims.Add(new Claim("Permission", perm));
-            }
-
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(claims),
-                Expires = DateTime.UtcNow.AddHours(12),
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256Signature)
-            };
-
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var token = tokenHandler.CreateToken(tokenDescriptor);
+            if (company.TenantKey != dto.TenantKey.Trim())
+                return Unauthorized("مفتاح الدخول السري للمنشأة غير صحيح.");
 
             return Ok(new
             {
-                Message = "تم تسجيل الدخول بنجاح",
-                Token = tokenHandler.WriteToken(token),
-                UserId = user.Id,
-                Username = user.Username,
-                FullName = user.FullName ?? user.Username,
-                Role = user.Role,
-                DepartmentName = user.DepartmentName ?? "الإدارة العامة",
-                DepartmentId = user.DepartmentId,
-                Permissions = effectivePermissions.ToList()
+                success = true,
+                companyId = company.Id,
+                companyName = company.CompanyName,
+                tenantCode = company.TenantCode ?? "TENANT-01",
+                message = "تم تأكيد هوية المنشأة بنجاح."
             });
         }
+
+        // ==========================================================
+        // 2. المرحلة الثانية: دخول المستخدم التابع للمنشأة المستأجرة
+        // ==========================================================
+        [HttpPost("login-user")]
+        public async Task<IActionResult> LoginUser([FromBody] UserTenantLoginRequest dto)
+        {
+            if (dto.CompanyId <= 0 || string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
+                return BadRequest("بيانات تسجيل الدخول غير مكتملة.");
+
+            // 1. البحث عن المستخدم داخل نطاق الشركة المعتمدة
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.CompanyId == dto.CompanyId && u.Username.ToLower() == dto.Username.Trim().ToLower());
+
+            if (user == null || user.PasswordHash != dto.Password.Trim())
+                return Unauthorized("اسم المستخدم أو كلمة المرور غير صحيحة لهذه المنشأة.");
+
+            if (!user.IsActive)
+                return Unauthorized("حساب هذا المستخدم معطل حالياً من قبل مدير المنشأة.");
+
+            // 2. البحث عن بيانات وصلاحيات الدور من جدول الأدوار (Roles)
+            var roleEntity = await _context.Roles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Name == user.Role || r.DisplayName == user.Role);
+
+            var permissions = new List<string>();
+
+            // استخراج الصلاحيات المسندة للدور
+            if (roleEntity != null && !string.IsNullOrWhiteSpace(roleEntity.Permissions))
+            {
+                permissions.AddRange(roleEntity.Permissions
+                    .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(p => p.Trim()));
+            }
+
+            // استخراج أي صلاحيات فردية خاصة مسندة للمستخدم مباشرة (CustomPermissions)
+            if (!string.IsNullOrWhiteSpace(user.CustomPermissions))
+            {
+                permissions.AddRange(user.CustomPermissions
+                    .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(p => p.Trim()));
+            }
+
+            permissions = permissions.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            // التحقق من صلاحيات المدير الشاملة
+            string userRoleName = roleEntity?.DisplayName ?? user.Role ?? "مستخدم";
+            if (userRoleName.Contains("مدير") ||
+                userRoleName.Equals("Admin", StringComparison.OrdinalIgnoreCase) ||
+                userRoleName.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase))
+            {
+                permissions.Add("*");
+            }
+
+            var company = await _context.Companies.FindAsync(dto.CompanyId);
+
+            return Ok(new
+            {
+                success = true,
+                userId = user.Id,
+                username = user.Username,
+                fullName = user.FullName ?? user.Username,
+                companyId = user.CompanyId ?? dto.CompanyId,
+                companyName = company?.CompanyName ?? "المنشأة المستأجرة",
+                role = userRoleName,
+                employeeCode = "",
+                departmentName = user.DepartmentName ?? "الإدارة العامة",
+                permissions = permissions
+            });
+        }
+    }
+
+    public class TenantVerifyRequest
+    {
+        public string TenantCode { get; set; } = string.Empty;
+        public string TenantKey { get; set; } = string.Empty;
+    }
+
+    public class UserTenantLoginRequest
+    {
+        public long CompanyId { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
     }
 }

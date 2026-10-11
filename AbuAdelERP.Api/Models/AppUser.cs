@@ -11,6 +11,13 @@ namespace AbuAdelERP.Api.Models
         [Column("id")]
         public long Id { get; set; }
 
+        [Column("company_id")]
+        public long? CompanyId { get; set; } = 1;
+
+        // الربط مع عمود رقم الدور الذي تم إنشاؤه في قاعدة البيانات
+        [Column("role_id")]
+        public long? RoleId { get; set; } = 1;
+
         [Required]
         [Column("username")]
         public string Username { get; set; } = string.Empty;
@@ -35,8 +42,16 @@ namespace AbuAdelERP.Api.Models
         [Column("is_active")]
         public bool IsActive { get; set; } = true;
 
+        // خاصية توافقية لدعم استدعاءات الكود القديمة
+        [NotMapped]
+        public bool Active => IsActive;
+
         [Column("custom_permissions")]
         public string? CustomPermissions { get; set; }
+
+        // العلاقة مع المنشأة المستأجرة
+        [ForeignKey(nameof(CompanyId))]
+        public virtual Company? Company { get; set; }
     }
 
     [Table("roles", Schema = "erp")]

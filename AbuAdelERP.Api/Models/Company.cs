@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AbuAdelERP.Api.Models;
 
@@ -10,6 +11,15 @@ public partial class Company
     public string CompanyName { get; set; } = null!;
 
     public string CompanyCode { get; set; } = null!;
+
+    // ==========================================================
+    // بيانات دخول واعتماد المنشأة المستأجرة (Multi-Tenant SaaS)
+    // ==========================================================
+    [Column("tenant_code")]
+    public string? TenantCode { get; set; }
+
+    [Column("tenant_key")]
+    public string? TenantKey { get; set; }
 
     public string? Phone { get; set; }
 
@@ -23,6 +33,9 @@ public partial class Company
 
     public DateTime UpdatedAt { get; set; }
 
+    // ==========================================================
+    // علاقات الجداول والكيانات التابعة للشركة (Navigation Properties)
+    // ==========================================================
     public virtual ICollection<AppUser> AppUsers { get; set; } = new List<AppUser>();
 
     public virtual ICollection<Branch> Branches { get; set; } = new List<Branch>();
