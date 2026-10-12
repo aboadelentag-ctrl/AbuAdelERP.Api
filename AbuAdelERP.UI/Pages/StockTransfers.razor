@@ -1,733 +1,643 @@
 ﻿@page "/stock-transfers"
 @layout AbuAdelERP.UI.Pages.EmptyLayout
 @using System.Net.Http.Json
-@using AbuAdelERP.UI.DTOs
+@using AbuAdelERP.UI.Services
 @inject HttpClient Http
+@inject AppState State
+@inject NavigationManager Navigation
 
-<PageTitle>التحويلات المخزنية وفض المنازعات - حلواني أبو عادل</PageTitle>
+<PageTitle>حوكمة إمداد الفروع واستلام المنافذ - كيان Enterprise</PageTitle>
 
-<div class="container-fluid py-4" dir="rtl">
-    <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-2">
-        <div>
-            <h3 class="fw-bold text-primary mb-1">
-                <i class="bi bi-arrow-left-right me-2"></i>التحويلات المخزنية وفض المنازعات ⚖️
-            </h3>
-            <p class="text-muted small mb-0">نقل البضائع بين المستودعات والفروع، متابعة الشحنات على الطريق، وتوثيق استلامات التوالف والعجز</p>
-        </div>
-        <div class="d-flex gap-2">
-            <button class="btn btn-primary px-4 shadow-sm fw-bold" @onclick="OpenCreateModal">
-                <i class="bi bi-plus-circle me-1"></i> إذن تحويل جديد 🚚
+<div class="kayan-transfers-viewport" dir="rtl">
+    <!-- الشريط العلوي الموحد -->
+    <header class="transfers-header-bar">
+        <div class="d-flex align-items-center gap-3">
+            <button class="back-home-btn" @onclick='() => Navigation.NavigateTo("/workspace")' title="العودة لمساحة العمل">
+                <i class="bi bi-arrow-right fs-5"></i>
             </button>
-            <button class="btn btn-outline-secondary px-3" @onclick="LoadTransfers" disabled="@isLoading">
-                <i class="bi bi-arrow-clockwise"></i>
-            </button>
-        </div>
-    </div>
-
-    <!-- التنبيهات -->
-    @if (!string.IsNullOrEmpty(statusMessage))
-    {
-        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
-            <i class="bi bi-check-circle-fill me-2"></i>@statusMessage
-            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
-        </div>
-    }
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
-            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
-        </div>
-    }
-
-    <!-- تبويبات الحالة وفلاتر البحث -->
-    <div class="card shadow-sm border-0 rounded-3 mb-4">
-        <div class="card-body p-3">
-            <div class="row g-3 align-items-center">
-                <div class="col-md-6">
-                    <div class="btn-group w-100" role="group">
-                        <button type="button" class="btn btn-sm @(selectedStatus == null ? "btn-primary" : "btn-outline-primary")" 
-                                @onclick="() => FilterByStatus(null)">الكل</button>
-                        <button type="button" class="btn btn-sm @(selectedStatus == "IN_TRANSIT" ? "btn-warning" : "btn-outline-warning")" 
-                                @onclick='() => FilterByStatus("IN_TRANSIT")'>في الطريق 🚚</button>
-                        <button type="button" class="btn btn-sm @(selectedStatus == "DISPUTED" ? "btn-danger" : "btn-outline-danger")" 
-                                @onclick='() => FilterByStatus("DISPUTED")'>نزاع / عجز ⚖️</button>
-                        <button type="button" class="btn btn-sm @(selectedStatus == "COMPLETED" ? "btn-success" : "btn-outline-success")" 
-                                @onclick='() => FilterByStatus("COMPLETED")'>مكتمل ومستلم ✅</button>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <input type="text" class="form-control form-control-sm" placeholder="بحث برقم الإذن، السائق، أو المستودع..." 
-                           @bind="searchTerm" @bind:event="oninput" />
-                </div>
+            <div>
+                <h4 class="mb-0 text-white fw-bold">حوكمة إمداد الفروع واستلام المنافذ 🚚</h4>
+                <span class="text-muted small">الربط اللوجستي: الكنترول المركزي ⇦ سيارات التوزيع ⇦ الفروع والمعارض • @State.TenantName</span>
             </div>
         </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-light btn-sm fw-bold" @onclick="LoadData" disabled="@isProcessing">
+                <i class="bi bi-arrow-clockwise me-1"></i> تحديث الشحنات
+            </button>
+            <span class="badge bg-dark border border-secondary px-3 py-2 text-info">
+                @State.FullName (@State.Role)
+            </span>
+        </div>
+    </header>
+
+    <!-- تنبيهات النظام -->
+    @if (!string.IsNullOrEmpty(alertMessage))
+    {
+        <div class="container-fluid px-4 pt-3">
+            <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show border-0 shadow-sm py-2" role="alert">
+                <strong>@(isSuccess ? "✓ " : "⚠️ ")</strong> @alertMessage
+                <button type="button" class="btn-close py-2" @onclick="() => alertMessage = string.Empty"></button>
+            </div>
+        </div>
+    }
+
+    <!-- شريط التبويبات الرئيسي -->
+    <div class="container-fluid px-4 pt-3">
+        <ul class="nav nav-pills custom-pills-bar gap-2">
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "list" ? "active" : "")" @onclick='() => activeTab = "list"'>
+                    📋 سجل الشحنات العامة (@transfers.Count)
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "dispatch" ? "active" : "")" @onclick='() => activeTab = "dispatch"'>
+                    🚚 1. شحن وتوجيه من الكنترول للفرع
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "receive" ? "active" : "") position-relative" @onclick='() => activeTab = "receive"'>
+                    📥 2. استلام ومطابقة عهدة الفرع
+                    @if (InTransitCount > 0)
+                    {
+                        <span class="badge rounded-pill bg-warning text-dark ms-1">@InTransitCount</span>
+                    }
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "dispute" ? "active" : "") position-relative" @onclick='() => activeTab = "dispute"'>
+                    ⚖️ 3. لجنة فض منازعات عجز النقل
+                    @if (DisputeCount > 0)
+                    {
+                        <span class="badge rounded-pill bg-danger ms-1">@DisputeCount</span>
+                    }
+                </button>
+            </li>
+        </ul>
     </div>
 
-    <!-- جدول أذون التحويل -->
-    <div class="card shadow-sm border-0 rounded-3">
-        <div class="card-body p-0">
-            @if (isLoading)
-            {
-                <div class="text-center py-5">
-                    <div class="spinner-border text-primary" role="status"></div>
-                    <p class="text-muted mt-2 mb-0">جاري تحميل سجلات التحويل...</p>
-                </div>
-            }
-            else if (!FilteredTransfers.Any())
-            {
-                <div class="text-center py-5 text-muted">
-                    <i class="bi bi-truck fs-1 d-block mb-2"></i>
-                    لا توجد أذون تحويل مطابقة للبحث المحدد.
-                </div>
-            }
-            else
-            {
+    <!-- جسم الشاشة التفاعلي -->
+    <main class="container-fluid px-4 py-3">
+        @if (isProcessing && !transfers.Any())
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-2">جاري مزامنة خط سير الشحنات اللوجستية...</p>
+            </div>
+        }
+        else if (activeTab == "list")
+        {
+            <!-- ========================================== -->
+            <!-- تبويب 1: السجل العام للشحنات               -->
+            <!-- ========================================== -->
+            <div class="content-card shadow-sm">
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0 text-center small">
-                        <thead class="table-light text-secondary">
+                    <table class="table table-dark table-hover align-middle mb-0 text-center small border-secondary">
+                        <thead class="table-secondary text-dark fw-bold">
                             <tr>
-                                <th>رقم الإذن</th>
+                                <th>رقم الشحنة</th>
                                 <th>التاريخ</th>
-                                <th>من مستودع</th>
-                                <th>إلى مستودع</th>
+                                <th>المستودع المصدر</th>
+                                <th>الفرع المستلم</th>
+                                <th>الصنف والتشغيلة</th>
+                                <th>الكمية المشحونة</th>
+                                <th>الكمية المستلمة</th>
                                 <th>السائق والسيارة</th>
-                                <th>عدد البنود</th>
-                                <th>الحالة</th>
-                                <th>الإجراءات</th>
+                                <th>الحالة اللوجستية</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var t in FilteredTransfers)
+                            @if (!transfers.Any())
                             {
-                                <tr>
-                                    <td class="fw-bold font-monospace text-primary">@t.TransferNumber</td>
-                                    <td class="small text-muted font-monospace">@t.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
-                                    <td class="text-start ps-3 fw-bold small">
-                                        <i class="bi bi-box-arrow-up-right text-danger me-1"></i>@t.FromWarehouseName
-                                    </td>
-                                    <td class="text-start ps-3 fw-bold small">
-                                        <i class="bi bi-box-arrow-in-down-left text-success me-1"></i>@t.ToWarehouseName
-                                    </td>
-                                    <td class="small">
-                                        <div>@(string.IsNullOrWhiteSpace(t.DriverName) ? "---" : t.DriverName)</div>
-                                        <div class="text-muted font-monospace small">@(t.VehicleNumber ?? "")</div>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-secondary">@t.Lines.Count أصناف</span>
-                                    </td>
-                                    <td>
-                                        <span class="badge @GetStatusBadge(t.Status) px-2 py-1">
-                                            @GetStatusLabel(t.Status)
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-outline-info py-0 px-2 fw-bold" @onclick="() => OpenDetailsModal(t.Id)">
-                                            <i class="bi bi-eye me-1"></i> فحص واستلام
-                                        </button>
-                                    </td>
-                                </tr>
+                                <tr><td colspan="9" class="text-muted py-5 fw-bold">لا توجد شحنات مسجلة بالمنشأة حتى الآن.</td></tr>
                             }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </div>
-    </div>
-</div>
-
-<!-- ========================================== -->
-<!-- Modal 1: إنشاء إذن تحويل وصرفه              -->
-<!-- ========================================== -->
-@if (showCreateModal)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" dir="rtl">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-primary text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">
-                        <i class="bi bi-truck me-2"></i>إنشاء إذن صرف وتحويل بضائع
-                    </h6>
-                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showCreateModal = false"></button>
-                </div>
-                <div class="modal-body p-4">
-                    @if (!string.IsNullOrEmpty(modalError))
-                    {
-                        <div class="alert alert-danger py-2 small mb-3">@modalError</div>
-                    }
-
-                    <div class="row g-3 mb-4 bg-light p-3 rounded-3 border">
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold">المستودع الراسل (المصدر) <span class="text-danger">*</span></label>
-                            <select class="form-select form-select-sm border-primary fw-bold" @bind="newTransfer.FromWarehouseId" @bind:after="OnSourceWarehouseChanged">
-                                <option value="0">-- اختر المستودع المصدر --</option>
-                                @foreach (var w in lookups.Warehouses)
-                                {
-                                    <option value="@w.Id">@w.WarehouseName</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold">المستودع المستقبل (الوجهة) <span class="text-danger">*</span></label>
-                            <select class="form-select form-select-sm border-primary fw-bold" @bind="newTransfer.ToWarehouseId">
-                                <option value="0">-- اختر المستودع الوجهة --</option>
-                                @foreach (var w in lookups.Warehouses.Where(w => w.Id != newTransfer.FromWarehouseId))
-                                {
-                                    <option value="@w.Id">@w.WarehouseName</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-bold">اسم السائق / المندوب</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="اسم السائق المسؤول عن النقل" @bind="newTransfer.DriverName" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-bold">رقم لوحة السيارة</label>
-                            <input type="text" class="form-control form-control-sm font-monospace" placeholder="مثال: أ ب ج 1234" @bind="newTransfer.VehicleNumber" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-bold">ملاحظات التحويل</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="سبب النقل أو توجيهات الشحن..." @bind="newTransfer.Notes" />
-                        </div>
-                    </div>
-
-                    <!-- جدول إضافة البنود -->
-                    <div class="card border border-light-subtle rounded-3">
-                        <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
-                            <h6 class="mb-0 fw-bold text-dark">أصناف الشحنة والكميات</h6>
-                            <button type="button" class="btn btn-sm btn-outline-success fw-bold" @onclick="AddNewLine" disabled="@(newTransfer.FromWarehouseId == 0)">
-                                <i class="bi bi-plus-circle me-1"></i> إضافة صنف للشحنة
-                            </button>
-                        </div>
-                        <div class="card-body p-0">
-                            <div class="table-responsive">
-                                <table class="table table-sm align-middle mb-0 text-center small">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th class="text-start ps-3" style="width: 30%;">الصنف</th>
-                                            <th>الرصيد المتاح</th>
-                                            <th style="width: 15%;">الكمية المحولة</th>
-                                            <th>التشغيلة (اللوط)</th>
-                                            <th>تاريخ الصلاحية</th>
-                                            <th>حذف</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @if (!newTransfer.Lines.Any())
-                                        {
-                                            <tr>
-                                                <td colspan="6" class="py-4 text-muted">انقر على "إضافة صنف للشحنة" لإدراج الأصناف.</td>
-                                            </tr>
-                                        }
-                                        @foreach (var line in newTransfer.Lines)
-                                        {
-                                            <tr>
-                                                <td class="text-start ps-3">
-                                                    <select class="form-select form-select-sm" @bind="line.ItemId" @bind:after="() => OnItemChanged(line)">
-                                                        <option value="0">-- اختر الصنف --</option>
-                                                        @foreach (var itm in lookups.Items)
-                                                        {
-                                                            <option value="@itm.Id">@itm.ItemName (@itm.ItemCode)</option>
-                                                        }
-                                                    </select>
-                                                </td>
-                                                <td>
-                                                    <span class="badge @(line.AvailableStock > 0 ? "bg-info text-dark" : "bg-danger") font-monospace">
-                                                        @line.AvailableStock.ToString("N1")
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <input type="number" step="0.5" class="form-control form-control-sm text-center fw-bold text-primary font-monospace" 
-                                                           @bind="line.DispatchedQty" max="@line.AvailableStock" min="0.1" />
-                                                </td>
-                                                <td>
-                                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="رقم اللوط" @bind="line.BatchNumber" />
-                                                </td>
-                                                <td>
-                                                    <input type="date" class="form-control form-control-sm font-monospace" @bind="line.ExpiryDate" />
-                                                </td>
-                                                <td>
-                                                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => newTransfer.Lines.Remove(line)">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer bg-light py-2">
-                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => showCreateModal = false">إلغاء</button>
-                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SaveAndDispatchTransfer" disabled="@isSaving">
-                        @(isSaving ? "جاري الصرف والترحيل..." : "✓ اعتماد وصرف الشحنة")
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- ========================================== -->
-<!-- Modal 2: تفاصيل وفحص واستلام الشحنة        -->
-<!-- ========================================== -->
-@if (showDetailsModal && selectedTransfer != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" dir="rtl">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-dark text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">
-                        <i class="bi bi-card-checklist me-2"></i>تفاصيل وفحص الشحنة: @selectedTransfer.TransferNumber
-                    </h6>
-                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showDetailsModal = false"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div class="row g-3 mb-4 small bg-light p-3 rounded-3 border">
-                        <div class="col-md-3"><strong>المستودع المصدر:</strong> @selectedTransfer.FromWarehouseName</div>
-                        <div class="col-md-3"><strong>المستودع المستلم:</strong> @selectedTransfer.ToWarehouseName</div>
-                        <div class="col-md-3"><strong>السائق:</strong> @(selectedTransfer.DriverName ?? "---")</div>
-                        <div class="col-md-3"><strong>الحالة العامة:</strong> <span class="badge @GetStatusBadge(selectedTransfer.Status)">@GetStatusLabel(selectedTransfer.Status)</span></div>
-                    </div>
-
-                    <h6 class="fw-bold mb-3">بنود الشحنة والاستلام الميداني:</h6>
-                    <div class="table-responsive">
-                        <table class="table table-bordered align-middle text-center mb-0 small">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="text-start ps-3">الصنف</th>
-                                    <th>التشغيلة (اللوط)</th>
-                                    <th>الكمية المنصرفة</th>
-                                    <th>الكمية المستلمة</th>
-                                    <th>العجز / الهالك</th>
-                                    <th>حالة البند</th>
-                                    <th>الإجراءات الميدانية</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var line in selectedTransfer.Lines)
+                            else
+                            {
+                                @foreach (var t in transfers)
                                 {
                                     <tr>
-                                        <td class="text-start ps-3 fw-bold">
-                                            @line.ItemName
-                                            <div class="small text-muted font-monospace">@line.ItemCode</div>
+                                        <td class="fw-bold text-info font-monospace">@t.TransferNumber</td>
+                                        <td class="font-monospace text-muted">@t.TransferDate.ToString("yyyy-MM-dd")</td>
+                                        <td class="text-light">@t.SourceWarehouseName</td>
+                                        <td class="fw-bold text-warning">@t.DestinationBranchName</td>
+                                        <td class="text-start ps-3">
+                                            <div class="fw-bold text-white">@t.ItemName</div>
+                                            <small class="text-muted font-monospace">لوط: @(t.BatchNumber ?? "بدون")</small>
                                         </td>
-                                        <td class="font-monospace small">@(line.BatchNumber ?? "---")</td>
-                                        <td class="fw-bold fs-6 font-monospace">@line.DispatchedQty.ToString("N1") @line.Unit</td>
-                                        <td class="fw-bold fs-6 text-success font-monospace">
-                                            @(line.LineStatus == "PENDING" ? "في الانتظار" : $"{line.ReceivedQty:N1} {line.Unit}")
-                                        </td>
-                                        <td class="text-danger fw-bold font-monospace">
-                                            @(line.LossQty > 0 ? $"{line.LossQty:N1} {line.Unit}" : "---")
-                                        </td>
-                                        <td>
-                                            <span class="badge @GetLineStatusBadge(line.LineStatus) px-2 py-1">
-                                                @GetLineStatusLabel(line.LineStatus)
-                                            </span>
-                                            @if (!string.IsNullOrEmpty(line.DiscrepancyReason))
-                                            {
-                                                <div class="small text-danger mt-1">@line.DiscrepancyReason</div>
-                                            }
+                                        <td class="fw-bold text-primary font-monospace fs-6">@t.DispatchedQty.ToString("N1") @t.Unit</td>
+                                        <td class="fw-bold font-monospace fs-6">
+                                            @(t.ReceivedQty.HasValue ? $"{t.ReceivedQty.Value:N1} {t.Unit}" : "في الانتظار")
                                         </td>
                                         <td>
-                                            @if (line.LineStatus == "PENDING")
+                                            <div class="text-light">@(t.DriverName ?? "---")</div>
+                                            <small class="text-muted font-monospace">@(t.VehicleNumber ?? "")</small>
+                                        </td>
+                                        <td>
+                                            @if (t.Status == "IN_TRANSIT")
                                             {
-                                                <button class="btn btn-sm btn-success py-0 px-2 fw-bold me-1" @onclick="() => QuickAcceptLine(line)">
-                                                    <i class="bi bi-check2"></i> قبول كامل
-                                                </button>
-                                                <button class="btn btn-sm btn-outline-warning py-0 px-2 fw-bold" @onclick="() => OpenDisputeLineModal(line)">
-                                                    <i class="bi bi-exclamation-triangle"></i> إثبات عجز
-                                                </button>
+                                                <span class="badge bg-warning text-dark px-2 py-1">🚚 في الطريق</span>
                                             }
-                                            else if (line.LineStatus == "DISPUTED")
+                                            else if (t.Status == "IN_DISPUTE")
                                             {
-                                                <button class="btn btn-sm btn-danger py-0 px-2 fw-bold" @onclick="() => OpenResolveModal(line)">
-                                                    <i class="bi bi-hammer"></i> فض النزاع
-                                                </button>
+                                                <span class="badge bg-danger px-2 py-1">🚨 نزاع عجز</span>
                                             }
                                             else
                                             {
-                                                <span class="text-success small fw-bold"><i class="bi bi-check-all"></i> معتمد</span>
+                                                <span class="badge bg-success px-2 py-1">✓ تم الاستلام</span>
                                             }
                                         </td>
                                     </tr>
                                 }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="modal-footer bg-light py-2">
-                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => showDetailsModal = false">إغلاق</button>
+                            }
+                        </tbody>
+                    </table>
                 </div>
             </div>
-        </div>
-    </div>
-}
+        }
+        else if (activeTab == "dispatch")
+        {
+            <!-- ========================================== -->
+            <!-- تبويب 2: شحن وإمداد من الكنترول            -->
+            <!-- ========================================== -->
+            <div class="content-card p-4 shadow-sm">
+                <h5 class="text-primary fw-bold mb-3"><i class="bi bi-box-seam me-2"></i>إصدار إذن شحن وإمداد فرع جديد</h5>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">الفرع المستهدف <span class="text-danger">*</span></label>
+                        <select class="form-select bg-dark text-white border-secondary" value="@newDispatch.DestinationBranchId" @onchange="OnBranchSelected">
+                            <option value="0">-- اختر الفرع --</option>
+                            @foreach (var b in branches)
+                            {
+                                <option value="@b.Id">@b.BranchName (@b.BranchCode)</option>
+                            }
+                        </select>
+                    </div>
 
-<!-- ========================================== -->
-<!-- Modal 3: إثبات عجز أو نزاع في استلام سطر  -->
-<!-- ========================================== -->
-@if (showDisputeModal && activeDisputeLine != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);">
-        <div class="modal-dialog modal-dialog-centered" dir="rtl">
-            <div class="modal-content border-0 shadow">
-                <div class="modal-header bg-warning text-dark py-2 px-3">
-                    <h6 class="modal-title fw-bold">
-                        <i class="bi bi-exclamation-triangle-fill me-2"></i>محضر إثبات عجز أو تلف استلام
-                    </h6>
-                    <button type="button" class="btn-close ms-0 me-auto" @onclick="() => showDisputeModal = false"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-muted">الصنف والكمية المنصرفة الأصلية:</label>
-                        <div class="fw-bold">@activeDisputeLine.ItemName (@activeDisputeLine.DispatchedQty @activeDisputeLine.Unit)</div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">مستودع الفرع المستلم <span class="text-danger">*</span></label>
+                        <select class="form-select bg-dark text-white border-secondary" @bind="newDispatch.DestinationWarehouseId">
+                            <option value="0">-- اختر المستودع --</option>
+                            @foreach (var w in branchWarehouses)
+                            {
+                                <option value="@w.Id">@w.WarehouseName</option>
+                            }
+                        </select>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">الكمية السليمة المستلمة فعلياً <span class="text-danger">*</span></label>
-                        <input type="number" step="0.5" class="form-control form-control-sm font-monospace fw-bold" @bind="receiveDto.ReceivedQty" max="@activeDisputeLine.DispatchedQty" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">سبب العجز أو النزاع <span class="text-danger">*</span></label>
-                        <textarea class="form-control" rows="2" placeholder="مثال: تلف أثناء النقل / كراتين مفقودة..." @bind="receiveDto.DiscrepancyReason"></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer bg-light py-2">
-                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => showDisputeModal = false">إلغاء</button>
-                    <button type="button" class="btn btn-warning btn-sm px-4 fw-bold" @onclick="SubmitDisputedLine">تسجيل النزاع</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
 
-<!-- ========================================== -->
-<!-- Modal 4: قرار لجنة فض المنازعات            -->
-<!-- ========================================== -->
-@if (showResolveModal && activeResolveLine != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);">
-        <div class="modal-dialog modal-dialog-centered" dir="rtl">
-            <div class="modal-content border-0 shadow">
-                <div class="modal-header bg-danger text-white py-2 px-3">
-                    <h6 class="modal-title fw-bold">
-                        <i class="bi bi-hammer me-2"></i>اعتماد قرار لجنة تسوية وفض النزاع
-                    </h6>
-                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="() => showResolveModal = false"></button>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">المنتج التام المشحون <span class="text-danger">*</span></label>
+                        <select class="form-select bg-dark text-white border-secondary" @bind="newDispatch.ItemId">
+                            <option value="0">-- اختر المنتج --</option>
+                            @foreach (var itm in finishedItems)
+                            {
+                                <option value="@itm.Id">@itm.ItemName (@itm.ItemCode)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">الكمية المشحونة <span class="text-danger">*</span></label>
+                        <input type="number" step="0.5" class="form-control bg-dark text-white border-secondary fw-bold text-primary font-monospace" @bind="newDispatch.DispatchedQty" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">عدد الصواني / الأقفاص</label>
+                        <input type="number" class="form-control bg-dark text-white border-secondary font-monospace" @bind="newDispatch.DispatchedCount" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">اسم السائق / المندوب <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" placeholder="مثال: حسن رجب" @bind="newDispatch.DriverName" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">رقم سيارة التوزيع</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" placeholder="مثال: أ ب ج 512" @bind="newDispatch.VehicleNumber" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-light">رقم التشغيلة (اللوط)</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary font-monospace" placeholder="مثال: LOT-2026-10" @bind="newDispatch.BatchNumber" />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-light">ملاحظات وتوجيهات الشحنة</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" placeholder="أي ملاحظات تخص الشحن..." @bind="newDispatch.Notes" />
+                    </div>
                 </div>
-                <div class="modal-body p-4">
-                    <div class="mb-3 small bg-light p-2 rounded border">
-                        <div><strong>الصنف:</strong> @activeResolveLine.ItemName</div>
-                        <div><strong>الكمية المنصرفة:</strong> @activeResolveLine.DispatchedQty @activeResolveLine.Unit</div>
-                        <div><strong>سبب النزاع المسجل:</strong> <span class="text-danger">@activeResolveLine.DiscrepancyReason</span></div>
-                    </div>
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label class="form-label fw-bold small">الكمية المعتمدة للاستلام:</label>
-                            <input type="number" step="0.5" class="form-control form-control-sm font-monospace fw-bold" @bind="resolveDto.FinalApprovedQty" />
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label fw-bold small">كمية الهالك المعتمدة:</label>
-                            <input type="number" step="0.5" class="form-control form-control-sm text-danger fw-bold font-monospace" @bind="resolveDto.LossQty" />
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">ملاحظات وقرار اللجنة:</label>
-                        <textarea class="form-control" rows="2" placeholder="مثال: خصم قيمة الهالك من السائق / اعتماد هالك طريق مسموح به..." @bind="resolveDto.ResolutionNotes"></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer bg-light py-2">
-                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => showResolveModal = false">إلغاء</button>
-                    <button type="button" class="btn btn-danger btn-sm px-4 fw-bold" @onclick="SubmitResolveDispute">اعتماد القرار وترحيل الهالك</button>
+
+                <div class="d-flex justify-content-end">
+                    <button class="btn btn-primary px-4 fw-bold shadow-sm" @onclick="SubmitDispatch" disabled="@isProcessing">
+                        @if (isProcessing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <span>🚚 اعتماد الشحن وخصم الرصيد من الكنترول</span>
+                    </button>
                 </div>
             </div>
-        </div>
-    </div>
-}
+        }
+        else if (activeTab == "receive")
+        {
+            <!-- ========================================== -->
+            <!-- تبويب 3: استلام ومطابقة عهدة الفرع         -->
+            <!-- ========================================== -->
+            <div class="content-card shadow-sm p-3">
+                <h5 class="text-warning fw-bold mb-3"><i class="bi bi-inbox-fill me-2"></i>شحنات في الطريق بانتظار مطابقة واستلام الفرع</h5>
+                @if (!InTransitList.Any())
+                {
+                    <div class="text-center text-muted py-5 fw-bold">لا توجد شحنات معلقة على الطريق للفروع حالياً.</div>
+                }
+                else
+                {
+                    @foreach (var trf in InTransitList)
+                    {
+                        <div class="p-3 mb-3 bg-dark bg-opacity-50 border border-secondary border-opacity-50 rounded-3">
+                            <div class="row align-items-center g-3">
+                                <div class="col-md-3">
+                                    <h6 class="fw-bold text-info font-monospace mb-1">@trf.TransferNumber</h6>
+                                    <div class="fw-bold text-white">@trf.ItemName</div>
+                                    <span class="badge bg-primary bg-opacity-25 text-primary border border-primary">متجه إلى: @trf.DestinationBranchName</span>
+                                </div>
+                                <div class="col-md-3 border-start border-secondary border-opacity-25">
+                                    <small class="text-muted d-block">المشحون من الكنترول:</small>
+                                    <span class="fw-bold fs-6 font-monospace text-primary">@trf.DispatchedQty.ToString("N1") @trf.Unit</span> |
+                                    <span class="fw-bold font-monospace text-light">@trf.DispatchedCount قفص/صاج</span>
+                                    <small class="d-block text-muted mt-1">السائق: @trf.DriverName (@trf.VehicleNumber)</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="row g-2">
+                                        <div class="col-6">
+                                            <label class="small fw-bold text-success">الكمية المستلمة فعلياً *</label>
+                                            <input type="number" step="0.5" class="form-control form-control-sm bg-dark text-white border-success fw-bold font-monospace" @bind="trf.TempReceivedQty" />
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="small fw-bold text-light">العدد المستلم *</label>
+                                            <input type="number" class="form-control form-control-sm bg-dark text-white border-secondary font-monospace" @bind="trf.TempReceivedCount" />
+                                        </div>
+                                    </div>
+                                    <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary mt-2" placeholder="ملاحظات أمين مخزن الفرع..." @bind="trf.TempNotes" />
+                                </div>
+                                <div class="col-md-2 text-center">
+                                    <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm" @onclick="() => SubmitReceive(trf)" disabled="@isProcessing">
+                                        ✓ اعتماد استلام الفرع
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+        else if (activeTab == "dispute")
+        {
+            <!-- ========================================== -->
+            <!-- تبويب 4: لجنة فض منازعات عجز النقل         -->
+            <!-- ========================================== -->
+            <div class="content-card shadow-sm p-3">
+                <h5 class="text-danger fw-bold mb-3"><i class="bi bi-hammer me-2"></i>شحنات متنازع عليها بانتظار قرار لجنة فض المنازعات</h5>
+                @if (!DisputeList.Any())
+                {
+                    <div class="text-center text-muted py-5 fw-bold">لا توجد أي شحنات متنازع عليها. جميع الاستلامات مطابقة!</div>
+                }
+                else
+                {
+                    @foreach (var trf in DisputeList)
+                    {
+                        <div class="p-3 mb-3 bg-danger bg-opacity-10 border border-danger border-opacity-50 rounded-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                <div>
+                                    <h6 class="fw-bold text-danger d-inline font-monospace">@trf.TransferNumber</h6>
+                                    <span class="fw-bold text-white ms-2">@trf.ItemName</span>
+                                    <span class="badge bg-dark border border-secondary ms-2">فرع: @trf.DestinationBranchName</span>
+                                </div>
+                                <span class="badge bg-danger p-2">سبب النزاع: @trf.DisputeReason</span>
+                            </div>
+                            <div class="row align-items-center g-3">
+                                <div class="col-md-3">
+                                    <small class="text-muted d-block">المشحون أصلاً:</small>
+                                    <span class="fw-bold font-monospace text-light">@trf.DispatchedQty.ToString("N1") @trf.Unit</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-light">الكمية النهائية المقبولة للفرع *</label>
+                                    <input type="number" step="0.5" class="form-control form-control-sm bg-dark text-white border-success fw-bold font-monospace" @bind="trf.TempFinalQty" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-light">تحميل مسؤولية العجز *</label>
+                                    <select class="form-select form-select-sm bg-dark text-white border-secondary fw-bold" @bind="trf.TempChargeTo">
+                                        <option value="عهدة سائق التوزيع">عهدة سائق التوزيع</option>
+                                        <option value="هدر وكسر أثناء النقل">هدر وكسر أثناء النقل</option>
+                                        <option value="جفاف وفقد طبيعي">جفاف وفقد طبيعي</option>
+                                        <option value="تسوية جردية معتمدة">تسوية جردية معتمدة</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 text-center">
+                                    <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm" @onclick="() => SubmitResolveDispute(trf)" disabled="@isProcessing">
+                                        ⚖️ اعتماد قرار اللجنة وترصيد الفرع
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </main>
+</div>
+
+<style>
+    .kayan-transfers-viewport {
+        min-height: 100vh;
+        width: 100vw;
+        background-color: #030712;
+        color: #F8FAFC;
+        font-family: system-ui, -apple-system, sans-serif;
+        overflow-x: hidden;
+    }
+
+    .transfers-header-bar {
+        background: rgba(17, 24, 39, 0.85);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 0.85rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .back-home-btn {
+        background: #1E293B;
+        border: 1px solid #334155;
+        color: #CBD5E1;
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+        .back-home-btn:hover {
+            background: #334155;
+            color: #FFF;
+        }
+
+    .custom-pills-bar .nav-link {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #94A3B8;
+        border-radius: 10px;
+        padding: 0.55rem 1.25rem;
+        font-weight: 600;
+        font-size: 0.88rem;
+    }
+
+        .custom-pills-bar .nav-link.active {
+            background: #4F46E5;
+            border-color: #6366F1;
+            color: #FFF;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.35);
+        }
+
+    .content-card {
+        background: rgba(17, 24, 39, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        backdrop-filter: blur(16px);
+    }
+</style>
 
 @code {
-    private List<StockTransferDetailDto> transfers = new();
-    private StockTransferLookupsDto lookups = new();
-    private StockTransferDetailDto? selectedTransfer;
-    private CreateStockTransferDto newTransfer = new();
+    private string activeTab = "list";
+    private string alertMessage = "";
+    private bool isSuccess = false;
+    private bool isProcessing = false;
 
-    private string? selectedStatus;
-    private string searchTerm = string.Empty;
-    private bool isLoading = true;
-    private bool isSaving = false;
-    private string? statusMessage;
-    private string? errorMessage;
-    private string? modalError;
+    private List<BranchTransferViewItem> transfers = new();
+    private List<BranchLookupDto> branches = new();
+    private List<WarehouseDto> allWarehouses = new();
+    private List<WarehouseDto> branchWarehouses = new();
+    private List<ItemDto> finishedItems = new();
 
-    private bool showCreateModal = false;
-    private bool showDetailsModal = false;
-    private bool showDisputeModal = false;
-    private bool showResolveModal = false;
+    private DispatchFormModel newDispatch = new();
 
-    private StockTransferLineDetailDto? activeDisputeLine;
-    private ConfirmTransferLineReceiveDto receiveDto = new();
-
-    private StockTransferLineDetailDto? activeResolveLine;
-    private ResolveTransferDisputeDto resolveDto = new();
-
-    private IEnumerable<StockTransferDetailDto> FilteredTransfers =>
-        string.IsNullOrWhiteSpace(searchTerm)
-            ? transfers
-            : transfers.Where(t => (t.TransferNumber?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
-                                || (t.DriverName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
-                                || (t.FromWarehouseName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
-                                || (t.ToWarehouseName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+    private IEnumerable<BranchTransferViewItem> InTransitList => transfers.Where(t => t.Status == "IN_TRANSIT");
+    private IEnumerable<BranchTransferViewItem> DisputeList => transfers.Where(t => t.Status == "IN_DISPUTE");
+    private int InTransitCount => InTransitList.Count();
+    private int DisputeCount => DisputeList.Count();
 
     protected override async Task OnInitializedAsync()
     {
         await LoadLookups();
-        await LoadTransfers();
+        await LoadData();
     }
 
     private async Task LoadLookups()
     {
         try
         {
-            lookups = await Http.GetFromJsonAsync<StockTransferLookupsDto>("api/stocktransfers/lookups") ?? new();
+            long cId = State.CompanyId > 0 ? State.CompanyId : 1;
+            var res = await Http.GetFromJsonAsync<TransfersLookupsResult>($"api/BranchTransfers/lookups?companyId={cId}");
+            if (res != null)
+            {
+                branches = res.Branches;
+                finishedItems = res.Items;
+                allWarehouses = res.Warehouses;
+            }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error loading lookups: {ex.Message}");
-        }
+        catch { }
     }
 
-    private async Task LoadTransfers()
+    private async Task LoadData()
     {
-        isLoading = true;
-        errorMessage = null;
+        isProcessing = true;
         try
         {
-            string url = string.IsNullOrEmpty(selectedStatus) 
-                ? "api/stocktransfers" 
-                : $"api/stocktransfers?status={selectedStatus}";
-            transfers = await Http.GetFromJsonAsync<List<StockTransferDetailDto>>(url) ?? new();
+            long cId = State.CompanyId > 0 ? State.CompanyId : 1;
+            transfers = await Http.GetFromJsonAsync<List<BranchTransferViewItem>>($"api/BranchTransfers?companyId={cId}") ?? new();
+            foreach (var t in transfers)
+            {
+                if (t.TempReceivedQty == 0) t.TempReceivedQty = t.DispatchedQty;
+                if (t.TempReceivedCount == 0) t.TempReceivedCount = t.DispatchedCount;
+                if (t.TempFinalQty == 0) t.TempFinalQty = t.ReceivedQty ?? t.DispatchedQty;
+                if (string.IsNullOrEmpty(t.TempChargeTo)) t.TempChargeTo = "عهدة سائق التوزيع";
+            }
         }
         catch (Exception ex)
         {
-            errorMessage = $"تعذر جلب بيانات التحويلات: {ex.Message}";
+            alertMessage = $"خطأ في جلب الشحنات: {ex.Message}";
+            isSuccess = false;
         }
         finally
         {
-            isLoading = false;
+            isProcessing = false;
         }
     }
 
-    private async Task FilterByStatus(string? status)
+    private void OnBranchSelected(ChangeEventArgs e)
     {
-        selectedStatus = status;
-        await LoadTransfers();
-    }
-
-    private void OpenCreateModal()
-    {
-        newTransfer = new CreateStockTransferDto
+        if (long.TryParse(e.Value?.ToString(), out long bId) && bId > 0)
         {
-            Lines = new List<CreateStockTransferLineDto>()
-        };
-        modalError = null;
-        showCreateModal = true;
+            newDispatch.DestinationBranchId = bId;
+            branchWarehouses = allWarehouses.Where(w => w.BranchId == bId).ToList();
+            newDispatch.DestinationWarehouseId = branchWarehouses.FirstOrDefault()?.Id ?? 0;
+        }
     }
 
-    private void OnSourceWarehouseChanged()
+    private async Task SubmitDispatch()
     {
-        newTransfer.Lines.Clear();
-    }
+        if (newDispatch.DestinationBranchId <= 0 || newDispatch.DestinationWarehouseId <= 0 || newDispatch.ItemId <= 0 || newDispatch.DispatchedQty <= 0)
+        {
+            alertMessage = "يرجى تحديد الفرع، المستودع، الصنف والكمية المشحونة.";
+            isSuccess = false;
+            return;
+        }
 
-    private void AddNewLine()
-    {
-        newTransfer.Lines.Add(new CreateStockTransferLineDto());
-    }
-
-    private async Task OnItemChanged(CreateStockTransferLineDto line)
-    {
-        if (line.ItemId <= 0 || newTransfer.FromWarehouseId <= 0) return;
-
+        isProcessing = true;
         try
         {
-            var stockInfo = await Http.GetFromJsonAsync<AvailableStockInfoDto>(
-                $"api/stocktransfers/available-batches?itemId={line.ItemId}&warehouseId={newTransfer.FromWarehouseId}");
+            var controlWh = allWarehouses.FirstOrDefault(w => w.WarehouseName.Contains("كنترول") || w.WarehouseName.Contains("رئيسي")) ?? allWarehouses.FirstOrDefault();
+            newDispatch.SourceWarehouseId = controlWh?.Id ?? 1;
+            newDispatch.DispatcherName = State.FullName ?? "مسؤول الكنترول";
+            newDispatch.CompanyId = State.CompanyId > 0 ? State.CompanyId : 1;
 
-            if (stockInfo != null)
+            var res = await Http.PostAsJsonAsync("api/BranchTransfers/dispatch", newDispatch);
+            if (res.IsSuccessStatusCode)
             {
-                line.AvailableStock = stockInfo.TotalAvailableQty;
-                var firstBatch = stockInfo.Batches.FirstOrDefault();
-                if (firstBatch != null)
-                {
-                    line.BatchNumber = firstBatch.BatchNumber;
-                    line.ExpiryDate = firstBatch.ExpiryDate;
-                    line.UnitCost = firstBatch.UnitCost;
-                }
-            }
-        }
-        catch
-        {
-            line.AvailableStock = 0;
-        }
-    }
-
-    private async Task SaveAndDispatchTransfer()
-    {
-        if (newTransfer.FromWarehouseId <= 0 || newTransfer.ToWarehouseId <= 0)
-        {
-            modalError = "يرجى تحديد المستودع المصدر والمستودع الوجهة.";
-            return;
-        }
-        if (newTransfer.FromWarehouseId == newTransfer.ToWarehouseId)
-        {
-            modalError = "لا يمكن التحويل لنفس المستودع.";
-            return;
-        }
-        if (!newTransfer.Lines.Any(l => l.ItemId > 0 && l.DispatchedQty > 0))
-        {
-            modalError = "يجب إضافة صنف واحد على الأقل بكمية صالحة.";
-            return;
-        }
-
-        isSaving = true;
-        modalError = null;
-        try
-        {
-            var response = await Http.PostAsJsonAsync("api/stocktransfers", newTransfer);
-            if (response.IsSuccessStatusCode)
-            {
-                statusMessage = "تم إنشاء وصرف إذن التحويل بنجاح، والشحنة الآن قيد النقل 🚚";
-                showCreateModal = false;
-                await LoadTransfers();
+                alertMessage = "تم شحن البضاعة وخصم الرصيد بنجاح، وهي الآن في الطريق للفرع!";
+                isSuccess = true;
+                newDispatch = new DispatchFormModel();
+                activeTab = "receive";
+                await LoadData();
             }
             else
             {
-                modalError = await response.Content.ReadAsStringAsync();
+                alertMessage = await res.Content.ReadAsStringAsync();
+                isSuccess = false;
             }
         }
         catch (Exception ex)
         {
-            modalError = $"خطأ: {ex.Message}";
+            alertMessage = ex.Message;
+            isSuccess = false;
         }
-        finally
-        {
-            isSaving = false;
-        }
+        finally { isProcessing = false; }
     }
 
-    private async Task OpenDetailsModal(long id)
+    private async Task SubmitReceive(BranchTransferViewItem trf)
     {
+        isProcessing = true;
         try
         {
-            selectedTransfer = await Http.GetFromJsonAsync<StockTransferDetailDto>($"api/stocktransfers/{id}");
-            showDetailsModal = true;
+            var body = new
+            {
+                TransferId = trf.Id,
+                ReceivedQty = trf.TempReceivedQty,
+                ReceivedCount = trf.TempReceivedCount,
+                ReceiverName = State.FullName ?? "أمين مستودع الفرع",
+                Notes = trf.TempNotes
+            };
+
+            var res = await Http.PostAsJsonAsync("api/BranchTransfers/receive", body);
+            if (res.IsSuccessStatusCode)
+            {
+                alertMessage = "تمت معالجة استلام الفرع بنجاح!";
+                isSuccess = true;
+                await LoadData();
+            }
         }
         catch (Exception ex)
         {
-            errorMessage = $"تعذر جلب تفاصيل التحويل: {ex.Message}";
+            alertMessage = ex.Message;
+            isSuccess = false;
         }
+        finally { isProcessing = false; }
     }
 
-    private async Task QuickAcceptLine(StockTransferLineDetailDto line)
+    private async Task SubmitResolveDispute(BranchTransferViewItem trf)
     {
-        var dto = new ConfirmTransferLineReceiveDto
+        isProcessing = true;
+        try
         {
-            LineId = line.Id,
-            ReceivedQty = line.DispatchedQty,
-            IsAccepted = true
-        };
+            var body = new
+            {
+                TransferId = trf.Id,
+                FinalAcceptedQty = trf.TempFinalQty,
+                ChargeTo = trf.TempChargeTo,
+                ResolvedBy = State.FullName ?? "اللجنة المشتركة",
+                Notes = "تم حسم النزاع واعتماد التسوية المخزنية"
+            };
 
-        var response = await Http.PostAsJsonAsync("api/stocktransfers/receive-line", dto);
-        if (response.IsSuccessStatusCode)
-        {
-            statusMessage = "تم قبول واستلام البند بنجاح.";
-            if (selectedTransfer != null) await OpenDetailsModal(selectedTransfer.Id);
-            await LoadTransfers();
+            var res = await Http.PostAsJsonAsync("api/BranchTransfers/resolve-dispute", body);
+            if (res.IsSuccessStatusCode)
+            {
+                alertMessage = "تم فض النزاع وترصيد الكمية بمستودع الفرع وتسوية الهالك بنجاح!";
+                isSuccess = true;
+                await LoadData();
+            }
         }
-    }
-
-    private void OpenDisputeLineModal(StockTransferLineDetailDto line)
-    {
-        activeDisputeLine = line;
-        receiveDto = new ConfirmTransferLineReceiveDto
+        catch (Exception ex)
         {
-            LineId = line.Id,
-            ReceivedQty = line.DispatchedQty,
-            IsAccepted = false
-        };
-        showDisputeModal = true;
-    }
-
-    private async Task SubmitDisputedLine()
-    {
-        if (receiveDto.ReceivedQty < 0 || string.IsNullOrWhiteSpace(receiveDto.DiscrepancyReason))
-        {
-            return;
+            alertMessage = ex.Message;
+            isSuccess = false;
         }
-
-        var response = await Http.PostAsJsonAsync("api/stocktransfers/receive-line", receiveDto);
-        if (response.IsSuccessStatusCode)
-        {
-            statusMessage = "تم إثبات العجز والنزاع في الشحنة بنجاح.";
-            showDisputeModal = false;
-            if (selectedTransfer != null) await OpenDetailsModal(selectedTransfer.Id);
-            await LoadTransfers();
-        }
+        finally { isProcessing = false; }
     }
 
-    private void OpenResolveModal(StockTransferLineDetailDto line)
+    public class TransfersLookupsResult
     {
-        activeResolveLine = line;
-        resolveDto = new ResolveTransferDisputeDto
-        {
-            LineId = line.Id,
-            FinalApprovedQty = line.ReceivedQty,
-            LossQty = line.DispatchedQty - line.ReceivedQty
-        };
-        showResolveModal = true;
+        public List<BranchLookupDto> Branches { get; set; } = new();
+        public List<WarehouseDto> Warehouses { get; set; } = new();
+        public List<ItemDto> Items { get; set; } = new();
     }
 
-    private async Task SubmitResolveDispute()
+    public class BranchTransferViewItem
     {
-        var response = await Http.PostAsJsonAsync("api/stocktransfers/resolve-dispute", resolveDto);
-        if (response.IsSuccessStatusCode)
-        {
-            statusMessage = "تم اعتماد قرار لجنة فض النزاع وترحيل الهالك بنجاح.";
-            showResolveModal = false;
-            if (selectedTransfer != null) await OpenDetailsModal(selectedTransfer.Id);
-            await LoadTransfers();
-        }
+        public long Id { get; set; }
+        public string TransferNumber { get; set; } = "";
+        public DateOnly TransferDate { get; set; }
+        public string SourceWarehouseName { get; set; } = "";
+        public string DestinationWarehouseName { get; set; } = "";
+        public string DestinationBranchName { get; set; } = "";
+        public string ItemName { get; set; } = "";
+        public string ItemCode { get; set; } = "";
+        public string Unit { get; set; } = "";
+        public string BatchNumber { get; set; } = "";
+        public decimal DispatchedQty { get; set; }
+        public int DispatchedCount { get; set; }
+        public string? DriverName { get; set; }
+        public string? VehicleNumber { get; set; }
+        public decimal? ReceivedQty { get; set; }
+        public int? ReceivedCount { get; set; }
+        public string Status { get; set; } = "";
+        public string? DisputeReason { get; set; }
+
+        public decimal TempReceivedQty { get; set; }
+        public int TempReceivedCount { get; set; }
+        public string TempNotes { get; set; } = "";
+        public decimal TempFinalQty { get; set; }
+        public string TempChargeTo { get; set; } = "";
     }
 
-    private string GetStatusBadge(string status) => status switch
+    public class DispatchFormModel
     {
-        "IN_TRANSIT" => "bg-warning text-dark",
-        "DISPUTED" => "bg-danger text-white",
-        "COMPLETED" => "bg-success text-white",
-        _ => "bg-secondary text-white"
-    };
+        public long CompanyId { get; set; } = 1;
+        public long SourceWarehouseId { get; set; }
+        public long DestinationWarehouseId { get; set; }
+        public long DestinationBranchId { get; set; }
+        public long ItemId { get; set; }
+        public string? BatchNumber { get; set; }
+        public decimal DispatchedQty { get; set; } = 10;
+        public int DispatchedCount { get; set; } = 1;
+        public string? DriverName { get; set; }
+        public string? VehicleNumber { get; set; }
+        public string? DispatcherName { get; set; }
+        public string? Notes { get; set; }
+    }
 
-    private string GetStatusLabel(string status) => status switch
-    {
-        "IN_TRANSIT" => "في الطريق 🚚",
-        "DISPUTED" => "قيد النزاع ⚖️",
-        "COMPLETED" => "مكتمل ومستلم ✅",
-        _ => status
-    };
-
-    private string GetLineStatusBadge(string status) => status switch
-    {
-        "ACCEPTED" => "bg-success text-white",
-        "DISPUTED" => "bg-danger text-white",
-        _ => "bg-warning text-dark"
-    };
-
-    private string GetLineStatusLabel(string status) => status switch
-    {
-        "ACCEPTED" => "مقبول",
-        "DISPUTED" => "عجز / نزاع",
-        _ => "قيد النقل"
-    };
+    public class BranchLookupDto { public long Id { get; set; } public string BranchName { get; set; } = ""; public string BranchCode { get; set; } = ""; }
+    public class ItemDto { public long Id { get; set; } public string ItemName { get; set; } = ""; public string ItemCode { get; set; } = ""; public string Unit { get; set; } = ""; }
+    public class WarehouseDto { public long Id { get; set; } public string WarehouseName { get; set; } = ""; public long? BranchId { get; set; } }
 }

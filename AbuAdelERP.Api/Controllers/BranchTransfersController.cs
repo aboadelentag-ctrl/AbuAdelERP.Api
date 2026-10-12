@@ -19,12 +19,68 @@ namespace AbuAdelERP.Api.Controllers
             _context = context;
         }
 
-        // 1. استرجاع قائمة التحويلات للفروع
+        // 1. جلب البيانات المرجعية مع تصفية صارمة للمنتجات التامة فقط (استبعاد الخامات والأدوات)
+        [HttpGet("lookups")]
+        public async Task<IActionResult> GetLookups([FromQuery] long companyId = 1)
+        {
+            var branches = await _context.Branches
+                .AsNoTracking()
+                .Where(b => b.CompanyId == companyId || b.CompanyId == null)
+                .Select(b => new { b.Id, b.BranchName, b.BranchCode })
+                .ToListAsync();
+
+            var warehouses = await _context.Warehouses
+                .AsNoTracking()
+                .Where(w => w.CompanyId == companyId || w.CompanyId == null)
+                .Select(w => new { w.Id, w.WarehouseName, w.BranchId })
+                .ToListAsync();
+
+            // جلب الأصناف مع استبعاد الخامات ومستلزمات التعبئة (فقط منتجات تامة)
+            var allItems = await _context.Items
+                .AsNoTracking()
+                .Where(i => (i.CompanyId == companyId || i.CompanyId == null) && i.Active)
+                .Select(i => new { i.Id, i.ItemName, i.ItemCode, Unit = i.Unit ?? "قطعة" })
+                .ToListAsync();
+
+            var finishedItems = allItems
+                .Where(i => !i.ItemCode.StartsWith("10") &&
+                            !i.ItemName.Contains("سكر") &&
+                            !i.ItemName.Contains("دقيق") &&
+                            !i.ItemName.Contains("سميد") &&
+                            !i.ItemName.Contains("سبت") &&
+                            !i.ItemName.Contains("صينية ألمنيوم") &&
+                            !i.ItemName.Contains("عسل"))
+                .OrderBy(i => i.ItemName)
+                .ToList();
+
+            return Ok(new { branches, warehouses, items = finishedItems });
+        }
+
+        // 2. سحب آخر رقم تشغيلة (لوط) للمنتج التام تلقائياً من التشغيل
+        [HttpGet("item-batch/{itemId}")]
+        public async Task<IActionResult> GetItemLatestBatch(long itemId)
+        {
+            var lastBatch = await _context.BranchTransfers
+                .Where(t => t.ItemId == itemId && !string.IsNullOrEmpty(t.BatchNumber))
+                .OrderByDescending(t => t.Id)
+                .Select(t => t.BatchNumber)
+                .FirstOrDefaultAsync();
+
+            if (string.IsNullOrEmpty(lastBatch))
+            {
+                lastBatch = $"LOT-{DateTime.Today:yyyyMMdd}-{itemId:D2}";
+            }
+
+            return Ok(new { batchNumber = lastBatch });
+        }
+
+        // 3. استرجاع قائمة الشحنات العامة
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] long? branchId)
+        public async Task<IActionResult> GetAll([FromQuery] long companyId = 1, [FromQuery] long? branchId = null)
         {
             var query = _context.BranchTransfers
                 .AsNoTracking()
+                .Where(t => t.CompanyId == companyId)
                 .Include(t => t.Item)
                 .Include(t => t.SourceWarehouse)
                 .Include(t => t.DestinationWarehouse)
@@ -55,11 +111,16 @@ namespace AbuAdelERP.Api.Controllers
                 Unit = t.Item?.Unit ?? "قطعة",
                 t.BatchNumber,
                 t.DispatchedQty,
+                t.ContainerType,
+                t.InnerCount,
+                t.CrateCount,
                 t.DispatchedCount,
                 t.DriverName,
                 t.VehicleNumber,
                 t.DispatcherName,
                 t.ReceivedQty,
+                t.ReceivedInnerCount,
+                t.ReceivedCrateCount,
                 t.ReceivedCount,
                 t.ReceiverName,
                 t.Status,
@@ -67,77 +128,97 @@ namespace AbuAdelERP.Api.Controllers
                 t.DisputeChargeTo,
                 t.DisputeNotes,
                 t.ResolvedBy,
-                t.Notes
+                t.Notes,
+                t.CreatedAt
             });
 
             return Ok(result);
         }
 
-        // 2. إرسال وتحميل شحنة من الكنترول إلى الفرع
-        [HttpPost("dispatch")]
-        public async Task<IActionResult> Dispatch([FromBody] BranchDispatchDto dto)
+        // 4. شحن مانيفست متعدد الأصناف مع تتبع السرافيس والأسبات وحل مشكلة الحفظ
+        [HttpPost("dispatch-multi")]
+        public async Task<IActionResult> DispatchMulti([FromBody] MultiItemBranchDispatchDto dto)
         {
-            if (dto.DispatchedQty <= 0)
-                return BadRequest("الكمية المحولة يجب أن تكون أكبر من صفر.");
+            if (dto.Items == null || !dto.Items.Any(i => i.ItemId > 0 && i.DispatchedQty > 0))
+                return BadRequest("يجب إضافة صنف واحد على الأقل بكمية صالحة للشحن.");
 
-            var item = await _context.Items.FindAsync(dto.ItemId);
-            if (item == null) return NotFound("الصنف غير موجود.");
-
+            long cId = dto.CompanyId > 0 ? dto.CompanyId : 1;
             var now = DateTime.UtcNow;
-            string transferNumber = $"BTRF-{now:yyyyMMdd}-{(await _context.BranchTransfers.CountAsync() + 1):D4}";
+
+            // توليد رقم المانيفست الموحد
+            int nextSeq = await _context.BranchTransfers.Select(t => t.TransferNumber).Distinct().CountAsync() + 1;
+            string manifestBase = $"BTRF-{now:yyyyMMdd}-{nextSeq:D4}";
 
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var transfer = new BranchTransfer
+                int lineIndex = 1;
+                foreach (var line in dto.Items.Where(i => i.ItemId > 0 && i.DispatchedQty > 0))
                 {
-                    TransferNumber = transferNumber,
-                    TransferDate = DateOnly.FromDateTime(DateTime.Today),
-                    SourceWarehouseId = dto.SourceWarehouseId,
-                    DestinationWarehouseId = dto.DestinationWarehouseId,
-                    DestinationBranchId = dto.DestinationBranchId,
-                    ItemId = dto.ItemId,
-                    BatchNumber = dto.BatchNumber,
-                    DispatchedQty = dto.DispatchedQty,
-                    DispatchedCount = dto.DispatchedCount,
-                    DriverName = dto.DriverName,
-                    VehicleNumber = dto.VehicleNumber,
-                    DispatcherName = dto.DispatcherName,
-                    Notes = dto.Notes,
-                    Status = "IN_TRANSIT"
-                };
+                    var item = await _context.Items.FindAsync(line.ItemId);
+                    if (item == null) continue;
 
-                _context.BranchTransfers.Add(transfer);
+                    string lineTransferNumber = $"{manifestBase}-{lineIndex:D2}";
 
-                // خصم من رصيد الكنترول
-                var controlBal = await _context.StockBalances
-                    .FirstOrDefaultAsync(b => b.ItemId == dto.ItemId && b.WarehouseId == dto.SourceWarehouseId);
+                    var transfer = new BranchTransfer
+                    {
+                        CompanyId = cId,
+                        TransferNumber = lineTransferNumber,
+                        TransferDate = DateOnly.FromDateTime(DateTime.Today),
+                        SourceWarehouseId = dto.SourceWarehouseId,
+                        DestinationWarehouseId = dto.DestinationWarehouseId,
+                        DestinationBranchId = dto.DestinationBranchId,
+                        ItemId = line.ItemId,
+                        BatchNumber = line.BatchNumber,
+                        DispatchedQty = line.DispatchedQty,
+                        ContainerType = line.ContainerType ?? "سرفيس",
+                        InnerCount = line.InnerCount,
+                        CrateCount = line.CrateCount,
+                        DispatchedCount = line.InnerCount > 0 ? line.InnerCount : 1,
+                        DriverName = string.IsNullOrWhiteSpace(dto.DriverName) ? "سائق التوزيع" : dto.DriverName.Trim(),
+                        VehicleNumber = string.IsNullOrWhiteSpace(dto.VehicleNumber) ? "سيارة نقل" : dto.VehicleNumber.Trim(),
+                        DispatcherName = dto.DispatcherName ?? "مسؤول الكنترول",
+                        Notes = dto.Notes,
+                        Status = "IN_TRANSIT",
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    };
 
-                if (controlBal != null)
-                {
-                    controlBal.Quantity -= dto.DispatchedQty;
-                    controlBal.LastUpdatedAt = now;
+                    _context.BranchTransfers.Add(transfer);
+                    await _context.SaveChangesAsync();
+
+                    // خصم رصيد الكنترول إذا كان مسجلاً دون رمي استثناء رصيد سالب
+                    var controlBal = await _context.StockBalances
+                        .FirstOrDefaultAsync(b => b.ItemId == line.ItemId && b.WarehouseId == dto.SourceWarehouseId);
+
+                    if (controlBal != null)
+                    {
+                        controlBal.Quantity -= line.DispatchedQty;
+                        controlBal.LastUpdatedAt = now;
+                    }
+
+                    // تسجيل حركة الصرف اللوجستي
+                    _context.StockMovements.Add(new StockMovement
+                    {
+                        CompanyId = cId,
+                        WarehouseId = dto.SourceWarehouseId,
+                        ItemId = line.ItemId,
+                        MovementType = "FG_TRANSFER_OUT",
+                        Quantity = -line.DispatchedQty,
+                        UnitCost = item.BasePrice,
+                        ReferenceType = "BRANCH_TRANSFER",
+                        MovementAt = now,
+                        CreatedAt = now,
+                        Notes = $"شحن للفرع بإذن [{lineTransferNumber}] | صنف: {item.ItemName} | السائق: {dto.DriverName}"
+                    });
+
+                    lineIndex++;
                 }
-
-                // تسجيل حركة صرف تحويل
-                _context.StockMovements.Add(new StockMovement
-                {
-                    CompanyId = 1,
-                    WarehouseId = dto.SourceWarehouseId,
-                    ItemId = dto.ItemId,
-                    MovementType = "FG_TRANSFER_OUT",
-                    Quantity = -dto.DispatchedQty,
-                    UnitCost = item.BasePrice,
-                    ReferenceType = "BRANCH_TRANSFER",
-                    MovementAt = now,
-                    CreatedAt = now,
-                    Notes = $"شحن للفرع بإذن [{transferNumber}] | السائق: {dto.DriverName}"
-                });
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return Ok(new { success = true, message = "تم شحن البضاعة وتمريرها في الطريق للفرع بنجاح." });
+                return Ok(new { success = true, transferNumber = manifestBase, message = "تم شحن المانيفست بالكامل بنجاح." });
             }
             catch (Exception ex)
             {
@@ -146,15 +227,15 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
-        // 3. استلام الفرع الفعلي والترصيد
-        [HttpPost("receive")]
-        public async Task<IActionResult> Receive([FromBody] BranchReceiveDto dto)
+        // 5. استلام صنف محدد داخل الشحنة مع أوعية النقل
+        [HttpPost("receive-line")]
+        public async Task<IActionResult> ReceiveLine([FromBody] BranchReceiveLineDto dto)
         {
             var transfer = await _context.BranchTransfers.FindAsync(dto.TransferId);
-            if (transfer == null) return NotFound("إذن التحويل غير موجود.");
+            if (transfer == null) return NotFound("البند غير موجود.");
 
             if (transfer.Status == "COMPLETED")
-                return BadRequest("هذا الإذن تم استلامه وترصيده مسبقاً.");
+                return BadRequest("هذا البند تم استلامه مسبقاً.");
 
             var item = await _context.Items.FindAsync(transfer.ItemId);
             var now = DateTime.UtcNow;
@@ -163,22 +244,22 @@ namespace AbuAdelERP.Api.Controllers
             try
             {
                 transfer.ReceivedQty = dto.ReceivedQty;
-                transfer.ReceivedCount = dto.ReceivedCount;
+                transfer.ReceivedInnerCount = dto.ReceivedInnerCount;
+                transfer.ReceivedCrateCount = dto.ReceivedCrateCount;
+                transfer.ReceivedCount = dto.ReceivedInnerCount;
                 transfer.ReceiverName = dto.ReceiverName;
                 transfer.UpdatedAt = now;
 
-                // فحص هل توجد نسبة عجز تستوجب تصعيد نزاع؟
                 if (dto.ReceivedQty < transfer.DispatchedQty)
                 {
                     transfer.Status = "IN_DISPUTE";
-                    transfer.DisputeReason = $"عجز استلام بالفرع بمقدار {(transfer.DispatchedQty - dto.ReceivedQty):N2} وملاحظات: {dto.Notes}";
+                    transfer.DisputeReason = $"عجز استلام بمقدار {(transfer.DispatchedQty - dto.ReceivedQty):N2} | ملاحظات: {dto.Notes}";
                     await _context.SaveChangesAsync();
                     await transaction.CommitAsync();
 
-                    return Ok(new { success = false, inDispute = true, message = "تم إحالة الشحنة إلى لجنة فض المنازعات لوجود عجز في الاستلام." });
+                    return Ok(new { success = true, inDispute = true, message = "تم إحالة الصنف للجنة فض المنازعات لوجود عجز." });
                 }
 
-                // الاستلام مطابق 100%: ترصيد مباشر بمخزن الفرع
                 transfer.Status = "COMPLETED";
 
                 var branchBal = await _context.StockBalances
@@ -193,7 +274,7 @@ namespace AbuAdelERP.Api.Controllers
                 {
                     _context.StockBalances.Add(new StockBalance
                     {
-                        CompanyId = 1,
+                        CompanyId = transfer.CompanyId,
                         WarehouseId = transfer.DestinationWarehouseId,
                         ItemId = transfer.ItemId,
                         Quantity = dto.ReceivedQty,
@@ -204,14 +285,13 @@ namespace AbuAdelERP.Api.Controllers
 
                 _context.StockMovements.Add(new StockMovement
                 {
-                    CompanyId = 1,
+                    CompanyId = transfer.CompanyId,
                     WarehouseId = transfer.DestinationWarehouseId,
                     ItemId = transfer.ItemId,
                     MovementType = "FG_TRANSFER_IN",
                     Quantity = dto.ReceivedQty,
                     UnitCost = item?.BasePrice ?? 0,
                     ReferenceType = "BRANCH_TRANSFER",
-                    ReferenceId = transfer.Id,
                     MovementAt = now,
                     CreatedAt = now,
                     Notes = $"استلام سليم بالفرع بإذن [{transfer.TransferNumber}] | المستلم: {dto.ReceiverName}"
@@ -220,7 +300,7 @@ namespace AbuAdelERP.Api.Controllers
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return Ok(new { success = true, inDispute = false, message = "تم استلام الشحنة وترصيد الكمية بمستودع الفرع بنجاح." });
+                return Ok(new { success = true, inDispute = false, message = "تم استلام الصنف وترصيده بنجاح." });
             }
             catch (Exception ex)
             {
@@ -229,12 +309,12 @@ namespace AbuAdelERP.Api.Controllers
             }
         }
 
-        // 4. لجنة فض المنازعات بين الكنترول والفرع
+        // 6. حسم نزاع صنف محدد في لجنة فض المنازعات
         [HttpPost("resolve-dispute")]
         public async Task<IActionResult> ResolveDispute([FromBody] ResolveBranchDisputeDto dto)
         {
             var transfer = await _context.BranchTransfers.FindAsync(dto.TransferId);
-            if (transfer == null) return NotFound("الإذن غير موجود.");
+            if (transfer == null) return NotFound("البند غير موجود.");
 
             var item = await _context.Items.FindAsync(transfer.ItemId);
             var now = DateTime.UtcNow;
@@ -249,7 +329,6 @@ namespace AbuAdelERP.Api.Controllers
                 transfer.ResolvedBy = dto.ResolvedBy;
                 transfer.UpdatedAt = now;
 
-                // 1. ترصيد الكمية الفعلية المقبولة في مخزن الفرع
                 var branchBal = await _context.StockBalances
                     .FirstOrDefaultAsync(b => b.ItemId == transfer.ItemId && b.WarehouseId == transfer.DestinationWarehouseId);
 
@@ -262,7 +341,7 @@ namespace AbuAdelERP.Api.Controllers
                 {
                     _context.StockBalances.Add(new StockBalance
                     {
-                        CompanyId = 1,
+                        CompanyId = transfer.CompanyId,
                         WarehouseId = transfer.DestinationWarehouseId,
                         ItemId = transfer.ItemId,
                         Quantity = dto.FinalAcceptedQty,
@@ -273,33 +352,30 @@ namespace AbuAdelERP.Api.Controllers
 
                 _context.StockMovements.Add(new StockMovement
                 {
-                    CompanyId = 1,
+                    CompanyId = transfer.CompanyId,
                     WarehouseId = transfer.DestinationWarehouseId,
                     ItemId = transfer.ItemId,
                     MovementType = "FG_TRANSFER_IN",
                     Quantity = dto.FinalAcceptedQty,
                     UnitCost = item?.BasePrice ?? 0,
                     ReferenceType = "BRANCH_TRANSFER",
-                    ReferenceId = transfer.Id,
                     MovementAt = now,
                     CreatedAt = now,
                     Notes = $"استلام بقرار لجنة فض المنازعات بإذن [{transfer.TransferNumber}]"
                 });
 
-                // 2. إثبات العجز كتسوية هدر / عهدة
                 decimal deficit = transfer.DispatchedQty - dto.FinalAcceptedQty;
                 if (deficit > 0)
                 {
                     _context.StockMovements.Add(new StockMovement
                     {
-                        CompanyId = 1,
+                        CompanyId = transfer.CompanyId,
                         WarehouseId = transfer.SourceWarehouseId,
                         ItemId = transfer.ItemId,
                         MovementType = "FG_TRANSIT_DEFICIT",
                         Quantity = -deficit,
                         UnitCost = item?.BasePrice ?? 0,
                         ReferenceType = "BRANCH_TRANSFER_DEFICIT",
-                        ReferenceId = transfer.Id,
                         MovementAt = now,
                         CreatedAt = now,
                         Notes = $"عجز نقل محمل على [{dto.ChargeTo}] | قرار اللجنة: {dto.Notes}"
@@ -309,7 +385,7 @@ namespace AbuAdelERP.Api.Controllers
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return Ok(new { success = true, message = "تم فض النزاع وترصيد الكمية للفرع وتسوية العجز بنجاح." });
+                return Ok(new { success = true, message = "تم فض النزاع وترصيد الصنف وتسوية الهالك بنجاح." });
             }
             catch (Exception ex)
             {
@@ -319,26 +395,35 @@ namespace AbuAdelERP.Api.Controllers
         }
     }
 
-    public class BranchDispatchDto
+    public class MultiItemBranchDispatchDto
     {
+        public long CompanyId { get; set; } = 1;
         public long SourceWarehouseId { get; set; }
         public long DestinationWarehouseId { get; set; }
         public long DestinationBranchId { get; set; }
-        public long ItemId { get; set; }
-        public string? BatchNumber { get; set; }
-        public decimal DispatchedQty { get; set; }
-        public int DispatchedCount { get; set; }
         public string? DriverName { get; set; }
         public string? VehicleNumber { get; set; }
         public string? DispatcherName { get; set; }
         public string? Notes { get; set; }
+        public List<DispatchItemRowDto> Items { get; set; } = new();
     }
 
-    public class BranchReceiveDto
+    public class DispatchItemRowDto
+    {
+        public long ItemId { get; set; }
+        public string? BatchNumber { get; set; }
+        public decimal DispatchedQty { get; set; }
+        public string? ContainerType { get; set; } = "سرفيس";
+        public int InnerCount { get; set; } = 1;
+        public int CrateCount { get; set; } = 1;
+    }
+
+    public class BranchReceiveLineDto
     {
         public long TransferId { get; set; }
         public decimal ReceivedQty { get; set; }
-        public int ReceivedCount { get; set; }
+        public int ReceivedInnerCount { get; set; } = 1;
+        public int ReceivedCrateCount { get; set; } = 1;
         public string? ReceiverName { get; set; }
         public string? Notes { get; set; }
     }

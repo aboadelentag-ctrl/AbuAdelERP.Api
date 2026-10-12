@@ -14,6 +14,7 @@ public class BranchTransfer
     [Column("company_id")]
     public long CompanyId { get; set; } = 1;
 
+    [Required]
     [Column("transfer_number")]
     public string TransferNumber { get; set; } = null!;
 
@@ -38,6 +39,16 @@ public class BranchTransfer
     [Column("dispatched_qty")]
     public decimal DispatchedQty { get; set; }
 
+    // أوعية النقل والتعبئة الميدانية
+    [Column("container_type")]
+    public string? ContainerType { get; set; } = "سرفيس"; // سرفيس، صاج/صينية، علبة/كرتونة
+
+    [Column("inner_count")]
+    public int InnerCount { get; set; } = 0; // عدد السرافيس أو الصواني
+
+    [Column("crate_count")]
+    public int CrateCount { get; set; } = 0; // عدد الأسبات أو الأقفاص الحاملة
+
     [Column("dispatched_count")]
     public int DispatchedCount { get; set; } = 1;
 
@@ -55,6 +66,12 @@ public class BranchTransfer
 
     [Column("received_count")]
     public int? ReceivedCount { get; set; }
+
+    [Column("received_inner_count")]
+    public int? ReceivedInnerCount { get; set; }
+
+    [Column("received_crate_count")]
+    public int? ReceivedCrateCount { get; set; }
 
     [Column("receiver_name")]
     public string? ReceiverName { get; set; }
@@ -94,4 +111,7 @@ public class BranchTransfer
 
     [ForeignKey(nameof(ItemId))]
     public virtual Item? Item { get; set; }
+
+    [ForeignKey(nameof(CompanyId))]
+    public virtual Company? Company { get; set; }
 }
