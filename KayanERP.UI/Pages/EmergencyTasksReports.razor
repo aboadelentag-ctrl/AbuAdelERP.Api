@@ -1,0 +1,502 @@
+﻿@page "/emergency-tasks-reports"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using System.Text
+@using KayanERP.UI.Services
+@inject HttpClient Http
+@inject AppState State
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>تقارير ومؤشرات أداء الطوارئ (SLA & MTTR) - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+
+    <!-- رأس الصفحة التنفيذي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-warning">📊 تقرير ومؤشرات أداء الاستجابة للطوارئ (SLA & Maintenance)</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">اتفاقية مستوى الخدمة وزمن الإصلاح</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    تحليل زمن الاستجابة، حصر زمن توقف خطوط الإنتاج (Downtime)، تقييم أداء الفنيين، والماكينات الأكثر تعطلاً.
+                </small>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="emergency-tasks" class="btn btn-outline-light btn-sm fw-bold px-3 py-2 shadow-sm">
+                    🚨 غرفة العمليات الحية (SOS)
+                </a>
+                <button class="btn btn-success btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="ExportSlaReportToCsv" disabled="@(!FilteredTasks.Any())">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير تقرير الـ SLA (Excel)
+                </button>
+                <button class="btn btn-outline-warning btn-sm fw-bold shadow-sm" @onclick="LoadTasks">
+                    🔄 تحديث التحليلات
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-2 mb-0">جاري احتساب مؤشرات الـ SLA وسجلات الأعطال...</p>
+        </div>
+    }
+    else
+    {
+        <!-- كروت مؤشرات الأداء العليا (SLA Executive KPIs) -->
+        <div class="row g-3 mb-4">
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-4 border-success">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted fw-bold">نسبة الالتزام بالمهلة (SLA %)</small>
+                        <span class="badge bg-success bg-opacity-10 text-success fw-bold">هدف: > 90%</span>
+                    </div>
+                    <h3 class="fw-bold text-success mt-2 mb-0 font-monospace">@SlaComplianceRate.ToString("F1")%</h3>
+                    <small class="text-muted">(@ResolvedWithinSlaCount من أصل @ClosedTasksCount بلاغ مغلق)</small>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-4 border-primary">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted fw-bold">متوسط زمن الاستجابة للتدخل</small>
+                        <span class="badge bg-primary bg-opacity-10 text-primary fw-bold">Response Time</span>
+                    </div>
+                    <h3 class="fw-bold text-primary mt-2 mb-0 font-monospace">@AvgResponseTimeMinutes.ToString("F1") <span class="fs-6 fw-normal">دقيقة</span></h3>
+                    <small class="text-muted">من وقت إطلاق البلاغ حتى وصول الفني</small>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-4 border-warning">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted fw-bold">متوسط زمن الإصلاح (MTTR)</small>
+                        <span class="badge bg-warning bg-opacity-10 text-dark fw-bold">Mean Time To Repair</span>
+                    </div>
+                    <h3 class="fw-bold text-dark mt-2 mb-0 font-monospace">@AvgResolutionTimeMinutes.ToString("F1") <span class="fs-6 fw-normal">دقيقة</span></h3>
+                    <small class="text-muted">زمن استعادة تشغيل الماكينة للخدمة</small>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-md-6">
+                <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-4 border-danger">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted fw-bold">إجمالي زمن توقف الإنتاج</small>
+                        <span class="badge bg-danger bg-opacity-10 text-danger fw-bold">Line Downtime</span>
+                    </div>
+                    <h3 class="fw-bold text-danger mt-2 mb-0 font-monospace">@TotalDowntimeHours.ToString("F1") <span class="fs-6 fw-normal">ساعة</span></h3>
+                    <small class="text-muted">(@TotalDowntimeMinutes دقيقة توقف بالصالات)</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- شريط الفلاتر والبحث -->
+        <div class="card shadow-sm border-0 mb-4 bg-light rounded-3">
+            <div class="card-body p-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-muted mb-1">من تاريخ:</label>
+                        <input type="date" class="form-control form-control-sm font-monospace" @bind="filterStartDate" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-muted mb-1">إلى تاريخ:</label>
+                        <input type="date" class="form-control form-control-sm font-monospace" @bind="filterEndDate" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold text-muted mb-1">الجهة الطالبة:</label>
+                        <select class="form-select form-select-sm" @bind="filterSenderDept">
+                            <option value="">-- كافة الصالات --</option>
+                            @foreach (var d in distinctSenderDepts)
+                            {
+                                <option value="@d">@d</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold text-muted mb-1">درجة الأولوية:</label>
+                        <select class="form-select form-select-sm" @bind="filterPriority">
+                            <option value="">-- كافة الأولويات --</option>
+                            <option value="CRITICAL">حرجة جداً 🔥</option>
+                            <option value="HIGH">عالية ⚡</option>
+                            <option value="NORMAL">عادية</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex gap-1">
+                        <button class="btn btn-outline-secondary btn-sm flex-fill fw-bold" @onclick="ResetFilters">إلغاء</button>
+                        <button class="btn btn-primary btn-sm flex-fill fw-bold" @onclick="ApplyFilters">تطبيق</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- تحليل الماكينات الأكثر تعطلاً وتوزيع الأعطال -->
+        <div class="row g-3 mb-4">
+            <div class="col-lg-6">
+                <div class="card border-0 shadow-sm rounded-3 h-100">
+                    <div class="card-header bg-white py-2 fw-bold text-dark d-flex justify-content-between align-items-center">
+                        <span>🏭 الماكينات الأكثر تعطلاً (Top Downtime Machines)</span>
+                        <span class="badge bg-danger">أولوية الصيانة الوقائية</span>
+                    </div>
+                    <div class="card-body p-0 table-responsive">
+                        <table class="table table-hover table-bordered mb-0 align-middle text-center small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>كود الماكينة</th>
+                                    <th>عدد الأعطال</th>
+                                    <th>إجمالي التوقف</th>
+                                    <th>متوسط زمن الإصلاح</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!topFailingMachines.Any())
+                                {
+                                    <tr>
+                                        <td colspan="4" class="text-muted py-3">لا توجد أعطال مسجلة لماكينات محددة خلال الفترة.</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var m in topFailingMachines)
+                                    {
+                                        <tr>
+                                            <td class="font-monospace fw-bold text-danger">@m.AssetCode</td>
+                                            <td class="fw-bold font-monospace">@m.FailureCount مرة</td>
+                                            <td class="fw-bold font-monospace text-dark">@m.TotalDowntimeMinutes دقيقة</td>
+                                            <td class="font-monospace text-primary">@m.AvgRepairMinutes.ToString("F1") دقيقة</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card border-0 shadow-sm rounded-3 h-100">
+                    <div class="card-header bg-white py-2 fw-bold text-dark d-flex justify-content-between align-items-center">
+                        <span>👨‍🔧 كفاءة وسرعة استجابة الفنيين (Technician SLA)</span>
+                        <span class="badge bg-primary">تقييم الأداء</span>
+                    </div>
+                    <div class="card-body p-0 table-responsive">
+                        <table class="table table-hover table-bordered mb-0 align-middle text-center small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>الفني المكلف</th>
+                                    <th>المهام المنجزة</th>
+                                    <th>نسبة الالتزام بالـ SLA</th>
+                                    <th>متوسط زمن الحل</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!technicianStats.Any())
+                                {
+                                    <tr>
+                                        <td colspan="4" class="text-muted py-3">لا توجد مهام منجزة من فنيين خلال الفترة.</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var t in technicianStats)
+                                    {
+                                        <tr>
+                                            <td class="fw-bold text-start ps-3">@t.TechnicianName</td>
+                                            <td class="font-monospace fw-bold">@t.CompletedCount مهمة</td>
+                                            <td>
+                                                <span class="badge @(t.SlaRate >= 90 ? "bg-success" : t.SlaRate >= 75 ? "bg-warning text-dark" : "bg-danger") font-monospace">
+                                                    @t.SlaRate.ToString("F0")%
+                                                </span>
+                                            </td>
+                                            <td class="font-monospace text-dark">@t.AvgResolutionMinutes.ToString("F1") دقيقة</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- جدول سجل البلاغات التفصيلي مع قياسات الـ SLA الفردية -->
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
+            <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold text-dark m-0">📋 السجل التفصيلي لقياسات الـ SLA لكل بلاغ (المعروض: @FilteredTasks.Count())</h6>
+            </div>
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>رقم البلاغ</th>
+                            <th>العنوان / الماكينة</th>
+                            <th>الجهة الطالبة</th>
+                            <th>تاريخ البلاغ</th>
+                            <th>المهلة المحددة</th>
+                            <th>زمن الاستجابة</th>
+                            <th>زمن الإصلاح الفعلي</th>
+                            <th>مؤشر الالتزام (SLA)</th>
+                            <th>الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!FilteredTasks.Any())
+                        {
+                            <tr>
+                                <td colspan="9" class="text-muted py-4 fw-bold">لا توجد بلاغات تطابق شروط الفلترة المحددة.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var t in FilteredTasks)
+                            {
+                                var responseMinutes = t.RespondedAt.HasValue ? (int)(t.RespondedAt.Value - t.CreatedAt).TotalMinutes : 0;
+                                var durationMinutes = t.CompletedAt.HasValue ? (int)(t.CompletedAt.Value - t.CreatedAt).TotalMinutes : (t.DowntimeMinutes > 0 ? t.DowntimeMinutes : 0);
+                                var isCompliant = t.Status == "CLOSED" && durationMinutes <= t.TargetResolutionMinutes;
+
+                                <tr>
+                                    <td class="font-monospace fw-bold text-primary">@t.TaskNumber</td>
+                                    <td class="fw-bold text-start ps-2">
+                                        @t.Title
+                                        @if (!string.IsNullOrEmpty(t.AssetCode))
+                                        {
+                                            <span class="badge bg-danger ms-1 font-monospace">[@t.AssetCode]</span>
+                                        }
+                                    </td>
+                                    <td>@t.SenderDepartment</td>
+                                    <td class="font-monospace text-muted">@t.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="font-monospace fw-bold">@t.TargetResolutionMinutes دقيقة</td>
+                                    <td class="font-monospace">
+                                        @(t.RespondedAt.HasValue ? $"{responseMinutes} دقيقة" : "-")
+                                    </td>
+                                    <td class="font-monospace fw-bold text-dark">
+                                        @(t.CompletedAt.HasValue ? $"{durationMinutes} دقيقة" : (t.Status == "IN_PROGRESS" ? "قيد التنفيذ..." : "-"))
+                                    </td>
+                                    <td>
+                                        @if (t.Status == "CLOSED")
+                                        {
+                                            <span class="badge @(isCompliant ? "bg-success" : "bg-danger") font-monospace">
+                                                @(isCompliant ? "✓ منجز ضمن المهلة" : $"⚠️ تجاوز المهلة بـ ({durationMinutes - t.TargetResolutionMinutes} د)")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">قيد المعالجة</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @(t.Status == "CLOSED" ? "bg-success" : t.Status == "IN_PROGRESS" ? "bg-warning text-dark" : "bg-danger")">
+                                            @TranslateStatus(t.Status)
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<EmergencyTaskViewDto> allTasks = new();
+    private bool isLoading = true;
+
+    private DateTime? filterStartDate = DateTime.Today.AddMonths(-1);
+    private DateTime? filterEndDate = DateTime.Today;
+    private string filterSenderDept = "";
+    private string filterPriority = "";
+
+    private List<string> distinctSenderDepts = new();
+
+    private IEnumerable<EmergencyTaskViewDto> FilteredTasks => allTasks.Where(t =>
+        (!filterStartDate.HasValue || t.CreatedAt.Date >= filterStartDate.Value.Date) &&
+        (!filterEndDate.HasValue || t.CreatedAt.Date <= filterEndDate.Value.Date) &&
+        (string.IsNullOrEmpty(filterSenderDept) || t.SenderDepartment == filterSenderDept) &&
+        (string.IsNullOrEmpty(filterPriority) || t.Priority == filterPriority)
+    );
+
+    // احتساب مؤشرات الـ SLA
+    private int ClosedTasksCount => FilteredTasks.Count(t => t.Status == "CLOSED");
+    private int ResolvedWithinSlaCount => FilteredTasks.Count(t => t.Status == "CLOSED" && GetDurationMinutes(t) <= t.TargetResolutionMinutes);
+    private double SlaComplianceRate => ClosedTasksCount > 0 ? (double)ResolvedWithinSlaCount / ClosedTasksCount * 100.0 : 100.0;
+
+    private double AvgResponseTimeMinutes => FilteredTasks.Where(t => t.RespondedAt.HasValue)
+        .Select(t => (t.RespondedAt!.Value - t.CreatedAt).TotalMinutes)
+        .DefaultIfEmpty(0).Average();
+
+    private double AvgResolutionTimeMinutes => FilteredTasks.Where(t => t.Status == "CLOSED")
+        .Select(t => GetDurationMinutes(t))
+        .DefaultIfEmpty(0).Average();
+
+    private int TotalDowntimeMinutes => FilteredTasks.Where(t => t.Status == "CLOSED")
+        .Sum(t => GetDurationMinutes(t));
+    private double TotalDowntimeHours => TotalDowntimeMinutes / 60.0;
+
+    private List<MachineDowntimeSummary> topFailingMachines = new();
+    private List<TechnicianSlaSummary> technicianStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTasks();
+    }
+
+    private async Task LoadTasks()
+    {
+        isLoading = true;
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<EmergencyTaskViewDto>>("api/EmergencyTasks");
+            if (res != null)
+            {
+                allTasks = res.OrderByDescending(t => t.CreatedAt).ToList();
+                distinctSenderDepts = allTasks.Select(t => t.SenderDepartment).Where(d => !string.IsNullOrEmpty(d)).Distinct().ToList();
+                CalculateGroupedStats();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[EmergencyTasksReports] Error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        CalculateGroupedStats();
+    }
+
+    private void ResetFilters()
+    {
+        filterStartDate = DateTime.Today.AddMonths(-1);
+        filterEndDate = DateTime.Today;
+        filterSenderDept = "";
+        filterPriority = "";
+        CalculateGroupedStats();
+    }
+
+    private void CalculateGroupedStats()
+    {
+        var currentList = FilteredTasks.ToList();
+
+        // 1. حساب الماكينات الأكثر تعطلاً
+        topFailingMachines = currentList
+            .Where(t => !string.IsNullOrEmpty(t.AssetCode))
+            .GroupBy(t => t.AssetCode!)
+            .Select(g => new MachineDowntimeSummary
+            {
+                AssetCode = g.Key,
+                FailureCount = g.Count(),
+                TotalDowntimeMinutes = g.Where(t => t.Status == "CLOSED").Sum(t => GetDurationMinutes(t)),
+                AvgRepairMinutes = g.Where(t => t.Status == "CLOSED").Select(t => GetDurationMinutes(t)).DefaultIfEmpty(0).Average()
+            })
+            .OrderByDescending(m => m.FailureCount)
+            .Take(5)
+            .ToList();
+
+        // 2. حساب كفاءة الفنيين
+        technicianStats = currentList
+            .Where(t => t.Status == "CLOSED" && !string.IsNullOrEmpty(t.AssignedTechnicianName))
+            .GroupBy(t => t.AssignedTechnicianName!)
+            .Select(g =>
+            {
+                var count = g.Count();
+                var withinSla = g.Count(t => GetDurationMinutes(t) <= t.TargetResolutionMinutes);
+                return new TechnicianSlaSummary
+                {
+                    TechnicianName = g.Key,
+                    CompletedCount = count,
+                    SlaRate = count > 0 ? (double)withinSla / count * 100.0 : 0.0,
+                    AvgResolutionMinutes = g.Select(t => GetDurationMinutes(t)).DefaultIfEmpty(0).Average()
+                };
+            })
+            .OrderByDescending(t => t.CompletedCount)
+            .Take(5)
+            .ToList();
+    }
+
+    private static int GetDurationMinutes(EmergencyTaskViewDto t)
+    {
+        if (t.DowntimeMinutes > 0) return t.DowntimeMinutes;
+        if (t.CompletedAt.HasValue) return (int)Math.Max(0, (t.CompletedAt.Value - t.CreatedAt).TotalMinutes);
+        return 0;
+    }
+
+    private async Task ExportSlaReportToCsv()
+    {
+        var list = FilteredTasks.ToList();
+        if (!list.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("رقم_البلاغ,العنوان,كود_الماكينة,الجهة_الطالبة,الجهة_المنفذة,الفني_المكلف,الأولوية,المهلة_المقررة_د,زمن_الإصلاح_د,الالتزام_بالمهلة,الحالة,تاريخ_الإطلاق,تاريخ_الإغلاق");
+
+            foreach (var t in list)
+            {
+                var dur = GetDurationMinutes(t);
+                var compliant = t.Status == "CLOSED" && dur <= t.TargetResolutionMinutes ? "نعم" : "تجاوز المهلة";
+                sb.AppendLine($"\"{t.TaskNumber}\",\"{t.Title}\",\"{t.AssetCode}\",\"{t.SenderDepartment}\",\"{t.TargetDepartment}\",\"{t.AssignedTechnicianName}\",\"{t.Priority}\",{t.TargetResolutionMinutes},{dur},\"{compliant}\",\"{TranslateStatus(t.Status)}\",\"{t.CreatedAt:yyyy-MM-dd HH:mm}\",\"{(t.CompletedAt.HasValue ? t.CompletedAt.Value.ToString("yyyy-MM-dd HH:mm") : "-")}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"تقرير_مؤشرات_طوارئ_المصنع_SLA_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+    private string TranslateStatus(string s) => s switch
+    {
+        "PENDING" => "جديدة",
+        "ASSIGNED" => "محالة لفني",
+        "IN_PROGRESS" => "قيد التنفيذ",
+        "CLOSED" => "مغلقة ومؤكدة",
+        _ => s
+    };
+
+    public class EmergencyTaskViewDto
+    {
+        public long Id { get; set; }
+        public string? TaskNumber { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string SenderDepartment { get; set; } = string.Empty;
+        public string TargetDepartment { get; set; } = string.Empty;
+        public string? AssignedTechnicianName { get; set; }
+        public string Priority { get; set; } = "NORMAL";
+        public DateTime CreatedAt { get; set; }
+        public DateTime? RespondedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public int TargetResolutionMinutes { get; set; } = 30;
+        public int DowntimeMinutes { get; set; }
+        public string Status { get; set; } = "PENDING";
+        public string? AssetCode { get; set; }
+    }
+
+    public class MachineDowntimeSummary
+    {
+        public string AssetCode { get; set; } = string.Empty;
+        public int FailureCount { get; set; }
+        public int TotalDowntimeMinutes { get; set; }
+        public double AvgRepairMinutes { get; set; }
+    }
+
+    public class TechnicianSlaSummary
+    {
+        public string TechnicianName { get; set; } = string.Empty;
+        public int CompletedCount { get; set; }
+        public double SlaRate { get; set; }
+        public double AvgResolutionMinutes { get; set; }
+    }
+}

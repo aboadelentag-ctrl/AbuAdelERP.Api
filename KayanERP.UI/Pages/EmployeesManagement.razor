@@ -1,0 +1,1031 @@
+﻿@page "/employees-management"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using System.IO
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>إدارة وتوزيع العمال في الصالات - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+    
+    <!-- رأس الصفحة وأزرار التصدير والاستيراد -->
+    <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded shadow-sm border-start border-primary border-4 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-1 text-dark fw-bold">👥 إدارة وتوزيع العمال بالصالات</h4>
+            <small class="text-muted">تسجيل، تعديل، وحذف القوة العاملة وتوزيعهم على صالات التشغيل بدقة تامة</small>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportToExcelAsync">
+                <i class="bi bi-file-earmark-excel me-1"></i> تصدير إكسيل
+            </button>
+            <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
+                <i class="bi bi-download me-1"></i> تحميل قالب الإكسيل
+            </button>
+            <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
+                <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد من إكسيل
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadDataAsync" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise"></i> تحديث البيانات
+            </button>
+        </div>
+    </div>
+
+    <!-- تنبيهات النظام -->
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2 fw-bold" role="alert">
+            <i class="bi bi-check-circle me-1"></i> @successMessage
+            <button type="button" class="btn-close py-2" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2 fw-bold" role="alert">
+            <i class="bi bi-exclamation-triangle me-1"></i> @errorMessage
+            <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <div class="row g-3">
+        <!-- 1. الهيكل التنظيمي وشريط الفلاتر المتقدمة (الجانب الأيمن) -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
+                <div class="card-body p-3">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-secondary mb-1">🔍 بحث سريع (اسم أو كود)</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="اكتب اسم العامل أو الكود..." 
+                                   @bind="searchTerm" @bind:event="oninput" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary mb-1">🏢 الإدارة / الصالة</label>
+                            <select class="form-select form-select-sm" @bind="selectedDeptFilter">
+                                <option value="0">-- كل الأقسام والصالات --</option>
+                                @foreach (var dept in departments)
+                                {
+                                    <option value="@dept.Id">@dept.DepartmentName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary mb-1">💼 المسمى الوظيفي</label>
+                            <select class="form-select form-select-sm" @bind="selectedJobTitleFilter">
+                                <option value="0">-- كل الوظائف --</option>
+                                @foreach (var title in jobTitles)
+                                {
+                                    <option value="@title.Id">@title.TitleName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold text-secondary mb-1">⚡ حالة العامل</label>
+                            <select class="form-select form-select-sm" @bind="selectedStatusFilter">
+                                <option value="all">كل الحالات</option>
+                                <option value="active">🟢 نشط فقط</option>
+                                <option value="inactive">🔴 غير نشط</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (HasActiveFilters)
+                    {
+                        <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                            <span class="small text-primary fw-bold">
+                                <i class="bi bi-funnel-fill me-1"></i> نتائج التصفية: (@FilteredEmployees.Count() من إجمالي @employees.Count عامل مسجل)
+                            </span>
+                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-bold" style="font-size: 0.78rem;" @onclick="ResetFilters">
+                                ✕ إلغاء الفلاتر وعرض الكل
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- بطاقة عرض وتوزيع العمال في الصالات -->
+            <div class="card shadow-sm border-0 h-100 rounded-3">
+                <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
+                    <span class="small fw-bold">الهيكل التنظيمي وتوزيع العمل في الصالات</span>
+                    <span class="badge bg-primary">المعروض: @FilteredEmployees.Count() عامل</span>
+                </div>
+                <div class="card-body p-3 overflow-auto" style="max-height: 75vh;">
+                    @if (isLoading)
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري تحميل بيانات القوة العاملة...
+                        </div>
+                    }
+                    else if (!departments.Any())
+                    {
+                        <div class="text-center py-4 text-muted">لا توجد أقسام مسجلة بالنظام.</div>
+                    }
+                    else if (!FilteredEmployees.Any())
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-search fs-3 d-block mb-2 text-secondary"></i>
+                            لا يوجد عمال يطابقون شروط البحث والفلترة المحددة.
+                            <div class="mt-2">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="ResetFilters">إعادة ضبط الفلاتر</button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var dept in DisplayedDepartments)
+                        {
+                            var deptEmps = FilteredEmployees.Where(e => e.DepartmentId == dept.Id).ToList();
+
+                            if (HasActiveFilters && !deptEmps.Any() && selectedDeptFilter == 0) continue;
+
+                            <div class="card border mb-3 shadow-none">
+                                <div class="card-header bg-light py-2 d-flex justify-content-between align-items-center">
+                                    <span class="fw-bold text-dark small">
+                                        📁 @dept.DepartmentName
+                                    </span>
+                                    <span class="badge @(deptEmps.Any() ? "bg-primary" : "bg-secondary") rounded-pill">
+                                        @deptEmps.Count عمال
+                                    </span>
+                                </div>
+                                <div class="card-body p-2">
+                                    @if (!deptEmps.Any())
+                                    {
+                                        <div class="text-muted small text-center py-2">لا يوجد عمال مسجلين في هذا القسم.</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="row g-2">
+                                            @foreach (var emp in deptEmps)
+                                            {
+                                                <div class="col-md-6" @key="emp.Id">
+                                                    <div class="p-2 border rounded d-flex justify-content-between align-items-center @(emp.Id == currentEmp.Id ? "border-primary bg-light" : "bg-white")">
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <div>
+                                                                <div class="fw-bold text-dark fs-6 mb-1">
+                                                                    @emp.DisplayName
+                                                                    @if (!emp.Active)
+                                                                    {
+                                                                        <span class="badge bg-danger ms-1" style="font-size: 0.65rem;">موقوف</span>
+                                                                    }
+                                                                </div>
+                                                                <div class="d-flex gap-1 align-items-center flex-wrap">
+                                                                    <span class="badge bg-info text-dark" style="font-size: 0.72rem;">
+                                                                        @emp.DisplayJobTitle
+                                                                    </span>
+                                                                    <span class="badge bg-light text-secondary border font-monospace" style="font-size: 0.72rem;">
+                                                                        كود: @(!string.IsNullOrEmpty(emp.DisplayCode) ? emp.DisplayCode : "-")
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="d-flex gap-1 align-items-center">
+                                                            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold" style="font-size: 0.78rem;" 
+                                                                    @onclick="() => EditEmployee(emp)">
+                                                                تعديل
+                                                            </button>
+                                                            <button type="button" class="btn btn-sm btn-outline-@(emp.Active ? "warning text-dark" : "success") py-0 px-2 fw-bold" style="font-size: 0.78rem;" 
+                                                                    @onclick="() => ToggleEmployeeStatus(emp)">
+                                                                @(emp.Active ? "إيقاف" : "تفعيل")
+                                                            </button>
+                                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" style="font-size: 0.78rem;" 
+                                                                    @onclick="() => DeleteEmployeeAsync(emp)">
+                                                                حذف
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. بطاقة تسجيل / تعديل عامل (الجانب الأيسر) -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 border-top border-primary border-3 rounded-3">
+                <div class="card-header bg-white py-2">
+                    <h6 class="mb-0 fw-bold text-primary">
+                        @(currentEmp.Id > 0 ? "✏️ تعديل بيانات عامل" : "➕ تسجيل عامل جديد")
+                    </h6>
+                </div>
+                <div class="card-body p-3">
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-secondary">اسم العامل <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm fw-bold" placeholder="مثال: أحمد محمود" 
+                               @bind="currentEmp.Name" />
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-secondary">كود العامل (اختياري)</label>
+                        <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="مثال: 577 أو W-105" 
+                               @bind="currentEmp.WorkerCode" />
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-secondary">القسم / الإدارة التابع لها <span class="text-danger">*</span></label>
+                        <select class="form-select form-select-sm" @bind="currentEmp.DepartmentId">
+                            <option value="">-- اختر القسم أو الإدارة --</option>
+                            @foreach (var dept in departments)
+                            {
+                                <option value="@dept.Id">@dept.DepartmentName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label small fw-bold text-secondary mb-0">المسمى الوظيفي</label>
+                            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small fw-bold" @onclick="() => isJobTitleModalOpen = true">
+                                ➕ إضافة مسمى جديد
+                            </button>
+                        </div>
+                        <select class="form-select form-select-sm" @bind="currentEmp.JobTitleId">
+                            <option value="">-- غير محدد --</option>
+                            @foreach (var title in jobTitles)
+                            {
+                                <option value="@title.Id">@title.TitleName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="empActiveCheck" @bind="currentEmp.Active" />
+                        <label class="form-check-label small fw-bold" for="empActiveCheck">حالة العامل: نشط ومتاح للتشغيل</label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        @if (currentEmp.Id > 0)
+                        {
+                            <button type="button" class="btn btn-secondary btn-sm flex-fill" @onclick="ResetForm">إلغاء</button>
+                        }
+                        <button type="button" class="btn btn-primary btn-sm flex-fill fw-bold shadow-sm" 
+                                disabled="@isSaving" @onclick="SaveEmployeeAsync">
+                            @if (isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>جاري الحفظ...</span>
+                            }
+                            else
+                            {
+                                <span><i class="bi bi-check2-circle"></i> @(currentEmp.Id > 0 ? "تحديث العامل" : "حفظ العامل")</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- نافذة استيراد الإكسيل الذكية -->
+@if (isImportModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                
+                <div class="modal-header bg-success text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">
+                        <i class="bi bi-file-earmark-excel me-1"></i> استيراد كشف العمال من ملف إكسيل
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseImportModal"></button>
+                </div>
+
+                <div class="modal-body p-3">
+                    <div class="alert alert-info py-2 small mb-3">
+                        <i class="bi bi-info-circle me-1"></i> 
+                        يقوم النظام آلياً بربط كل عامل بصالته وقسمه بدقة بالغة ويمنع تكرار السجلات، كما يربطه بمسمّاه الوظيفي المعتمد.
+                    </div>
+
+                    <div class="mb-3 p-3 border rounded bg-light">
+                        <label class="form-label small fw-bold text-dark">اختر ملف الإكسيل / CSV من جهازك:</label>
+                        <InputFile OnChange="HandleFileSelected" accept=".csv, text/csv" class="form-control form-control-sm" />
+                    </div>
+
+                    @if (importedPreviewList.Any())
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-bold text-dark">معاينة بيانات العمال المقروءة من الملف (@importedPreviewList.Count عامل):</span>
+                            <span class="badge bg-success">جاهز للاستيراد</span>
+                        </div>
+                        <div class="table-responsive" style="max-height: 250px;">
+                            <table class="table table-bordered table-sm align-middle text-center small mb-0">
+                                <thead class="table-secondary">
+                                    <tr>
+                                        <th>الكود</th>
+                                        <th class="text-start">اسم العامل</th>
+                                        <th>القسم / الصالة</th>
+                                        <th>المسمى الوظيفي</th>
+                                        <th>الحالة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in importedPreviewList)
+                                    {
+                                        <tr>
+                                            <td class="font-monospace fw-bold">@row.EmployeeCode</td>
+                                            <td class="text-start fw-bold">@row.Name</td>
+                                            <td>@row.DepartmentNameOrCode</td>
+                                            <td><span class="badge bg-light text-dark border">@row.JobTitleName</span></td>
+                                            <td>
+                                                <span class="badge @(row.Active ? "bg-success" : "bg-secondary")">
+                                                    @(row.Active ? "نشط" : "معطل")
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
+                            disabled="@(isSavingImport || !importedPreviewList.Any())" 
+                            @onclick="ProcessAndSaveImportAsync">
+                        @if (isSavingImport)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري معالجة وتوزيع العمال على صالاتهم...</span>
+                        }
+                        else
+                        {
+                            <span><i class="bi bi-check-circle"></i> تأكيد واستيراد كافة العمال (@importedPreviewList.Count)</span>
+                        }
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal إضافة مسمى وظيفي جديد سريعاً -->
+@if (isJobTitleModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content shadow border-0" dir="rtl">
+                <div class="modal-header bg-dark text-white py-2">
+                    <h6 class="modal-title fw-bold small">➕ إضافة مسمى وظيفي جديد</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isJobTitleModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">اسم الوظيفة <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm fw-bold" placeholder="مثال: معلم شرقي / فني تعبئة" @bind="newJobTitleName" />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">أجر الساعة الاسترشادي للتكاليف:</label>
+                        <input type="number" step="0.5" class="form-control form-control-sm" @bind="newJobTitleHourlyRate" />
+                    </div>
+                </div>
+                <div class="modal-footer py-1 bg-light">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => isJobTitleModalOpen = false">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm fw-bold" @onclick="SaveQuickJobTitle">حفظ المسمى</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public class EmployeeDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; } = 1;
+        public long? DepartmentId { get; set; }
+        public long? JobTitleId { get; set; }
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("employeeName")]
+        public string EmployeeName { get; set; } = string.Empty;
+
+        [JsonIgnore]
+        public string DisplayName => !string.IsNullOrWhiteSpace(Name) ? Name : EmployeeName;
+
+        [JsonPropertyName("workerCode")]
+        public string? WorkerCode { get; set; }
+
+        [JsonPropertyName("employeeCode")]
+        public string? EmployeeCode { get; set; }
+
+        [JsonIgnore]
+        public string DisplayCode => !string.IsNullOrWhiteSpace(WorkerCode) ? WorkerCode 
+                                  : (!string.IsNullOrWhiteSpace(EmployeeCode) ? EmployeeCode : "");
+
+        public bool Active { get; set; } = true;
+
+        [JsonPropertyName("jobTitle")]
+        public string? JobTitle { get; set; }
+
+        [JsonPropertyName("jobTitleName")]
+        public string? JobTitleName { get; set; }
+
+        [JsonIgnore]
+        public string DisplayJobTitle
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(JobTitleName) && JobTitleName != "غير محدد") return JobTitleName;
+                if (!string.IsNullOrWhiteSpace(JobTitle) && JobTitle != "غير محدد") return JobTitle;
+                return "عامل تشغيل";
+            }
+        }
+    }
+
+    public class DepartmentItemDto
+    {
+        public long Id { get; set; }
+        public string DepartmentCode { get; set; } = string.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
+    }
+
+    public class JobTitleLookupDto
+    {
+        public long Id { get; set; }
+        public string TitleName { get; set; } = string.Empty;
+        public decimal HourlyRate { get; set; }
+    }
+
+    public class EmployeeImportRowDto
+    {
+        public string EmployeeCode { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string DepartmentNameOrCode { get; set; } = string.Empty;
+        public string JobTitleName { get; set; } = string.Empty;
+        public bool Active { get; set; } = true;
+    }
+
+    private List<EmployeeDto> employees = new();
+    private List<DepartmentItemDto> departments = new();
+    private List<JobTitleLookupDto> jobTitles = new();
+    private EmployeeDto currentEmp = new();
+    private List<EmployeeImportRowDto> importedPreviewList = new();
+
+    private string searchTerm = "";
+    private long selectedDeptFilter = 0;
+    private long selectedJobTitleFilter = 0;
+    private string selectedStatusFilter = "all";
+
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isSavingImport = false;
+    private bool isImportModalOpen = false;
+    private bool isJobTitleModalOpen = false;
+
+    private string newJobTitleName = "";
+    private decimal newJobTitleHourlyRate = 25;
+    private string? successMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            departments = await Http.GetFromJsonAsync<List<DepartmentItemDto>>("api/departments") ?? new();
+        }
+        catch { }
+
+        await LoadJobTitlesAsync();
+
+        try
+        {
+            employees = await Http.GetFromJsonAsync<List<EmployeeDto>>("api/employees") ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"تعذر جلب بيانات العمال: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadJobTitlesAsync()
+    {
+        try
+        {
+            jobTitles = await Http.GetFromJsonAsync<List<JobTitleLookupDto>>("api/employees/job-titles") ?? new();
+        }
+        catch { }
+    }
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchTerm) ||
+        selectedDeptFilter > 0 ||
+        selectedJobTitleFilter > 0 ||
+        selectedStatusFilter != "all";
+
+    private void ResetFilters()
+    {
+        searchTerm = "";
+        selectedDeptFilter = 0;
+        selectedJobTitleFilter = 0;
+        selectedStatusFilter = "all";
+    }
+
+    private IEnumerable<EmployeeDto> FilteredEmployees
+    {
+        get
+        {
+            var query = employees.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(e =>
+                    e.DisplayName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    e.DisplayCode.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (selectedDeptFilter > 0)
+            {
+                query = query.Where(e => e.DepartmentId == selectedDeptFilter);
+            }
+
+            if (selectedJobTitleFilter > 0)
+            {
+                query = query.Where(e => e.JobTitleId == selectedJobTitleFilter);
+            }
+
+            if (selectedStatusFilter == "active")
+            {
+                query = query.Where(e => e.Active);
+            }
+            else if (selectedStatusFilter == "inactive")
+            {
+                query = query.Where(e => !e.Active);
+            }
+
+            return query;
+        }
+    }
+
+    private IEnumerable<DepartmentItemDto> DisplayedDepartments =>
+        selectedDeptFilter > 0 
+            ? departments.Where(d => d.Id == selectedDeptFilter) 
+            : departments;
+
+    private string NormalizeArabic(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        return text.Trim()
+            .Replace("أ", "ا")
+            .Replace("إ", "ا")
+            .Replace("آ", "ا")
+            .Replace("ة", "ه")
+            .Replace("ى", "ي")
+            .Replace("ـ", "")
+            .ToLower();
+    }
+
+    private DepartmentItemDto? FindMatchingDepartment(string? deptText)
+    {
+        if (string.IsNullOrWhiteSpace(deptText) || !departments.Any()) return null;
+
+        var raw = deptText.Trim();
+        var norm = NormalizeArabic(raw);
+
+        var byCode = departments.FirstOrDefault(d => d.DepartmentCode.Trim() == raw || d.Id.ToString() == raw);
+        if (byCode != null) return byCode;
+
+        var exact = departments.FirstOrDefault(d => NormalizeArabic(d.DepartmentName) == norm);
+        if (exact != null) return exact;
+
+        return departments.FirstOrDefault(d => 
+            NormalizeArabic(d.DepartmentName).Contains(norm) || 
+            norm.Contains(NormalizeArabic(d.DepartmentName)));
+    }
+
+    private JobTitleLookupDto? FindMatchingJobTitle(string? titleText)
+    {
+        if (string.IsNullOrWhiteSpace(titleText) || !jobTitles.Any()) return null;
+
+        var norm = NormalizeArabic(titleText);
+        var exact = jobTitles.FirstOrDefault(t => NormalizeArabic(t.TitleName) == norm);
+        if (exact != null) return exact;
+
+        return jobTitles.FirstOrDefault(t => 
+            NormalizeArabic(t.TitleName).Contains(norm) || 
+            norm.Contains(NormalizeArabic(t.TitleName)));
+    }
+
+    private void EditEmployee(EmployeeDto emp)
+    {
+        currentEmp = new EmployeeDto
+        {
+            Id = emp.Id,
+            CompanyId = emp.CompanyId,
+            DepartmentId = emp.DepartmentId,
+            JobTitleId = emp.JobTitleId,
+            Name = emp.DisplayName,
+            WorkerCode = emp.DisplayCode,
+            EmployeeCode = emp.DisplayCode,
+            Active = emp.Active
+        };
+        errorMessage = null;
+    }
+
+    private void ResetForm()
+    {
+        currentEmp = new EmployeeDto();
+        errorMessage = null;
+    }
+
+    private async Task SaveEmployeeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentEmp.Name) || currentEmp.DepartmentId == null || currentEmp.DepartmentId <= 0)
+        {
+            errorMessage = "يرجى كتابة اسم العامل واختيار القسم التابع له.";
+            return;
+        }
+
+        isSaving = true;
+        errorMessage = null;
+        try
+        {
+            var code = currentEmp.DisplayCode.Trim();
+            var payload = new
+            {
+                Id = currentEmp.Id,
+                CompanyId = currentEmp.CompanyId,
+                DepartmentId = currentEmp.DepartmentId,
+                JobTitleId = currentEmp.JobTitleId > 0 ? currentEmp.JobTitleId : null,
+                Name = currentEmp.Name.Trim(),
+                WorkerCode = code,
+                EmployeeCode = code,
+                Active = currentEmp.Active
+            };
+
+            HttpResponseMessage res;
+            if (currentEmp.Id > 0)
+            {
+                res = await Http.PutAsJsonAsync($"api/employees/{currentEmp.Id}", payload);
+            }
+            else
+            {
+                res = await Http.PostAsJsonAsync("api/employees", payload);
+            }
+
+            if (res.IsSuccessStatusCode)
+            {
+                successMessage = currentEmp.Id > 0 ? "تم تحديث بيانات العامل بنجاح." : "تم تسجيل العامل الجديد بنجاح.";
+                ResetForm();
+                await LoadDataAsync();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                errorMessage = $"فشل الحفظ: {err}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ أثناء الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ToggleEmployeeStatus(EmployeeDto emp)
+    {
+        try
+        {
+            var res = await Http.PutAsync($"api/employees/{emp.Id}/toggle-status", null);
+            if (res.IsSuccessStatusCode)
+            {
+                emp.Active = !emp.Active;
+                successMessage = $"تم تغيير حالة العامل ({emp.DisplayName}) إلى: {(emp.Active ? "نشط" : "معطل")}";
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                errorMessage = $"تعذر تعديل الحالة: {err}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteEmployeeAsync(EmployeeDto emp)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف أو إيقاف العامل ({emp.DisplayName})؟");
+        if (!confirm) return;
+
+        try
+        {
+            var res = await Http.DeleteAsync($"api/employees/{emp.Id}");
+            if (res.IsSuccessStatusCode)
+            {
+                await LoadDataAsync();
+                successMessage = $"تمت معالجة حذف / إيقاف العامل ({emp.DisplayName}) بنجاح.";
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                errorMessage = $"تعذر الحذف: {err}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ أثناء الحذف: {ex.Message}";
+        }
+    }
+
+    private async Task SaveQuickJobTitle()
+    {
+        if (string.IsNullOrWhiteSpace(newJobTitleName))
+        {
+            errorMessage = "يرجى كتابة اسم الوظيفة أولاً.";
+            return;
+        }
+
+        try
+        {
+            var newTitle = new 
+            { 
+                TitleName = newJobTitleName.Trim(), 
+                JobGrade = 10,
+                HourlyRate = newJobTitleHourlyRate 
+            };
+
+            var res = await Http.PostAsJsonAsync("api/employees/job-titles", newTitle);
+            if (res.IsSuccessStatusCode)
+            {
+                var jsonResult = await res.Content.ReadFromJsonAsync<JsonElement>();
+                long createdId = 0;
+                if (jsonResult.TryGetProperty("id", out var idProp) || jsonResult.TryGetProperty("Id", out idProp))
+                {
+                    createdId = idProp.GetInt64();
+                }
+
+                await LoadJobTitlesAsync();
+                if (createdId > 0)
+                {
+                    currentEmp.JobTitleId = createdId;
+                }
+                else
+                {
+                    var found = jobTitles.FirstOrDefault(t => t.TitleName.Equals(newJobTitleName.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (found != null) currentEmp.JobTitleId = found.Id;
+                }
+
+                successMessage = $"تم إضافة / اختيار المسمى الوظيفي ({newJobTitleName}) بنجاح!";
+                newJobTitleName = "";
+                isJobTitleModalOpen = false;
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                errorMessage = $"فشل إضافة المسمى: {err}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في حفظ المسمى: {ex.Message}";
+        }
+    }
+
+    private async Task ExportToExcelAsync()
+    {
+        if (!employees.Any())
+        {
+            errorMessage = "لا يوجد عمال مسجلين لتصديرهم.";
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_العامل,اسم_العامل,القسم_التابع_له,المسمى_الوظيفي,الحالة");
+
+            foreach (var emp in FilteredEmployees)
+            {
+                var deptName = departments.FirstOrDefault(d => d.Id == emp.DepartmentId)?.DepartmentName ?? "غير محدد";
+                var titleName = emp.DisplayJobTitle;
+                var status = emp.Active ? "نشط" : "معطل";
+                sb.AppendLine($"{EscapeCsv(emp.DisplayCode)},{EscapeCsv(emp.DisplayName)},{EscapeCsv(deptName)},{EscapeCsv(titleName)},{status}");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"كشف_القوة_العاملة_أبو_عادل_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+            successMessage = "تم تصدير كشف العمال إلى إكسيل بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"حدث خطأ أثناء التصدير: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadTemplateAsync()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_العامل,اسم_العامل,القسم_او_كود_القسم,المسمى_الوظيفي,الحالة");
+            sb.AppendLine("577,فتحي حميده,إدارة الإنتاج,مهندس انتاج,1");
+            sb.AppendLine("747,أحمد عبد العزيز,قسم الشرقي,منسق انتاج,1");
+            sb.AppendLine("476,محمد وهدان,قسم الجاتوه,شيف جاتوه,1");
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = "قالب_استيراد_العمال_أبو_عادل.csv";
+
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تحميل القالب: {ex.Message}";
+        }
+    }
+
+    private string EscapeCsv(string val)
+    {
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
+        {
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        }
+        return val;
+    }
+
+    private void OpenImportModal()
+    {
+        importedPreviewList.Clear();
+        errorMessage = null;
+        isImportModalOpen = true;
+    }
+
+    private void CloseImportModal()
+    {
+        isImportModalOpen = false;
+        importedPreviewList.Clear();
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        importedPreviewList.Clear();
+        errorMessage = null;
+
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024), Encoding.UTF8);
+            var content = await reader.ReadToEndAsync();
+            var lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (lines.Length <= 1)
+            {
+                errorMessage = "الملف المرفوع فارغ أو لا يحتوي على صفوف بيانات.";
+                return;
+            }
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                var cols = ParseCsvLine(line);
+                if (cols.Count >= 2)
+                {
+                    importedPreviewList.Add(new EmployeeImportRowDto
+                    {
+                        EmployeeCode = cols[0].Trim(),
+                        Name = cols[1].Trim(),
+                        DepartmentNameOrCode = cols.Count > 2 ? cols[2].Trim() : "",
+                        JobTitleName = cols.Count > 3 ? cols[3].Trim() : "",
+                        Active = cols.Count <= 4 || (cols[4].Trim() == "1" || cols[4].Trim().Equals("نشط", StringComparison.OrdinalIgnoreCase) || cols[4].Trim().Equals("مفعل", StringComparison.OrdinalIgnoreCase) || cols[4].Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل قراءة الملف: {ex.Message}";
+        }
+    }
+
+    private List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        bool inQuotes = false;
+        var curVal = new StringBuilder();
+
+        foreach (char c in line)
+        {
+            if (c == '\"') inQuotes = !inQuotes;
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(curVal.ToString());
+                curVal.Clear();
+            }
+            else curVal.Append(c);
+        }
+        result.Add(curVal.ToString());
+        return result;
+    }
+
+    private async Task ProcessAndSaveImportAsync()
+    {
+        if (!importedPreviewList.Any()) return;
+
+        isSavingImport = true;
+        errorMessage = null;
+
+        try
+        {
+            int updatedCount = 0;
+            int createdCount = 0;
+
+            foreach (var row in importedPreviewList)
+            {
+                var matchedDept = FindMatchingDepartment(row.DepartmentNameOrCode);
+                var matchedTitle = FindMatchingJobTitle(row.JobTitleName);
+                long? assignedTitleId = matchedTitle?.Id;
+
+                var existingEmp = employees.FirstOrDefault(e => 
+                    (!string.IsNullOrWhiteSpace(row.EmployeeCode) && e.DisplayCode == row.EmployeeCode.Trim()) ||
+                    NormalizeArabic(e.DisplayName) == NormalizeArabic(row.Name));
+
+                long finalDeptId = matchedDept?.Id 
+                                ?? existingEmp?.DepartmentId 
+                                ?? departments.FirstOrDefault()?.Id 
+                                ?? 1;
+
+                if (existingEmp != null)
+                {
+                    var updatePayload = new
+                    {
+                        Id = existingEmp.Id,
+                        Name = row.Name.Trim(),
+                        WorkerCode = !string.IsNullOrWhiteSpace(row.EmployeeCode) ? row.EmployeeCode.Trim() : existingEmp.DisplayCode,
+                        EmployeeCode = !string.IsNullOrWhiteSpace(row.EmployeeCode) ? row.EmployeeCode.Trim() : existingEmp.DisplayCode,
+                        DepartmentId = finalDeptId,
+                        JobTitleId = assignedTitleId ?? existingEmp.JobTitleId,
+                        JobTitle = row.JobTitleName,
+                        Active = row.Active
+                    };
+                    await Http.PutAsJsonAsync($"api/employees/{existingEmp.Id}", updatePayload);
+                    updatedCount++;
+                }
+                else
+                {
+                    var insertPayload = new
+                    {
+                        Name = row.Name.Trim(),
+                        WorkerCode = row.EmployeeCode.Trim(),
+                        EmployeeCode = row.EmployeeCode.Trim(),
+                        DepartmentId = finalDeptId,
+                        JobTitleId = assignedTitleId,
+                        JobTitle = row.JobTitleName,
+                        Active = row.Active
+                    };
+                    await Http.PostAsJsonAsync("api/employees", insertPayload);
+                    createdCount++;
+                }
+            }
+
+            successMessage = $"اكتملت المعالجة: تم تحديث ({updatedCount}) وتوليد ({createdCount}) عاملاً مع ضبط صالاتهم ومسمياتهم بدقة.";
+            CloseImportModal();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ أثناء حفظ العمال: {ex.Message}";
+        }
+        finally
+        {
+            isSavingImport = false;
+        }
+    }
+}

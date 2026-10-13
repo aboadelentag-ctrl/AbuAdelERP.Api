@@ -1,0 +1,1042 @@
+﻿@page "/emergency-tasks"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using System.IO
+@using System.Text.Json.Serialization
+@using KayanERP.UI.Services
+@using Blazored.LocalStorage
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject AppState State
+@inject ILocalStorageService LocalStorage
+@inject NavigationManager Nav
+
+<PageTitle>غرفة عمليات المهام الطارئة (SOS) - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+
+    <!-- رأس الصفحة التنفيذي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-danger">🚨 غرفة عمليات المهام الطارئة والاستجابة السريعة (SOS)</h4>
+                    <span class="badge bg-danger px-2 py-1 small">إدارة الصيانة وحوكمة الأعطال</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    إدارة أعطال الماكينات بالصالات، وتكليف الفنيين مع الإغلاق المشروط بالدليل وتحديث حالة الأصول تلقائياً.
+                </small>
+            </div>
+            <div class="d-flex gap-2">
+                <AuthorizePermission Permission="Emergency.Reports">
+                    <a href="emergency-tasks-reports" class="btn btn-outline-light btn-sm fw-bold px-3 py-2 shadow-sm">
+                        📊 تقارير ومؤشرات الإنجاز (SLA)
+                    </a>
+                </AuthorizePermission>
+                
+                <AuthorizePermission Permission="Emergency.Create">
+                    <button class="btn btn-danger fw-bold px-4 py-2 shadow-sm fs-6" @onclick="OpenNewTaskModal">
+                        ➕ إطلاق بلاغ طارئ جديد (SOS)
+                    </button>
+                </AuthorizePermission>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(feedbackMessage))
+    {
+        <div class="alert @(isSuccessFeedback ? "alert-success" : "alert-danger") border-0 shadow-sm alert-dismissible fade show py-2 mb-3 fw-bold" role="alert">
+            @feedbackMessage
+            <button type="button" class="btn-close py-2" @onclick='() => feedbackMessage = ""'></button>
+        </div>
+    }
+
+    <!-- بطاقات المؤشرات اللحظية -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-danger border-4">
+                <small class="text-muted fw-bold">جديدة (بانتظار الإجراء)</small>
+                <h4 class="fw-bold text-danger mt-1 mb-0 font-monospace">@tasksList.Count(t => t.Status == "PENDING" || t.Status == "NEW") بلاغ</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-primary border-4">
+                <small class="text-muted fw-bold">محالة ومكلفة لفني</small>
+                <h4 class="fw-bold text-primary mt-1 mb-0 font-monospace">@tasksList.Count(t => t.Status == "ASSIGNED") بلاغ</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-warning border-4">
+                <small class="text-muted fw-bold">قيد التنفيذ الميداني</small>
+                <h4 class="fw-bold text-warning mt-1 mb-0 font-monospace">@tasksList.Count(t => t.Status == "IN_PROGRESS") بلاغ</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white border-start border-success border-4">
+                <small class="text-muted fw-bold">مغلقة ومؤكدة بالدليل</small>
+                <h4 class="fw-bold text-success mt-1 mb-0 font-monospace">@tasksList.Count(t => t.Status == "CLOSED") بلاغ</h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط فلاتر البحث -->
+    <div class="card shadow-sm border-0 mb-3 bg-light">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-4">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" placeholder="بحث برقم البلاغ، العنوان، كود الماكينة..." @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm" @bind="selectedDeptFilter">
+                        <option value="">-- كل الأقسام والإدارات --</option>
+                        @foreach (var d in dbDepartments)
+                        {
+                            <option value="@d.DisplayName">@d.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" @bind="selectedPriorityFilter">
+                        <option value="">-- كل الأولويات --</option>
+                        <option value="CRITICAL">حرجة جداً 🔥</option>
+                        <option value="HIGH">عالية ⚡</option>
+                        <option value="NORMAL">عادية</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" @bind="selectedStatusFilter">
+                        <option value="">-- كل الحالات --</option>
+                        <option value="PENDING">جديدة</option>
+                        <option value="ASSIGNED">محالة لفني</option>
+                        <option value="IN_PROGRESS">قيد التنفيذ</option>
+                        <option value="CLOSED">مغلقة ومؤكدة</option>
+                    </select>
+                </div>
+                <div class="col-md-1 text-center">
+                    <button class="btn btn-outline-secondary btn-sm w-100 fw-bold" @onclick="ResetFilters">إلغاء</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول البلاغات -->
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold text-dark m-0">📋 سجل بلاغات الطوارئ والأعطال (المعروض: @FilteredTasks.Count())</h6>
+            <button class="btn btn-outline-primary btn-sm fw-bold" @onclick="LoadTasks">🔄 تحديث السجل</button>
+        </div>
+        <div class="card-body p-0 table-responsive">
+            <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                <thead class="table-dark">
+                    <tr>
+                        <th>رقم البلاغ</th>
+                        <th>عنوان البلاغ / الماكينة المعطلة</th>
+                        <th>الجهة الطالبة / الراسل (HR)</th>
+                        <th>القسم المسؤول / الفني المكلف</th>
+                        <th>المرفقات</th>
+                        <th>الأولوية</th>
+                        <th>التوقيت والمهلة</th>
+                        <th>الحالة</th>
+                        <th style="min-width: 240px;">إجراءات التكليف والاستجابة الرقابية</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!FilteredTasks.Any())
+                    {
+                        <tr>
+                            <td colspan="9" class="text-muted py-5 fw-bold">لا توجد بلاغات طارئة مطابقة لشروط البحث.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var t in FilteredTasks)
+                        {
+                            var isCreator = (!string.IsNullOrEmpty(t.SenderEmployeeCode) && t.SenderEmployeeCode.Equals(State.EmployeeCode, StringComparison.OrdinalIgnoreCase))
+                                            || (!string.IsNullOrEmpty(t.SenderEmployeeName) && t.SenderEmployeeName.Equals(State.FullName, StringComparison.OrdinalIgnoreCase));
+
+                            var isTargetDept = !string.IsNullOrEmpty(t.TargetDepartment) && 
+                                               (t.TargetDepartment.Contains(State.DepartmentName, StringComparison.OrdinalIgnoreCase) || 
+                                                State.DepartmentName.Contains(t.TargetDepartment, StringComparison.OrdinalIgnoreCase));
+
+                            // الصلاحية متاحة للمدير العام (Admin) دائماً حتى لو كان هو من أطلق البلاغ
+                            var canManage = (isTargetDept || State.Role == "Admin") && (!isCreator || State.Role == "Admin");
+
+                            <tr>
+                                <td class="font-monospace fw-bold text-primary">@t.TaskNumber</td>
+                                <td class="fw-bold text-start ps-2">
+                                    @t.Title
+                                    @if (!string.IsNullOrEmpty(t.AssetCode))
+                                    {
+                                        <span class="badge bg-danger ms-1 font-monospace">🏭 [@t.AssetCode]</span>
+                                    }
+                                </td>
+                                <td class="text-start ps-2">
+                                    <span class="badge bg-light text-dark border">@t.SenderDepartment</span>
+                                    <div class="small text-muted font-monospace">
+                                        [@(!string.IsNullOrEmpty(t.SenderEmployeeCode) ? t.SenderEmployeeCode : "EMP")] 
+                                        <strong>@(!string.IsNullOrEmpty(t.SenderEmployeeName) ? t.SenderEmployeeName : "مشرف القسم")</strong>
+                                    </div>
+                                </td>
+                                <td class="text-start ps-2">
+                                    <span class="badge bg-secondary">@t.TargetDepartment</span>
+                                    @if (!string.IsNullOrEmpty(t.AssignedTechnicianName))
+                                    {
+                                        <div class="small text-primary fw-bold font-monospace">
+                                            🛠 [@(!string.IsNullOrEmpty(t.AssignedTechnicianCode) ? t.AssignedTechnicianCode : "TECH")] @t.AssignedTechnicianName
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="small text-muted fst-italic">بانتظار تكليف فني</div>
+                                    }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(t.MediaUrl))
+                                    {
+                                        <button class="btn btn-sm btn-outline-info py-0 px-2 fw-bold" @onclick="() => OpenPreviewMediaModal(t.MediaUrl, t.MediaType)">
+                                            @if (t.MediaType == "IMAGE") { <span>🖼 صورة</span> }
+                                            else if (t.MediaType == "AUDIO") { <span>🎤 صوت</span> }
+                                            else { <span>📎 ملف</span> }
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">نص فقط</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge @(t.Priority == "CRITICAL" ? "bg-danger" : "bg-warning text-dark")">
+                                        @TranslatePriority(t.Priority)
+                                    </span>
+                                </td>
+                                <td class="font-monospace">
+                                    <div>@t.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                                    <small class="badge bg-light text-secondary border">مهلة: @t.TargetResolutionMinutes دقيقة</small>
+                                </td>
+                                <td>
+                                    <span class="badge @GetStatusBadgeClass(t.Status) px-2 py-1">
+                                        @TranslateStatus(t.Status)
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="d-flex justify-content-center align-items-center gap-1 flex-wrap">
+
+                                        <!-- 1. تكليف فني صيانة -->
+                                        @if ((t.Status == "PENDING" || t.Status == "NEW") && canManage)
+                                        {
+                                            <button class="btn btn-sm btn-primary fw-bold py-1 px-2 shadow-sm" title="تحويل وتكليف فني صيانة" @onclick="() => OpenDelegateModal(t)">
+                                                🛠️ تكليف
+                                            </button>
+                                        }
+
+                                        <!-- 2. بدء التنفيذ الميداني -->
+                                        @if ((t.Status == "PENDING" || t.Status == "ASSIGNED") && canManage)
+                                        {
+                                            <button class="btn btn-sm btn-warning text-dark fw-bold py-1 px-2 shadow-sm" title="بدء أعمال الإصلاح" @onclick="() => RespondToTask(t.Id)">
+                                                ⚡ تنفيذ
+                                            </button>
+                                        }
+
+                                        <!-- 3. إغلاق البلاغ بالدليل واستعادة الماكينة -->
+                                        @if (t.Status == "IN_PROGRESS" && canManage)
+                                        {
+                                            <button class="btn btn-sm btn-success fw-bold py-1 px-2 shadow-sm" title="توثيق الإصلاح وإعادة الماكينة للخدمة" @onclick="() => OpenCompleteModal(t)">
+                                                ✅ إغلاق بالدليل
+                                            </button>
+                                        }
+
+                                        <!-- 4. إشعار الراسل إذا لم يكن مديراً -->
+                                        @if (isCreator && State.Role != "Admin" && t.Status != "CLOSED")
+                                        {
+                                            <span class="badge bg-light text-muted border py-1 px-2 small">
+                                                ⏳ بلاغك قيد المتابعة لدى @t.TargetDepartment
+                                            </span>
+                                        }
+
+                                        <!-- 5. استعراض التفاصيل الكاملة -->
+                                        <button class="btn btn-sm btn-outline-dark fw-bold py-1 px-2" @onclick="() => OpenFullDetailsModal(t)">
+                                            🔍 التفاصيل
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<!-- 1. نافذة إطلاق بلاغ طارئ جديد -->
+@if (isNewTaskModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);" dir="rtl">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-danger text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">🚨 إطلاق بلاغ طارئ واستدعاء فوري (SOS)</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseNewTaskModal"></button>
+                </div>
+                <div class="modal-body bg-light p-3">
+                    <div class="card border-0 shadow-sm p-3 bg-white rounded-3 mb-3 border-start border-4 border-danger">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md-4">
+                                <label class="small text-muted d-block fw-bold">الجهة الطالبة:</label>
+                                <span class="badge bg-primary px-3 py-2 fs-6">🏭 @State.DepartmentName</span>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="small text-muted d-block fw-bold">كود الموظف المنشئ:</label>
+                                <span class="badge bg-dark font-monospace px-3 py-2 fs-6">🆔 @State.EmployeeCode</span>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="small text-muted d-block fw-bold">اسم المسؤول:</label>
+                                <div class="fw-bold text-dark mt-1">👤 @State.FullName</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm p-3 bg-white rounded-3 mb-3">
+                        <div class="row g-2">
+                            <div class="col-md-5">
+                                <label class="form-label fw-bold small text-dark mb-1">تصنيف طبيعة البلاغ *</label>
+                                <select class="form-select fw-bold border-danger" @onchange="OnEmergencyCategoryChanged">
+                                    <option value="MACHINE">🏭 عطل ماكينة / خط إنتاج رأسمالي</option>
+                                    <option value="GMP">🧹 نظافة وبيئة تصنيع (GMP / Sanitation)</option>
+                                    <option value="QUALITY">⚠️ مخالفة جودة وسلامة غذاء (ISO)</option>
+                                    <option value="GENERAL">📦 مشكلة تشغيلية / طارئ عام</option>
+                                </select>
+                            </div>
+                            <div class="col-md-7">
+                                @if (isMachineEmergency)
+                                {
+                                    <label class="form-label fw-bold small text-danger mb-1">اختر الماكينة المعطلة من الصالة *</label>
+                                    <select class="form-select fw-bold border-danger font-monospace" @onchange="OnMachineSelected">
+                                        <option value="">-- اضغط لاختيار الماكينة --</option>
+                                        @foreach (var m in fixedAssetsList)
+                                        {
+                                            <option value="@m.AssetCode">[@m.AssetCode] - @m.Name (@m.Department)</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <label class="form-label fw-bold small text-muted mb-1">نطاق الملاحظة:</label>
+                                    <input type="text" class="form-control" value="بلاغ عام غير مرتبط بأصل مسريل" readonly disabled />
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-dark">عنوان المشكلة أو العطل *</label>
+                        <input type="text" class="form-control border-danger fw-bold" @bind="newTask.Title" placeholder="مثال: توقف مفاجئ لفرن الدوار في صالة الشرقي والمخبوزات" />
+                    </div>
+
+                    <div class="row g-3 mb-3 bg-white p-3 rounded border">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-danger">القسم المسؤول (الموجّه إليه البلاغ) *</label>
+                            <select class="form-select border-danger fw-bold" value="@selectedTargetDeptId" @onchange="OnTargetDeptChanged">
+                                <option value="0">-- اختر الإدارة المسؤولة --</option>
+                                @foreach (var d in dbDepartments)
+                                {
+                                    <option value="@d.Id">@d.DisplayName (@d.Code)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-danger">المسؤول المستلم (اختياري)</label>
+                            <select class="form-select border-danger fw-bold" @bind="newTask.TargetEmployeeName">
+                                <option value="">-- اختر المسؤول بالإدارة المستهدفة --</option>
+                                @foreach (var emp in targetFilteredEmployees)
+                                {
+                                    <option value="@emp.DisplayName">@emp.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">درجة الأولوية والخطورة *</label>
+                            <select class="form-select border-danger fw-bold" @bind="newTask.Priority">
+                                <option value="CRITICAL">حرجة جداً 🔥 (توقف إنتاج)</option>
+                                <option value="HIGH">عالية الأهمية ⚡</option>
+                                <option value="NORMAL">عادية</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">المهلة المستهدفة للإنجاز (بالدقائق)</label>
+                            <input type="number" class="form-control" @bind="newTask.TargetResolutionMinutes" />
+                        </div>
+                    </div>
+
+                    <div class="card border border-2 border-primary mb-3 bg-white p-3 rounded">
+                        <label class="form-label fw-bold small text-primary mb-1">📸 إرفاق وسائط للبلاغ:</label>
+                        <InputFile OnChange="HandleFileUpload" class="form-control form-control-sm mb-2" accept="image/*,video/*,audio/*" />
+                        @if (!string.IsNullOrEmpty(newTask.MediaUrl))
+                        {
+                            <div class="text-success small fw-bold">✓ تم إرفاق الملف بنجاح (@newTask.MediaFileName)</div>
+                        }
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label fw-bold small">التفاصيل الكاملة للعطل</label>
+                        <textarea class="form-control" rows="3" @bind="newTask.Description"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-white py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseNewTaskModal">إلغاء</button>
+                    <button type="button" class="btn btn-danger btn-sm px-4 fw-bold shadow-sm" disabled="@isSubmitting" @onclick="SubmitNewTask">
+                        🚀 إرسال البلاغ فوراً
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- 2. نافذة تكليف فني بالمهمة -->
+@if (isDelegateModalOpen && selectedTaskToDelegate != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);" dir="rtl">
+        <div class="modal-dialog modal-md modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">🛠 تكليف فني صيانة بالمهمة</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseDelegateModal"></button>
+                </div>
+                <div class="modal-body bg-light p-3">
+                    <div class="alert alert-info py-2 small mb-3">
+                        تكليف فني معتمد لمباشرة: <strong>@selectedTaskToDelegate.Title</strong>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-dark">اسم الفني المكلف ميدانياً *</label>
+                        <select class="form-select border-primary fw-bold" @bind="assignedTechnicianInput">
+                            <option value="">-- اختر الفني من الإدارة --</option>
+                            @foreach (var emp in delegationFilteredEmployees)
+                            {
+                                <option value="@emp.DisplayName">[@emp.Code] @emp.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-bold small">توجيهات الإدارة للفني</label>
+                        <textarea class="form-control" rows="3" @bind="assignmentNotesInput"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-white py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseDelegateModal">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="ConfirmDelegateTask">
+                        ✓ اعتماد التكليف
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- 3. نافذة إغلاق المهمة بالدليل واستعادة تشغيل الأصل -->
+@if (isCompleteModalOpen && completingTask != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);" dir="rtl">
+        <div class="modal-dialog modal-md modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-success text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">✅ إغلاق البلاغ وإعادة تشغيل الماكينة</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseCompleteModal"></button>
+                </div>
+                <div class="modal-body bg-light p-3">
+                    @if (!string.IsNullOrEmpty(completingTask.AssetCode))
+                    {
+                        <div class="alert alert-warning py-2 small mb-3 border-warning">
+                            🔄 <strong>تأكيد تشغيلي:</strong> سيتم تحويل الماكينة <strong>[@completingTask.AssetCode]</strong> تلقائياً إلى حالة <strong>(تعمل بكفاءة OPERATIONAL)</strong> فور تأكيد الإغلاق.
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-dark">تقرير الإصلاح / بيان ما تم إنجازه *</label>
+                        <textarea class="form-control border-success" rows="3" @bind="closureNotes" placeholder="اكتب تفاصيل الإصلاح..."></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-dark">تكلفة قطع الغيار / الأثر المالي (إن وجد)</label>
+                        <input type="text" class="form-control" @bind="closureCostImpact" placeholder="مثال: تغيير سير موتور بقيمة 450 ج" />
+                    </div>
+
+                    <div class="card border border-success bg-white p-2 mb-2">
+                        <label class="form-label fw-bold small text-success mb-1">📸 إرفاق دليل الإنجاز (صورة الماكينة بعد الإصلاح):</label>
+                        <InputFile OnChange="HandleClosureProofUpload" class="form-control form-control-sm" accept="image/*" />
+                        @if (!string.IsNullOrEmpty(closureProofUrl))
+                        {
+                            <div class="text-success small fw-bold mt-1">✓ تم إرفاق دليل الإنجاز بنجاح</div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer bg-white py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseCompleteModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="ConfirmCompleteTask">
+                        ✔ تأكيد إغلاق البلاغ واستعادة الماكينة
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- 4. استعراض التفاصيل -->
+@if (isFullDetailsModalOpen && detailedTask != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white py-2 px-3 d-flex justify-content-between align-items-center">
+                    <h5 class="modal-title fw-bold fs-6">🔍 ملف البلاغ: @detailedTask.TaskNumber</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isFullDetailsModalOpen = false"></button>
+                </div>
+                <div class="modal-body bg-light p-4">
+                    <div class="card border-0 shadow-sm p-3 mb-3 bg-white border-start border-4 border-primary">
+                        <h4 class="fw-bold text-dark mb-1">@detailedTask.Title</h4>
+                        <div class="small text-muted font-monospace">الحالة: @TranslateStatus(detailedTask.Status) | الأولوية: @TranslatePriority(detailedTask.Priority)</div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="card p-3 bg-white shadow-sm border-0">
+                                <h6>جهة الطلب: <strong>@detailedTask.SenderDepartment</strong> ([@detailedTask.SenderEmployeeCode] @detailedTask.SenderEmployeeName)</h6>
+                                <p class="small text-muted">@detailedTask.Description</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card p-3 bg-white shadow-sm border-0">
+                                <h6>جهة الاختصاص: <strong>@detailedTask.TargetDepartment</strong></h6>
+                                <p class="small">الفني المكلف: [@detailedTask.AssignedTechnicianCode] @detailedTask.AssignedTechnicianName</p>
+                                @if (detailedTask.Status == "CLOSED")
+                                {
+                                    <div class="alert alert-success py-1 small">تقرير الحل: @detailedTask.ClosureNotes</div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-white py-2">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => isFullDetailsModalOpen = false">إغلاق</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- 5. معاينة الوسائط -->
+@if (isPreviewModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75);" dir="rtl">
+        <div class="modal-dialog modal-md modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">معاينة مرفق البلاغ</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isPreviewModalOpen = false"></button>
+                </div>
+                <div class="modal-body text-center p-3 bg-black">
+                    <img src="@previewMediaUrl" class="img-fluid rounded" style="max-height: 450px;" />
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public class EmergencyTaskDto
+    {
+        public long Id { get; set; }
+        public string? TaskNumber { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string SenderDepartment { get; set; } = string.Empty;
+        public string SenderEmployeeCode { get; set; } = string.Empty;
+        public string SenderEmployeeName { get; set; } = string.Empty;
+        public string TargetDepartment { get; set; } = string.Empty;
+        public string? TargetEmployeeName { get; set; }
+        public string? AssignedTechnicianCode { get; set; }
+        public string? AssignedTechnicianName { get; set; }
+        public string? AssignmentNotes { get; set; }
+        public string Priority { get; set; } = "NORMAL";
+        public string MediaType { get; set; } = "TEXT";
+        public string? MediaUrl { get; set; }
+        public string? MediaFileName { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public int TargetResolutionMinutes { get; set; } = 30;
+        public DateTime? RespondedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public string Status { get; set; } = "PENDING";
+        public string? ClosureNotes { get; set; }
+        public string? ClosureProofMediaUrl { get; set; }
+        public string? ClosedBy { get; set; }
+        public string? ClosedByCode { get; set; }
+        public string? AssetCode { get; set; }
+    }
+
+    public class FixedAssetSimpleDto
+    {
+        public long Id { get; set; }
+        public string AssetCode { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Department { get; set; } = string.Empty;
+        public string CustodianCode { get; set; } = string.Empty;
+        public string CustodianName { get; set; } = string.Empty;
+        public string Status { get; set; } = "OPERATIONAL";
+        public string? Category { get; set; }
+        public string? BrandModel { get; set; }
+        public string? SerialNumber { get; set; }
+    }
+
+    public class DepartmentApiDto
+    {
+        public long Id { get; set; }
+        public string? Name { get; set; }
+        public string? DepartmentName { get; set; }
+        public string? Code { get; set; }
+        public string DisplayName => !string.IsNullOrEmpty(DepartmentName) ? DepartmentName : (!string.IsNullOrEmpty(Name) ? Name : $"قسم #{Id}");
+    }
+
+    public class EmployeeApiDto
+    {
+        public long Id { get; set; }
+        public string? Code { get; set; }
+        public string? FullName { get; set; }
+        public string? Name { get; set; }
+        public string? EmployeeName { get; set; }
+        public long? DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
+        public string DisplayName => !string.IsNullOrEmpty(FullName) ? FullName : (!string.IsNullOrEmpty(EmployeeName) ? EmployeeName : (!string.IsNullOrEmpty(Name) ? Name : $"موظف #{Id}"));
+    }
+
+    public class DelegateTaskDto
+    {
+        public string TechnicianName { get; set; } = string.Empty;
+        public string? TechnicianCode { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class CompleteTaskDto
+    {
+        public string ClosureNotes { get; set; } = string.Empty;
+        public string? ClosureProofMediaUrl { get; set; }
+        public string? ClosedBy { get; set; }
+        public string? ClosedByCode { get; set; }
+        public string? CostImpact { get; set; }
+    }
+
+    private List<EmergencyTaskDto> tasksList = new();
+    private List<DepartmentApiDto> dbDepartments = new();
+    private List<EmployeeApiDto> allEmployees = new();
+    private List<FixedAssetSimpleDto> fixedAssetsList = new();
+
+    private List<EmployeeApiDto> targetFilteredEmployees = new();
+    private List<EmployeeApiDto> delegationFilteredEmployees = new();
+
+    private long selectedTargetDeptId = 0;
+    private bool isMachineEmergency = true;
+    private string selectedMachineCode = "";
+
+    private EmergencyTaskDto newTask = new();
+    private EmergencyTaskDto? selectedTaskToDelegate;
+    private EmergencyTaskDto? completingTask;
+    private EmergencyTaskDto? detailedTask;
+
+    private string feedbackMessage = "";
+    private bool isSuccessFeedback = true;
+    private bool isSubmitting = false;
+
+    private string searchTerm = "";
+    private string selectedDeptFilter = "";
+    private string selectedPriorityFilter = "";
+    private string selectedStatusFilter = "";
+
+    private bool isNewTaskModalOpen = false;
+    private bool isDelegateModalOpen = false;
+    private bool isCompleteModalOpen = false;
+    private bool isFullDetailsModalOpen = false;
+    private bool isPreviewModalOpen = false;
+
+    private string assignedTechnicianInput = "";
+    private string assignmentNotesInput = "";
+    private string closureNotes = "";
+    private string closureProofUrl = "";
+    private string closureCostImpact = "";
+    private string previewMediaUrl = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var token = await LocalStorage.GetItemAsync<string>("authToken");
+        if (string.IsNullOrEmpty(token))
+        {
+            Nav.NavigateTo("login", forceLoad: true);
+            return;
+        }
+
+        if (!State.IsLoggedIn)
+        {
+            var user = await LocalStorage.GetItemAsync<string>("username");
+            var empCode = await LocalStorage.GetItemAsync<string>("employeeCode");
+            var fullName = await LocalStorage.GetItemAsync<string>("fullName");
+            var role = await LocalStorage.GetItemAsync<string>("userRole");
+            var dept = await LocalStorage.GetItemAsync<string>("departmentName");
+            var perms = await LocalStorage.GetItemAsync<List<string>>("userPermissions");
+
+            State.SetUserSession(0, empCode ?? "EMP", user ?? "admin", fullName ?? "أحمد عبد العزيز", role ?? "Admin", null, dept ?? "إدارة الإنتاج", perms ?? new List<string>());
+        }
+
+        await LoadDepartmentsAndEmployeesFromApi();
+        await LoadFixedAssets();
+        await LoadTasks();
+    }
+
+    private async Task LoadDepartmentsAndEmployeesFromApi()
+    {
+        try
+        {
+            var depts = await Http.GetFromJsonAsync<List<DepartmentApiDto>>("api/Departments");
+            if (depts != null && depts.Any()) dbDepartments = depts;
+        }
+        catch { }
+
+        try
+        {
+            var emps = await Http.GetFromJsonAsync<List<EmployeeApiDto>>("api/Employees");
+            if (emps != null && emps.Any()) allEmployees = emps;
+        }
+        catch { }
+    }
+
+    private async Task LoadFixedAssets()
+    {
+        try
+        {
+            var assets = await Http.GetFromJsonAsync<List<FixedAssetSimpleDto>>("api/FixedAssets");
+            if (assets != null) fixedAssetsList = assets;
+        }
+        catch { }
+    }
+
+    private async Task LoadTasks()
+    {
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<EmergencyTaskDto>>("api/EmergencyTasks");
+            if (res != null) tasksList = res.OrderByDescending(t => t.CreatedAt).ToList();
+        }
+        catch { }
+    }
+
+    private void OnEmergencyCategoryChanged(ChangeEventArgs e)
+    {
+        var cat = e.Value?.ToString() ?? "MACHINE";
+        isMachineEmergency = cat == "MACHINE";
+
+        if (isMachineEmergency)
+        {
+            var maintDept = dbDepartments.FirstOrDefault(d => d.DisplayName.Contains("صيانة"));
+            if (maintDept != null)
+            {
+                selectedTargetDeptId = maintDept.Id;
+                newTask.TargetDepartment = maintDept.DisplayName;
+                OnTargetDeptChanged(new ChangeEventArgs { Value = maintDept.Id });
+            }
+        }
+    }
+
+    private void OnMachineSelected(ChangeEventArgs e)
+    {
+        selectedMachineCode = e.Value?.ToString() ?? "";
+        var machine = fixedAssetsList.FirstOrDefault(m => m.AssetCode == selectedMachineCode);
+        if (machine != null)
+        {
+            newTask.AssetCode = machine.AssetCode;
+            newTask.Title = $"عطل طارئ: {machine.Name} [{machine.AssetCode}]";
+            newTask.Description = $"توقف الماكينة ({machine.Name}) بصالة ({machine.Department}). يرجى التدخل الفوري.";
+            newTask.Priority = "CRITICAL";
+        }
+    }
+
+    private void OnTargetDeptChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var deptId))
+        {
+            selectedTargetDeptId = deptId;
+            var dept = dbDepartments.FirstOrDefault(d => d.Id == deptId);
+            newTask.TargetDepartment = dept?.DisplayName ?? "";
+
+            targetFilteredEmployees = allEmployees.Where(emp =>
+                (emp.DepartmentId.HasValue && emp.DepartmentId == deptId) ||
+                (!string.IsNullOrEmpty(emp.DepartmentName) && dept != null && emp.DepartmentName.Contains(dept.DisplayName, StringComparison.OrdinalIgnoreCase))
+            ).ToList();
+
+            newTask.TargetEmployeeName = targetFilteredEmployees.FirstOrDefault()?.DisplayName ?? "";
+        }
+    }
+
+    private IEnumerable<EmergencyTaskDto> FilteredTasks
+    {
+        get
+        {
+            var list = tasksList.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                list = list.Where(t =>
+                    (!string.IsNullOrEmpty(t.TaskNumber) && t.TaskNumber.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(t.AssetCode) && t.AssetCode.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                    t.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    t.SenderDepartment.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+            if (!string.IsNullOrEmpty(selectedDeptFilter))
+                list = list.Where(t => t.SenderDepartment == selectedDeptFilter || t.TargetDepartment == selectedDeptFilter);
+            if (!string.IsNullOrEmpty(selectedPriorityFilter))
+                list = list.Where(t => t.Priority == selectedPriorityFilter);
+            if (!string.IsNullOrEmpty(selectedStatusFilter))
+                list = list.Where(t => t.Status == selectedStatusFilter);
+
+            return list;
+        }
+    }
+
+    private void ResetFilters()
+    {
+        searchTerm = "";
+        selectedDeptFilter = "";
+        selectedPriorityFilter = "";
+        selectedStatusFilter = "";
+    }
+
+    private void OpenNewTaskModal()
+    {
+        isMachineEmergency = true;
+        selectedMachineCode = "";
+
+        var maintDept = dbDepartments.FirstOrDefault(d => d.DisplayName.Contains("صيانة")) ?? dbDepartments.FirstOrDefault();
+        newTask = new EmergencyTaskDto
+        {
+            TaskNumber = $"EMG-{DateTime.Now:yyyyMMdd}-{new Random().Next(100, 999)}",
+            Priority = "HIGH",
+            TargetResolutionMinutes = 30,
+            SenderDepartment = !string.IsNullOrEmpty(State.DepartmentName) ? State.DepartmentName : "إدارة الإنتاج",
+            SenderEmployeeCode = State.EmployeeCode,
+            SenderEmployeeName = State.FullName
+        };
+
+        if (maintDept != null)
+        {
+            selectedTargetDeptId = maintDept.Id;
+            newTask.TargetDepartment = maintDept.DisplayName;
+            OnTargetDeptChanged(new ChangeEventArgs { Value = maintDept.Id });
+        }
+        isNewTaskModalOpen = true;
+    }
+
+    private void CloseNewTaskModal() => isNewTaskModalOpen = false;
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+        using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        newTask.MediaFileName = file.Name;
+        newTask.MediaUrl = $"data:{file.ContentType.ToLower()};base64,{Convert.ToBase64String(ms.ToArray())}";
+        newTask.MediaType = file.ContentType.StartsWith("image") ? "IMAGE" : "OTHER";
+    }
+
+    private async Task HandleClosureProofUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+        using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        closureProofUrl = $"data:{file.ContentType.ToLower()};base64,{Convert.ToBase64String(ms.ToArray())}";
+    }
+
+    private async Task SubmitNewTask()
+    {
+        if (string.IsNullOrWhiteSpace(newTask.Title)) return;
+        newTask.SenderDepartment = State.DepartmentName;
+        newTask.SenderEmployeeCode = State.EmployeeCode;
+        newTask.SenderEmployeeName = State.FullName;
+        newTask.CreatedAt = DateTime.UtcNow;
+        newTask.Status = "PENDING";
+
+        isSubmitting = true;
+        try
+        {
+            var res = await Http.PostAsJsonAsync("api/EmergencyTasks", newTask);
+            if (res.IsSuccessStatusCode)
+            {
+                // تحويل الماكينة فوراً إلى UNDER_MAINTENANCE في قاعدة البيانات
+                if (!string.IsNullOrEmpty(newTask.AssetCode))
+                {
+                    var machine = fixedAssetsList.FirstOrDefault(m => m.AssetCode == newTask.AssetCode);
+                    if (machine != null)
+                    {
+                        var updateDto = new
+                        {
+                            Name = machine.Name,
+                            Department = machine.Department,
+                            Category = machine.Category ?? "أفران وتسوية",
+                            BrandModel = machine.BrandModel ?? "",
+                            SerialNumber = machine.SerialNumber ?? "",
+                            CustodianCode = machine.CustodianCode,
+                            CustodianName = machine.CustodianName,
+                            Status = "UNDER_MAINTENANCE"
+                        };
+                        await Http.PutAsJsonAsync($"api/FixedAssets/{machine.Id}", updateDto);
+                    }
+                }
+
+                feedbackMessage = "✅ تم إرسال البلاغ وتثبيت حالة العطل بنجاح!";
+                isSuccessFeedback = true;
+                CloseNewTaskModal();
+                await LoadTasks();
+                await LoadFixedAssets();
+            }
+        }
+        finally { isSubmitting = false; }
+    }
+
+    private void OpenDelegateModal(EmergencyTaskDto task)
+    {
+        selectedTaskToDelegate = task;
+        assignedTechnicianInput = "";
+        assignmentNotesInput = "";
+        delegationFilteredEmployees = allEmployees.Where(emp =>
+            (!string.IsNullOrEmpty(emp.DepartmentName) && !string.IsNullOrEmpty(task.TargetDepartment) &&
+             emp.DepartmentName.Contains(task.TargetDepartment, StringComparison.OrdinalIgnoreCase))
+        ).ToList();
+        isDelegateModalOpen = true;
+    }
+
+    private void CloseDelegateModal() => isDelegateModalOpen = false;
+
+    private async Task ConfirmDelegateTask()
+    {
+        if (selectedTaskToDelegate == null || string.IsNullOrWhiteSpace(assignedTechnicianInput)) return;
+        var chosenEmp = delegationFilteredEmployees.FirstOrDefault(e => e.DisplayName == assignedTechnicianInput);
+        var dto = new DelegateTaskDto
+        {
+            TechnicianName = assignedTechnicianInput,
+            TechnicianCode = chosenEmp?.Code ?? "TECH-01",
+            Notes = assignmentNotesInput
+        };
+
+        var res = await Http.PostAsJsonAsync($"api/EmergencyTasks/{selectedTaskToDelegate.Id}/delegate", dto);
+        if (res.IsSuccessStatusCode)
+        {
+            feedbackMessage = $"✅ تم تكليف الفني ({assignedTechnicianInput}) بالمهمة!";
+            isSuccessFeedback = true;
+            CloseDelegateModal();
+            await LoadTasks();
+        }
+    }
+
+    private async Task RespondToTask(long id)
+    {
+        var res = await Http.PostAsync($"api/EmergencyTasks/{id}/respond", null);
+        if (res.IsSuccessStatusCode)
+        {
+            feedbackMessage = "⚡ تم بدء التنفيذ وتسجيل وقت الاستجابة!";
+            isSuccessFeedback = true;
+            await LoadTasks();
+        }
+    }
+
+    private void OpenCompleteModal(EmergencyTaskDto task)
+    {
+        completingTask = task;
+        closureNotes = "";
+        closureProofUrl = "";
+        closureCostImpact = "صيانة عادية";
+        isCompleteModalOpen = true;
+    }
+
+    private void CloseCompleteModal() => isCompleteModalOpen = false;
+
+    // إغلاق البلاغ بالدليل وإعادة تشغيل الأصل تلقائياً
+    private async Task ConfirmCompleteTask()
+    {
+        if (completingTask == null || string.IsNullOrWhiteSpace(closureNotes)) return;
+
+        var dto = new CompleteTaskDto
+        {
+            ClosureNotes = closureNotes,
+            ClosureProofMediaUrl = closureProofUrl,
+            ClosedBy = State.FullName,
+            ClosedByCode = State.EmployeeCode,
+            CostImpact = closureCostImpact
+        };
+
+        var res = await Http.PostAsJsonAsync($"api/EmergencyTasks/{completingTask.Id}/complete", dto);
+        if (res.IsSuccessStatusCode)
+        {
+            // إعادة الماكينة لوضع التشغيل الطبيعي OPERATIONAL فوراً
+            if (!string.IsNullOrEmpty(completingTask.AssetCode))
+            {
+                var machine = fixedAssetsList.FirstOrDefault(m => m.AssetCode == completingTask.AssetCode);
+                if (machine != null)
+                {
+                    var updateDto = new
+                    {
+                        Name = machine.Name,
+                        Department = machine.Department,
+                        Category = machine.Category ?? "أفران وتسوية",
+                        BrandModel = machine.BrandModel ?? "",
+                        SerialNumber = machine.SerialNumber ?? "",
+                        CustodianCode = machine.CustodianCode,
+                        CustodianName = machine.CustodianName,
+                        Status = "OPERATIONAL"
+                    };
+                    await Http.PutAsJsonAsync($"api/FixedAssets/{machine.Id}", updateDto);
+                }
+            }
+
+            feedbackMessage = "✅ تم توثيق إنجاز البلاغ وعودة الماكينة للعمل بكفاءة تامة ✓";
+            isSuccessFeedback = true;
+            CloseCompleteModal();
+            await LoadTasks();
+            await LoadFixedAssets();
+        }
+    }
+
+    private void OpenFullDetailsModal(EmergencyTaskDto task)
+    {
+        detailedTask = task;
+        isFullDetailsModalOpen = true;
+    }
+
+    private void OpenPreviewMediaModal(string url, string type)
+    {
+        previewMediaUrl = url;
+        isPreviewModalOpen = true;
+    }
+
+    private string TranslatePriority(string p) => p == "CRITICAL" ? "حرجة جداً 🔥" : (p == "HIGH" ? "عالية ⚡" : "عادية");
+    private string TranslateStatus(string s) => s switch
+    {
+        "PENDING" => "جديدة (بانتظار الإجراء)",
+        "ASSIGNED" => "محالة لفني 🛠️",
+        "IN_PROGRESS" => "قيد التنفيذ ⚡",
+        "CLOSED" => "مغلقة ومؤكدة ✓",
+        _ => s
+    };
+    private string GetStatusBadgeClass(string s) => s switch
+    {
+        "PENDING" => "bg-danger",
+        "ASSIGNED" => "bg-primary",
+        "IN_PROGRESS" => "bg-warning text-dark",
+        "CLOSED" => "bg-success",
+        _ => "bg-secondary"
+    };
+}

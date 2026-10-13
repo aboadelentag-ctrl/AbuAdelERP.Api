@@ -1,0 +1,1225 @@
+﻿@page "/recipes-management"
+@page "/recipe-management"
+@page "/recipes"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using KayanERP.UI.DTOs
+@using System.Text
+@using System.Text.Json
+@using System.IO
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>معايير وبطاقات خلطات التصنيع (BOM) - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+
+    <!-- رأس الصفحة وأزرار التصدير والاستيراد -->
+    <div class="card shadow-sm border-0 mb-3 bg-white border-start border-primary border-4">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h4 class="fw-bold mb-1 text-primary">📋 معايير وبطاقات خلطات التصنيع (BOM / Recipes)</h4>
+                <small class="text-muted">نظام شجرة التصنيع متعددة المستويات (تجهيز النصف مصنع الوزني والقطعي للوردية الأولى + تفنيش الأوردرات للوردية الثانية)</small>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportRecipesToExcelAsync">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير تفاصيل الوصفات (إكسيل)
+                </button>
+                <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
+                    <i class="bi bi-download me-1"></i> تحميل قالب خلطات الـ BOM الشامل
+                </button>
+                <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
+                    <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد خلطات من إكسيل
+                </button>
+                <button class="btn btn-outline-primary btn-sm fw-bold shadow-sm" @onclick="OpenQuickItemModal">
+                    ➕ إضافة صنف جديد للدليل
+                </button>
+                <button class="btn btn-primary btn-sm fw-bold shadow-sm" @onclick="CreateNewRecipe">
+                    ➕ إنشاء معيار / خلطة جديدة
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="LoadData">
+                    <i class="bi bi-arrow-clockwise"></i> تحديث
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- تنبيهات النظام -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-3 py-2 fw-bold" role="alert">
+            <strong>@(isSuccess ? "✓ نجاح: " : "⚠️ تنبيه: ")</strong> @statusMessage
+            <button type="button" class="btn-close py-2" @onclick="() => statusMessage = string.Empty"></button>
+        </div>
+    }
+
+    <!-- بطاقات المؤشرات اللحظية (KPIs) -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-primary border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">إجمالي خلطات الـ BOM</small>
+                <h4 class="mb-0 fw-bold text-primary mt-1 font-monospace">@(recipesList?.Count ?? 0) معيار</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-info border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">نصف مصنع وزني (عجائن / كجم)</small>
+                <h4 class="mb-0 fw-bold text-dark mt-1 font-monospace">@CountWeightSemiFinished خلطة وزنية</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">نصف مصنع قطعي (بلكات / تارت)</small>
+                <h4 class="mb-0 fw-bold text-warning mt-1 font-monospace">@CountPieceSemiFinished خلطة قطعية</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-success border-4 p-3 bg-white">
+                <small class="text-muted fw-bold">خلطات تفنيش تام (وردية 2)</small>
+                <h4 class="mb-0 fw-bold text-success mt-1 font-monospace">@CountFinishedRecipes خلطة تفنيش</h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط فلاتر البحث المتقدمة -->
+    <div class="card shadow-sm border-0 mb-3 bg-white border-top border-primary border-3">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-secondary mb-1">🔍 البحث بكود الوصفة أو اسم الخلطة</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="ابحث بكود الوصفة، اسم الخلطة، أو المنتج..." 
+                           @bind="searchTerm" @bind:event="oninput" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-secondary mb-1">🏭 مرحلة التصنيع (الوردية)</label>
+                    <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedStageFilter">
+                        <option value="all">-- كل المراحل والورديات --</option>
+                        <option value="semi_weight">🥣 نصف مصنع وزني (عجائن / شربات - كجم)</option>
+                        <option value="semi_piece">🍰 نصف مصنع قطعي (بلكات اسبونج / تارت)</option>
+                        <option value="finished">🎂 تفنيش منتج تام (أوردرات الوردية 2)</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-secondary mb-1">⚖️ وحدة الوجبة</label>
+                    <select class="form-select form-select-sm" @bind="selectedUnitFilter">
+                        <option value="all">كل الوحدات</option>
+                        <option value="كجم">كجم (وزن)</option>
+                        <option value="صاج">صاج</option>
+                        <option value="بلكة">بلكة</option>
+                        <option value="قطعة">قطعة</option>
+                        <option value="دستة">دستة</option>
+                        <option value="حلة">حلة</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-secondary mb-1">🎯 الصنف المستهدف</label>
+                    <select class="form-select form-select-sm" @bind="selectedProductFilter">
+                        <option value="0">-- كل الأصناف --</option>
+                        @if (targetProductsList != null)
+                        {
+                            @foreach (var p in targetProductsList)
+                            {
+                                <option value="@p.Id">@p.ItemName</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end gap-1">
+                    <select class="form-select form-select-sm flex-fill" @bind="selectedStatusFilter">
+                        <option value="all">كل الحالات</option>
+                        <option value="active">نشطة</option>
+                        <option value="inactive">معطلة</option>
+                    </select>
+                    <button class="btn btn-outline-danger btn-sm fw-bold" title="إلغاء الفلاتر" @onclick="ResetFilters">✕</button>
+                </div>
+            </div>
+
+            @if (HasActiveFilters)
+            {
+                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                    <span class="small text-primary fw-bold">
+                        <i class="bi bi-funnel-fill me-1"></i> نتائج التصفية: (@FilteredRecipes.Count() معيار مطابق من أصل @(recipesList?.Count ?? 0))
+                    </span>
+                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-bold" style="font-size: 0.78rem;" @onclick="ResetFilters">
+                        عرض الكل
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (isEditing)
+    {
+        <!-- لوحة تحرير وإنشاء معايير الخلطة -->
+        <div class="card shadow border-primary mb-4">
+            <div class="card-header bg-primary text-white py-3 d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0 fs-6 fw-bold">
+                        @(activeRecipe.Id == 0 ? "➕ إنشاء بطاقة تشغيل جديدة" : $"✏️ تعديل بطاقة خلطة: {activeRecipe.RecipeName}")
+                    </h5>
+                    <small class="text-white-50">تحديد مدخلات ومخرجات كل مرحلة بدقة لضبط التكلفة والمخزون بين الورديتين</small>
+                </div>
+                <button class="btn btn-sm btn-light text-primary fw-bold" @onclick="() => isEditing = false">إلغاء والعودة للقائمة</button>
+            </div>
+            <div class="card-body p-4 bg-white">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-5">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label small fw-bold text-dark mb-0">
+                                المنتج المراد تصنيعه وإدخاله المخزن *
+                            </label>
+                            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none fw-bold small text-primary" @onclick="OpenQuickItemModal">
+                                ➕ صنف جديد غير مسجل؟
+                            </button>
+                        </div>
+                        <select class="form-select border-primary fw-bold" value="@activeRecipe.ProductItemId" @onchange="OnTargetProductSelected">
+                            <option value="0">-- اختر المنتج المراد تصنيعه --</option>
+                            <optgroup label="🎂 منتجات تامة (أوردرات وتفنيش الوردية الثانية)">
+                                @foreach (var p in targetProductsList.Where(i => i.ItemType == "منتج تام"))
+                                {
+                                    <option value="@p.Id">@p.ItemName (@p.ItemCode)</option>
+                                }
+                            </optgroup>
+                            <optgroup label="🥣 أصناف نصف مصنعة / وسيطة (تجهيز الوردية الأولى)">
+                                @foreach (var p in targetProductsList.Where(i => i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع"))
+                                {
+                                    <option value="@p.Id">@p.ItemName (@p.ItemCode)</option>
+                                }
+                            </optgroup>
+                        </select>
+                        <small class="text-muted d-block mt-1">المرحلة الحالية: <span class="badge bg-light text-dark border">@GetSelectedProductStageLabel()</span></small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold text-dark mb-1">اسم الخلطة / المعيار التصنيعي *</label>
+                        <input class="form-control border-primary fw-bold" placeholder="مثال: خلطة عجين بسبوسة / تفنيش بسبوسة مكسرات / بلكة اسبونج فانيليا" @bind="activeRecipe.RecipeName" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark mb-1">كود الوصفة (BOM Code)</label>
+                        <input class="form-control font-monospace" placeholder="BOM-..." @bind="activeRecipe.RecipeCode" />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4 bg-light p-3 rounded border">
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">حجم الوجبة المعياري</label>
+                        <input type="number" step="0.01" class="form-control font-monospace text-center fw-bold" @bind="activeRecipe.BatchQuantity" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">وحدة الوجبة</label>
+                        <select class="form-select fw-bold" @bind="activeRecipe.BatchUnit">
+                            <option value="كجم">كجم (وزن)</option>
+                            <option value="صاج">صاج</option>
+                            <option value="بلكة">بلكة</option>
+                            <option value="قطعة">قطعة</option>
+                            <option value="دستة">دستة</option>
+                            <option value="حلة">حلة</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">الخرج الصافي (Yield)</label>
+                        <input type="number" step="0.01" class="form-control font-monospace text-center" @bind="activeRecipe.YieldQuantity" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold text-primary">عدد القطع (0 إذا كان بالوزن)</label>
+                        <input type="number" class="form-control font-monospace text-center fw-bold border-primary" 
+                               placeholder="0 للأصناف الوزنية" @bind="activeRecipe.PiecesPerBatch" />
+                        <small class="text-muted" style="font-size: 0.72rem;">0 للبسبوسة والعجائن، >0 للجاتوه والقطع</small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">فاقد تشغيل/خبز (%)</label>
+                        <input type="number" step="0.1" class="form-control font-monospace text-center" @bind="activeRecipe.WastePercentage" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">وقت التحضير (دقيقة)</label>
+                        <input type="number" class="form-control font-monospace text-center" placeholder="60" @bind="activeRecipe.PreparationTimeMinutes" />
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <h6 class="fw-bold mb-0 text-primary">🧂 مقادير الخامات والمكونات الوسيطة الداخلة في الخلطة:</h6>
+                        <small class="text-muted">يمكن لوردية التفنيش سحب الخامات الأولية وكذلك المكونات النصف مصنعة المحضرة مسبقاً (بالبلكة أو بالكجم)</small>
+                    </div>
+                    <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="AddIngredientLine">
+                        ➕ إضافة مكون / خامة للخلطة
+                    </button>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm align-middle mb-3 small">
+                        <thead class="table-secondary text-center">
+                            <tr>
+                                <th style="width: 35%;">اسم المكون (خامة أولية أو نصف مصنع) *</th>
+                                <th style="width: 15%;">الكمية المعيارية</th>
+                                <th style="width: 12%;">الوحدة</th>
+                                <th style="width: 15%;">فاقد تشغيل المكون (%)</th>
+                                <th style="width: 18%;">ملاحظات تشغيلية</th>
+                                <th style="width: 5%;">حذف</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (activeRecipe.Lines.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-3">
+                                        اضغط «إضافة مكون / خامة للخلطة» لتحديد المقادير.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var line in activeRecipe.Lines)
+                                {
+                                    <tr>
+                                        <td>
+                                            <select class="form-select form-select-sm fw-bold" @bind="line.ComponentItemId" @bind:after="() => UpdateLineItemInfo(line)">
+                                                <option value="0">-- اختر المكون أو الخامة --</option>
+                                                <optgroup label="🥣 أصناف نصف مصنعة (بلكات اسبونج، عجائن، كريمة)">
+                                                    @foreach (var rm in allIngredientsList.Where(i => i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع"))
+                                                    {
+                                                        <option value="@rm.Id">@rm.ItemName (@rm.ItemCode)</option>
+                                                    }
+                                                </optgroup>
+                                                <optgroup label="🌾 خامات ومستلزمات إنتاج أولية">
+                                                    @foreach (var rm in allIngredientsList.Where(i => i.ItemType == "خامات" || (i.ItemType != "منتج وسيط" && i.ItemType != "نصف مصنع" && i.ItemType != "منتج تام")))
+                                                    {
+                                                        <option value="@rm.Id">@rm.ItemName (@rm.ItemCode)</option>
+                                                    }
+                                                </optgroup>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <input type="number" step="0.001" class="form-control form-control-sm text-center fw-bold text-primary font-monospace" @bind="line.Quantity" />
+                                        </td>
+                                        <td>
+                                            <input class="form-control form-control-sm text-center bg-white" readonly value="@line.Unit" />
+                                        </td>
+                                        <td>
+                                            <input type="number" step="0.1" class="form-control form-control-sm text-center font-monospace" @bind="line.WastePercentage" />
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm" placeholder="سحب من الوردية 1 / نخل / تسييح..." @bind="line.Notes" />
+                                        </td>
+                                        <td class="text-center">
+                                            <button class="btn btn-outline-danger btn-sm px-2 py-0" @onclick="() => activeRecipe.Lines.Remove(line)">❌</button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-4 pt-2 border-top">
+                    <button class="btn btn-outline-secondary" @onclick="() => isEditing = false">إلغاء</button>
+                    <button class="btn btn-success px-5 fw-bold shadow-sm" @onclick="SaveRecipe">
+                        💾 حفظ واعتماد بطاقة المعايير (BOM)
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- جدول استعراض بطاقات الخلطات المسجلة -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold small">📋 سجل معايير ووصفات الإنتاج المسجلة</h6>
+            <span class="badge bg-primary">المعروض: @FilteredRecipes.Count() معايير</span>
+        </div>
+        <div class="card-body p-0 table-responsive">
+            <table class="table table-hover table-striped mb-0 align-middle text-center small">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 12%;">كود الوصفة</th>
+                        <th class="text-start ps-3" style="width: 20%;">اسم الخلطة / المعيار</th>
+                        <th style="width: 18%;">المنتج المستهدف ومرحلته</th>
+                        <th style="width: 12%;">حجم الوجبة المعياري</th>
+                        <th style="width: 10%;">عدد المكونات</th>
+                        <th style="width: 12%;">التكلفة التقديرية للوجبة</th>
+                        <th style="width: 8%;">تكلفة القطعة</th>
+                        <th style="width: 8%;">الحالة</th>
+                        <th style="width: 10%;">إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (recipesList == null)
+                    {
+                        <tr>
+                            <td colspan="9" class="text-center text-primary py-4 fw-bold">
+                                <span class="spinner-border spinner-border-sm me-2"></span> جاري تحميل وصفات الـ BOM...
+                            </td>
+                        </tr>
+                    }
+                    else if (!FilteredRecipes.Any())
+                    {
+                        <tr>
+                            <td colspan="9" class="text-center text-muted py-4 fw-bold">
+                                لا توجد وصفات تصنيع مطابقة لشروط البحث والفلترة.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var r in FilteredRecipes)
+                        {
+                            var targetItem = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+                            bool isSemi = targetItem != null && (targetItem.ItemType == "منتج وسيط" || targetItem.ItemType == "نصف مصنع");
+
+                            <tr @key="r.Id">
+                                <td><code class="fw-bold font-monospace">@r.RecipeCode</code></td>
+                                <td class="fw-bold text-start ps-3 text-primary">@r.RecipeName</td>
+                                <td class="fw-bold text-dark">
+                                    <div>@r.ProductItemName</div>
+                                    @if (isSemi)
+                                    {
+                                        <span class="badge bg-info-subtle text-info border border-info" style="font-size: 0.72rem;">🥣 تجهيز وسيط (وردية 1)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success-subtle text-success border border-success" style="font-size: 0.72rem;">🎂 تفنيش تام (وردية 2)</span>
+                                    }
+                                </td>
+                                <td class="font-monospace">@r.BatchQuantity @r.BatchUnit</td>
+                                <td><span class="badge bg-secondary">@r.LinesCount مكونات</span></td>
+                                <td class="fw-bold text-success font-monospace">@r.TotalEstimatedCost.ToString("N2") ج.م</td>
+                                <td class="fw-bold text-dark font-monospace">
+                                    @(r.PiecesPerBatch > 0 && r.CostPerPiece > 0 ? $"{r.CostPerPiece:N2} ج.م" : "بالوزن (0 قطع)")
+                                </td>
+                                <td>
+                                    <span class="badge @(r.Active ? "bg-success" : "bg-danger") px-2 py-1">
+                                        @(r.Active ? "نشطة" : "معطلة")
+                                    </span>
+                                </td>
+                                <td>
+                                    <button class="btn btn-outline-primary btn-sm px-2 py-0 fw-bold" @onclick="() => EditRecipe(r.Id)">✏️ تفاصيل وتعديل</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- نافذة إضافة صنف جديد للدليل -->
+@if (isQuickItemModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-md modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">
+                        ➕ إضافة صنف جديد لدليل الأصناف (خامة / نصف مصنع / تام)
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isQuickItemModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">كود الصنف *</label>
+                        <input type="text" class="form-control form-control-sm font-monospace fw-bold" @bind="newQuickItem.ItemCode" placeholder="مثال: 201005 أو 302005" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">اسم الصنف *</label>
+                        <input type="text" class="form-control form-control-sm fw-bold" @bind="newQuickItem.ItemName" placeholder="مثال: ديسك اسبونج شيكولاتة / عجين بلح الشام" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">نوع الصنف *</label>
+                        <select class="form-select form-select-sm fw-bold" @bind="newQuickItem.ItemType">
+                            <option value="نصف مصنع">🥣 نصف مصنع / وسيط (تجهيز الوردية الأولى)</option>
+                            <option value="منتج تام">🎂 منتج تام جاهز للبيع (تفنيش الوردية الثانية)</option>
+                            <option value="خامات">🌾 خامات ومستلزمات إنتاج أولية</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary">الوحدة الافتراضية *</label>
+                        <select class="form-select form-select-sm fw-bold" @bind="newQuickItem.Unit">
+                            <option value="كجم">كجم</option>
+                            <option value="بلكة">بلكة</option>
+                            <option value="قطعة">قطعة</option>
+                            <option value="صاج">صاج</option>
+                            <option value="دستة">دستة</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => isQuickItemModalOpen = false">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" disabled="@isSavingQuickItem" @onclick="SaveQuickItemAsync">
+                        @(isSavingQuickItem ? "جاري الحفظ..." : "💾 حفظ وإدراج بالقائمة فوراً")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- نافذة استيراد خلطات التصنيع من إكسيل -->
+@if (isImportModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                <div class="modal-header bg-success text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">
+                        <i class="bi bi-file-earmark-excel me-1"></i> استيراد بطاقات خلطات ومعايير التصنيع (BOM) من ملف إكسيل
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseImportModal"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <div class="alert alert-info py-2 small mb-3">
+                        <i class="bi bi-info-circle me-1"></i> 
+                        يتعرف النظام تلقائياً على كود الوصفة ويقوم بتجميع بنود الخامات التابعة لكل وجبة، ومطابقتها مع دليل الأصناف.
+                    </div>
+
+                    <div class="mb-3 p-3 border rounded bg-light">
+                        <label class="form-label small fw-bold text-dark">اختر ملف CSV من جهازك:</label>
+                        <InputFile OnChange="HandleFileSelected" accept=".csv, text/csv" class="form-control form-control-sm" />
+                    </div>
+
+                    @if (importedPreviewList.Any())
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-bold text-dark">معاينة الخلطات المقروءة من الملف (@importedPreviewList.Count خلطة):</span>
+                            <span class="badge bg-success">جاهز للاستيراد</span>
+                        </div>
+                        <div class="table-responsive" style="max-height: 280px;">
+                            <table class="table table-bordered table-sm align-middle text-center small mb-0">
+                                <thead class="table-secondary">
+                                    <tr>
+                                        <th>كود الوصفة</th>
+                                        <th>اسم الخلطة</th>
+                                        <th>المنتج المستهدف المطابق</th>
+                                        <th>حجم الوجبة</th>
+                                        <th>عدد القطع</th>
+                                        <th>عدد المكونات</th>
+                                        <th>حالة المطابقة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in importedPreviewList)
+                                    {
+                                        <tr>
+                                            <td class="font-monospace fw-bold text-primary">@row.RecipeCode</td>
+                                            <td class="fw-bold text-start ps-2">@row.RecipeName</td>
+                                            <td class="text-start ps-2">
+                                                @if (row.ProductItemId > 0)
+                                                {
+                                                    <span class="text-success fw-bold">✔ @row.MatchedProductName</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-danger fw-bold">✖ غير مطابق (@row.RawProductName)</span>
+                                                }
+                                            </td>
+                                            <td class="font-monospace">@row.BatchQuantity @row.BatchUnit</td>
+                                            <td class="font-monospace">@(row.PiecesPerBatch > 0 ? row.PiecesPerBatch.ToString() : "0 (وزن)")</td>
+                                            <td><span class="badge bg-info text-dark">@row.Lines.Count مكونات</span></td>
+                                            <td>
+                                                @if (row.ProductItemId > 0 && row.Lines.All(l => l.ComponentItemId > 0))
+                                                {
+                                                    <span class="badge bg-success">مطابق بالكامل</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-warning text-dark">يوجد بنود تحتاج مراجعة</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
+                            disabled="@(isSavingImport || !importedPreviewList.Any(r => r.ProductItemId > 0))" 
+                            @onclick="ProcessAndSaveImportAsync">
+                        @if (isSavingImport)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري معالجة واعتماد الوصفات...</span>
+                        }
+                        else
+                        {
+                            <span><i class="bi bi-check-circle"></i> تأكيد استيراد واعتماد الخلطات (@importedPreviewList.Count(r => r.ProductItemId > 0))</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<RecipeDto>? recipesList;
+    private List<ItemLookupDto>? allItems;
+    private List<ItemLookupDto> targetProductsList = new();
+    private List<ItemLookupDto> allIngredientsList = new();
+    private List<RecipeImportPreviewDto> importedPreviewList = new();
+
+    private SaveRecipeDto activeRecipe = new();
+    private QuickItemCreateDto newQuickItem = new();
+    private bool isQuickItemModalOpen = false;
+    private bool isSavingQuickItem = false;
+
+    private bool isEditing = false;
+    private bool isSavingImport = false;
+    private bool isImportModalOpen = false;
+    private string statusMessage = string.Empty;
+    private bool isSuccess = false;
+
+    private string searchTerm = "";
+    private string selectedStageFilter = "all";
+    private string selectedUnitFilter = "all";
+    private long selectedProductFilter = 0;
+    private string selectedStatusFilter = "all";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            recipesList = await Http.GetFromJsonAsync<List<RecipeDto>>("api/recipes");
+            allItems = await Http.GetFromJsonAsync<List<ItemLookupDto>>("api/items");
+
+            if (allItems != null)
+            {
+                targetProductsList = allItems
+                    .Where(i => i.ItemType == "منتج تام" || i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع")
+                    .OrderBy(i => i.ItemName)
+                    .ToList();
+
+                allIngredientsList = allItems
+                    .Where(i => i.ItemType == "خامات" || i.ItemType == "منتج وسيط" || i.ItemType == "نصف مصنع" || (i.ItemType != "منتج تام"))
+                    .OrderBy(i => i.ItemName)
+                    .ToList();
+
+                if (!targetProductsList.Any()) targetProductsList = allItems;
+                if (!allIngredientsList.Any()) allIngredientsList = allItems;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading data: {ex.Message}");
+        }
+    }
+
+    private int CountWeightSemiFinished =>
+        recipesList?.Count(r => {
+            var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+            return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch == 0 || r.BatchUnit == "كجم");
+        }) ?? 0;
+
+    private int CountPieceSemiFinished =>
+        recipesList?.Count(r => {
+            var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+            return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch > 0 && r.BatchUnit != "كجم");
+        }) ?? 0;
+
+    private int CountFinishedRecipes =>
+        recipesList?.Count(r => {
+            var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+            return item == null || item.ItemType == "منتج تام";
+        }) ?? 0;
+
+    private string GetSelectedProductStageLabel()
+    {
+        var item = allItems?.FirstOrDefault(i => i.Id == activeRecipe.ProductItemId);
+        if (item == null) return "غير محدد";
+        if (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع")
+        {
+            return activeRecipe.PiecesPerBatch > 0 ? "🥣 نصف مصنع قطعي (بلكة/تارت)" : "🥣 نصف مصنع وزني (عجين/كجم)";
+        }
+        return "🎂 منتج تام (وردية 2)";
+    }
+
+    private void OnTargetProductSelected(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var selectedId))
+        {
+            activeRecipe.ProductItemId = selectedId;
+            var item = allItems?.FirstOrDefault(i => i.Id == selectedId);
+            if (item != null)
+            {
+                bool isSemi = (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع");
+                if (isSemi)
+                {
+                    if (item.ItemName.Contains("اسبونج") || item.ItemName.Contains("بلكة") || item.ItemName.Contains("تارت") || item.Unit == "بلكة" || item.Unit == "قطعة")
+                    {
+                        activeRecipe.BatchUnit = !string.IsNullOrEmpty(item.Unit) ? item.Unit : "بلكة";
+                        activeRecipe.PiecesPerBatch = 1;
+                    }
+                    else
+                    {
+                        activeRecipe.BatchUnit = "كجم";
+                        activeRecipe.PiecesPerBatch = 0;
+                    }
+                    if (string.IsNullOrWhiteSpace(activeRecipe.RecipeName)) activeRecipe.RecipeName = $"خلطة {item.ItemName}";
+                    if (string.IsNullOrWhiteSpace(activeRecipe.RecipeCode)) activeRecipe.RecipeCode = $"BOM-{item.ItemCode}";
+                }
+                else
+                {
+                    if (item.ItemName.Contains("جاتوه") || item.ItemName.Contains("تورتة") || item.Unit == "دستة")
+                    {
+                        activeRecipe.BatchUnit = "بلكة";
+                        activeRecipe.PiecesPerBatch = 24;
+                    }
+                    else
+                    {
+                        activeRecipe.BatchUnit = "صاج";
+                        activeRecipe.PiecesPerBatch = 0;
+                    }
+                    if (string.IsNullOrWhiteSpace(activeRecipe.RecipeName)) activeRecipe.RecipeName = $"تفنيش {item.ItemName}";
+                    if (string.IsNullOrWhiteSpace(activeRecipe.RecipeCode)) activeRecipe.RecipeCode = $"BOM-{item.ItemCode}";
+                }
+            }
+        }
+    }
+
+    private IEnumerable<RecipeDto> FilteredRecipes
+    {
+        get
+        {
+            if (recipesList == null) return Enumerable.Empty<RecipeDto>();
+            var query = recipesList.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(r =>
+                    r.RecipeName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(r.RecipeCode) && r.RecipeCode.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(r.ProductItemName) && r.ProductItemName.Contains(term, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (selectedStageFilter == "semi_weight")
+            {
+                query = query.Where(r => {
+                    var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+                    return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch == 0 || r.BatchUnit == "كجم");
+                });
+            }
+            else if (selectedStageFilter == "semi_piece")
+            {
+                query = query.Where(r => {
+                    var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+                    return item != null && (item.ItemType == "منتج وسيط" || item.ItemType == "نصف مصنع") && (r.PiecesPerBatch > 0 && r.BatchUnit != "كجم");
+                });
+            }
+            else if (selectedStageFilter == "finished")
+            {
+                query = query.Where(r => {
+                    var item = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+                    return item == null || item.ItemType == "منتج تام";
+                });
+            }
+
+            if (selectedUnitFilter != "all")
+            {
+                query = query.Where(r => r.BatchUnit.Equals(selectedUnitFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (selectedProductFilter > 0)
+            {
+                query = query.Where(r => r.ProductItemId == selectedProductFilter);
+            }
+
+            if (selectedStatusFilter == "active")
+            {
+                query = query.Where(r => r.Active);
+            }
+            else if (selectedStatusFilter == "inactive")
+            {
+                query = query.Where(r => !r.Active);
+            }
+
+            return query;
+        }
+    }
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchTerm) ||
+        selectedStageFilter != "all" ||
+        selectedUnitFilter != "all" ||
+        selectedProductFilter > 0 ||
+        selectedStatusFilter != "all";
+
+    private void ResetFilters()
+    {
+        searchTerm = "";
+        selectedStageFilter = "all";
+        selectedUnitFilter = "all";
+        selectedProductFilter = 0;
+        selectedStatusFilter = "all";
+    }
+
+    private void CreateNewRecipe()
+    {
+        activeRecipe = new SaveRecipeDto
+        {
+            BatchQuantity = 10,
+            BatchUnit = "كجم",
+            YieldQuantity = 10,
+            YieldUnit = "كجم",
+            PiecesPerBatch = 0,
+            WastePercentage = 0,
+            Active = true,
+            Lines = new List<RecipeLineDto>()
+        };
+        AddIngredientLine();
+        isEditing = true;
+    }
+
+    private async Task EditRecipe(long id)
+    {
+        try
+        {
+            var full = await Http.GetFromJsonAsync<RecipeDto>($"api/recipes/{id}");
+            if (full != null)
+            {
+                activeRecipe = new SaveRecipeDto
+                {
+                    Id = full.Id,
+                    CompanyId = full.CompanyId,
+                    ProductItemId = full.ProductItemId,
+                    RecipeCode = full.RecipeCode,
+                    RecipeName = full.RecipeName,
+                    BatchQuantity = full.BatchQuantity,
+                    BatchUnit = full.BatchUnit,
+                    YieldQuantity = full.YieldQuantity,
+                    YieldUnit = full.YieldUnit,
+                    PiecesPerBatch = full.PiecesPerBatch,
+                    WastePercentage = full.WastePercentage,
+                    PreparationTimeMinutes = full.PreparationTimeMinutes,
+                    Active = full.Active,
+                    Notes = full.Notes,
+                    Lines = full.Lines ?? new List<RecipeLineDto>()
+                };
+                isEditing = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في جلب تفاصيل الوصفة: {ex.Message}";
+        }
+    }
+
+    private void AddIngredientLine()
+    {
+        activeRecipe.Lines.Add(new RecipeLineDto
+        {
+            Quantity = 1,
+            Unit = "كجم",
+            WastePercentage = 0
+        });
+    }
+
+    private void UpdateLineItemInfo(RecipeLineDto line)
+    {
+        var item = allIngredientsList?.FirstOrDefault(m => m.Id == line.ComponentItemId);
+        if (item != null)
+        {
+            line.ComponentItemCode = item.ItemCode;
+            line.ComponentItemName = item.ItemName;
+            line.Unit = !string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "كجم";
+        }
+    }
+
+    private async Task SaveRecipe()
+    {
+        if (activeRecipe.ProductItemId <= 0 || string.IsNullOrWhiteSpace(activeRecipe.RecipeName))
+        {
+            isSuccess = false;
+            statusMessage = "يرجى تحديد المنتج المستهدف واسم الخلطة.";
+            return;
+        }
+
+        if (activeRecipe.Lines.Count == 0 || activeRecipe.Lines.Any(l => l.ComponentItemId <= 0 || l.Quantity <= 0))
+        {
+            isSuccess = false;
+            statusMessage = "يجب إضافة مكون واحد على الأقل وتحديد مقادير صالحة أكبر من الصفر.";
+            return;
+        }
+
+        try
+        {
+            var res = await Http.PostAsJsonAsync("api/recipes", activeRecipe);
+            if (res.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                statusMessage = "تم حفظ واعتماد بطاقة معايير الخلطة بنجاح!";
+                isEditing = false;
+                await LoadData();
+            }
+            else
+            {
+                isSuccess = false;
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = !string.IsNullOrWhiteSpace(err) ? err : $"فشل الحفظ (كود: {res.StatusCode})";
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+    }
+
+    private void OpenQuickItemModal()
+    {
+        newQuickItem = new QuickItemCreateDto
+        {
+            ItemCode = $"ITM-{DateTime.Now:yyyyMMdd}-{new Random().Next(10, 99)}",
+            ItemType = "نصف مصنع",
+            Unit = "كجم"
+        };
+        isQuickItemModalOpen = true;
+    }
+
+    private async Task SaveQuickItemAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newQuickItem.ItemName))
+        {
+            statusMessage = "يرجى إدخال اسم الصنف.";
+            isSuccess = false;
+            return;
+        }
+
+        isSavingQuickItem = true;
+        try
+        {
+            var res = await Http.PostAsJsonAsync("api/items", newQuickItem);
+            if (res.IsSuccessStatusCode)
+            {
+                var created = await res.Content.ReadFromJsonAsync<ItemLookupDto>();
+                await LoadData();
+                isQuickItemModalOpen = false;
+                isSuccess = true;
+                statusMessage = $"تم إنشاء صنف [{newQuickItem.ItemName}] وإدراجه في الدليل بنجاح!";
+
+                if (created != null && isEditing)
+                {
+                    activeRecipe.ProductItemId = created.Id;
+                    OnTargetProductSelected(new ChangeEventArgs { Value = created.Id.ToString() });
+                }
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"تعذر حفظ الصنف: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isSavingQuickItem = false;
+        }
+    }
+
+    private async Task ExportRecipesToExcelAsync()
+    {
+        var list = FilteredRecipes.ToList();
+        if (!list.Any())
+        {
+            isSuccess = false;
+            statusMessage = "لا توجد وصفات لتصديرها.";
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_الوصفة,اسم_الخلطة_المعيار,المرحلة_الوردية,المنتج_المستهدف,حجم_الوجبة,وحدة_الوجبة,الخرج_الصافي_Yield,عدد_القطع,فاقد_التشغيل_%,وقت_التحضير_دقيقة,التكلفة_التقديرية_للوجبة,تكلفة_القطعة,كود_المكون,اسم_المكون,نوع_المكون,الكمية_المعيارية,وحدة_المكون,فاقد_المكون_%,ملاحظات_المكون,الحالة");
+
+            foreach (var r in list)
+            {
+                var lines = r.Lines;
+                if (lines == null || !lines.Any())
+                {
+                    try
+                    {
+                        var full = await Http.GetFromJsonAsync<RecipeDto>($"api/recipes/{r.Id}");
+                        lines = full?.Lines;
+                    }
+                    catch { }
+                }
+
+                var targetItem = allItems?.FirstOrDefault(i => i.Id == r.ProductItemId);
+                string stage = (targetItem != null && (targetItem.ItemType == "منتج وسيط" || targetItem.ItemType == "نصف مصنع")) 
+                    ? (r.PiecesPerBatch > 0 ? "تجهيز وسيط قطعي (وردية 1)" : "تجهيز وسيط وزني (وردية 1)")
+                    : "تفنيش تام (وردية 2)";
+                var statusStr = r.Active ? "نشطة" : "معطلة";
+
+                if (lines != null && lines.Any())
+                {
+                    foreach (var line in lines)
+                    {
+                        var ingItem = allIngredientsList?.FirstOrDefault(i => i.Id == line.ComponentItemId);
+                        string ingType = ingItem?.ItemType ?? "خامة";
+                        var cleanLineNotes = (line.Notes ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+                        sb.AppendLine($"{EscapeCsv(r.RecipeCode)},{EscapeCsv(r.RecipeName)},{EscapeCsv(stage)},{EscapeCsv(r.ProductItemName)},{r.BatchQuantity},{EscapeCsv(r.BatchUnit)},{r.YieldQuantity},{r.PiecesPerBatch},{r.WastePercentage},{r.PreparationTimeMinutes},{r.TotalEstimatedCost:F2},{r.CostPerPiece:F2},{EscapeCsv(line.ComponentItemCode ?? "")},{EscapeCsv(line.ComponentItemName ?? "")},{EscapeCsv(ingType)},{line.Quantity},{EscapeCsv(line.Unit ?? "")},{line.WastePercentage},{EscapeCsv(cleanLineNotes)},{statusStr}");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine($"{EscapeCsv(r.RecipeCode)},{EscapeCsv(r.RecipeName)},{EscapeCsv(stage)},{EscapeCsv(r.ProductItemName)},{r.BatchQuantity},{EscapeCsv(r.BatchUnit)},{r.YieldQuantity},{r.PiecesPerBatch},{r.WastePercentage},{r.PreparationTimeMinutes},{r.TotalEstimatedCost:F2},{r.CostPerPiece:F2},-,-,-,-,-,-,-,{statusStr}");
+                }
+            }
+
+            var fileName = $"بطاقات_معايير_خلطات_التصنيع_الشاملة_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await TriggerBrowserDownload(fileName, sb.ToString());
+            isSuccess = true;
+            statusMessage = $"تم تصدير ({list.Count}) معيار خلطة بتفاصيل مكوناتها إلى إكسيل بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"فشل التصدير: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadTemplateAsync()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_الوصفة,اسم_الخلطة_المعيار,المنتج_المستهدف,حجم_الوجبة,وحدة_الوجبة,عدد_القطع,الخرج_الصافي,فاقد_التشغيل_%,وقت_التحضير_دقيقة,كود_المكون,اسم_المكون,كمية_المكون,وحدة_المكون,فاقد_المكون_%,ملاحظات_المكون");
+            sb.AppendLine("BOM-201001,خلطة عجين بسبوسة معيار 10 كجم,عجين بسبوسه,10,كجم,0,10,0,30,101002,سميد,5,كجم,0,سميد وسط درجة أولى");
+            sb.AppendLine("BOM-201001,خلطة عجين بسبوسة معيار 10 كجم,عجين بسبوسه,10,كجم,0,10,0,30,101003,دقيق,4,كجم,0,دقيق فاخر منخول");
+            sb.AppendLine("BOM-201001,خلطة عجين بسبوسة معيار 10 كجم,عجين بسبوسه,10,كجم,0,10,0,30,101001,سكر,1,كجم,0,سكر أبيض ناعم");
+            sb.AppendLine("BOM-202001,خبز بلكة اسبونج فانيليا 40*60,اسبونج فانيليا,1,بلكة,1,1,3,45,101003,دقيق,2,كجم,2,دقيق فاخر");
+            sb.AppendLine("BOM-202001,خبز بلكة اسبونج فانيليا 40*60,اسبونج فانيليا,1,بلكة,1,1,3,45,101001,سكر,1.5,كجم,0,سكر ناعم");
+            sb.AppendLine("BOM-202001,خبز بلكة اسبونج فانيليا 40*60,اسبونج فانيليا,1,بلكة,1,1,3,45,101008,بيض مزارع طازج,30,قطعة,0,فصل بياض وصفار");
+
+            await TriggerBrowserDownload("قالب_معايير_خلطات_التصنيع_BOM_الشامل.csv", sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"فشل تحميل القالب: {ex.Message}";
+        }
+    }
+
+    private void OpenImportModal()
+    {
+        importedPreviewList.Clear();
+        isImportModalOpen = true;
+    }
+
+    private void CloseImportModal()
+    {
+        isImportModalOpen = false;
+        importedPreviewList.Clear();
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        importedPreviewList.Clear();
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024), Encoding.UTF8);
+            var content = await reader.ReadToEndAsync();
+            var lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (lines.Length <= 1) return;
+
+            var header = lines[0].Split(',');
+            int codeIdx = 0, nameIdx = 1, prodIdx = 2, bQtyIdx = 3, bUnitIdx = 4, pcsIdx = 5, yieldIdx = 6, wasteIdx = 7, timeIdx = 8;
+            int matCodeIdx = 9, matNameIdx = 10, mQtyIdx = 11, mUnitIdx = 12, mWasteIdx = 13, notesIdx = 14;
+
+            for (int i = 0; i < header.Length; i++)
+            {
+                var h = header[i].Trim().ToLower();
+                if (h.Contains("كود_الوصفة") || h.Contains("recipe_code")) codeIdx = i;
+                else if (h.Contains("اسم_الخلطة") || h.Contains("معيار")) nameIdx = i;
+                else if (h.Contains("منتج") || h.Contains("product")) prodIdx = i;
+                else if (h.Contains("حجم_الوجبة") || h.Contains("batch_qty")) bQtyIdx = i;
+                else if (h.Contains("وحدة_الوجبة") || h.Contains("batch_unit")) bUnitIdx = i;
+                else if (h.Contains("قطع") || h.Contains("pieces")) pcsIdx = i;
+                else if (h.Contains("خرج") || h.Contains("yield")) yieldIdx = i;
+                else if (h.Contains("فاقد_التشغيل") || h.Contains("general_waste")) wasteIdx = i;
+                else if (h.Contains("وقت") || h.Contains("time")) timeIdx = i;
+                else if (h.Contains("كود_المكون") || h.Contains("كود_الخام")) matCodeIdx = i;
+                else if (h.Contains("اسم_المكون") || h.Contains("اسم_الخام")) matNameIdx = i;
+                else if (h.Contains("كمية_المكون") || h.Contains("كمية_الخام")) mQtyIdx = i;
+                else if (h.Contains("وحدة_المكون") || h.Contains("وحدة_الخام")) mUnitIdx = i;
+                else if (h.Contains("فاقد_المكون") || h.Contains("فاقد_الخام")) mWasteIdx = i;
+                else if (h.Contains("ملاحظ") || h.Contains("notes")) notesIdx = i;
+            }
+
+            var tempRows = new List<(string Code, string Name, string Prod, decimal BQty, string BUnit, decimal Yield, decimal Pcs, decimal Waste, int Time, string MCode, string MName, decimal MQty, string MUnit, decimal MWaste, string Notes)>();
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var cols = line.Split(',');
+
+                if (cols.Length >= 3)
+                {
+                    string rCode = codeIdx < cols.Length ? cols[codeIdx].Trim() : "";
+                    string rName = nameIdx < cols.Length ? cols[nameIdx].Trim() : "";
+                    string rProd = prodIdx < cols.Length ? cols[prodIdx].Trim() : "";
+                    decimal.TryParse(bQtyIdx < cols.Length ? cols[bQtyIdx].Trim() : "10", out var bQty);
+                    string bUnit = bUnitIdx < cols.Length ? cols[bUnitIdx].Trim() : "كجم";
+                    decimal.TryParse(pcsIdx < cols.Length ? cols[pcsIdx].Trim() : "0", out var pcs);
+                    decimal.TryParse(yieldIdx < cols.Length ? cols[yieldIdx].Trim() : "10", out var yieldQty);
+                    decimal.TryParse(wasteIdx < cols.Length ? cols[wasteIdx].Trim() : "0", out var waste);
+                    int.TryParse(timeIdx < cols.Length ? cols[timeIdx].Trim() : "60", out var timeVal);
+
+                    string mCode = matCodeIdx < cols.Length ? cols[matCodeIdx].Trim() : "";
+                    string mName = matNameIdx < cols.Length ? cols[matNameIdx].Trim() : "";
+                    decimal.TryParse(mQtyIdx < cols.Length ? cols[mQtyIdx].Trim() : "1", out var mQty);
+                    string mUnit = mUnitIdx < cols.Length ? cols[mUnitIdx].Trim() : "كجم";
+                    decimal.TryParse(mWasteIdx < cols.Length ? cols[mWasteIdx].Trim() : "0", out var mWaste);
+                    string notes = notesIdx < cols.Length ? cols[notesIdx].Trim() : "";
+
+                    tempRows.Add((rCode, rName, rProd, bQty, bUnit, yieldQty, pcs, waste, timeVal, mCode, mName, mQty, mUnit, mWaste, notes));
+                }
+            }
+
+            var grouped = tempRows.GroupBy(x => !string.IsNullOrEmpty(x.Code) ? x.Code : x.Name).ToList();
+
+            foreach (var g in grouped)
+            {
+                var first = g.First();
+                var matchedProduct = targetProductsList.FirstOrDefault(p =>
+                    (!string.IsNullOrEmpty(first.Prod) && (p.ItemCode.Equals(first.Prod, StringComparison.OrdinalIgnoreCase) || p.ItemName.Contains(first.Prod, StringComparison.OrdinalIgnoreCase))));
+
+                var recipePreview = new RecipeImportPreviewDto
+                {
+                    RecipeCode = !string.IsNullOrEmpty(first.Code) ? first.Code : $"BOM-{DateTime.Now:yyyyMMdd}-{new Random().Next(100, 999)}",
+                    RecipeName = !string.IsNullOrEmpty(first.Name) ? first.Name : (matchedProduct != null ? $"معيار {matchedProduct.ItemName}" : "خلطة جديدة"),
+                    RawProductName = first.Prod,
+                    ProductItemId = matchedProduct?.Id ?? 0,
+                    MatchedProductName = matchedProduct?.ItemName ?? "غير مطابق",
+                    BatchQuantity = first.BQty > 0 ? first.BQty : 10,
+                    BatchUnit = !string.IsNullOrEmpty(first.BUnit) ? first.BUnit : "كجم",
+                    YieldQuantity = first.Yield > 0 ? first.Yield : 10,
+                    PiecesPerBatch = first.Pcs,
+                    WastePercentage = first.Waste,
+                    PreparationTimeMinutes = first.Time > 0 ? first.Time : 60,
+                    Lines = new List<RecipeLineDto>()
+                };
+
+                foreach (var lineRow in g)
+                {
+                    if (string.IsNullOrEmpty(lineRow.MCode) && string.IsNullOrEmpty(lineRow.MName)) continue;
+
+                    var matchedMaterial = allIngredientsList.FirstOrDefault(m =>
+                        (!string.IsNullOrEmpty(lineRow.MCode) && m.ItemCode.Equals(lineRow.MCode, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(lineRow.MName) && m.ItemName.Contains(lineRow.MName, StringComparison.OrdinalIgnoreCase)));
+
+                    recipePreview.Lines.Add(new RecipeLineDto
+                    {
+                        ComponentItemId = matchedMaterial?.Id ?? 0,
+                        ComponentItemCode = matchedMaterial?.ItemCode ?? lineRow.MCode,
+                        ComponentItemName = matchedMaterial?.ItemName ?? lineRow.MName,
+                        Quantity = lineRow.MQty > 0 ? lineRow.MQty : 1,
+                        Unit = !string.IsNullOrEmpty(lineRow.MUnit) ? lineRow.MUnit : (matchedMaterial?.Unit ?? "كجم"),
+                        WastePercentage = lineRow.MWaste,
+                        Notes = lineRow.Notes
+                    });
+                }
+
+                importedPreviewList.Add(recipePreview);
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ في قراءة ملف الإكسيل: {ex.Message}";
+        }
+    }
+
+    private async Task ProcessAndSaveImportAsync()
+    {
+        var validRecipes = importedPreviewList.Where(r => r.ProductItemId > 0).ToList();
+        if (!validRecipes.Any()) return;
+
+        isSavingImport = true;
+        try
+        {
+            var payloads = validRecipes.Select(r => new SaveRecipeDto
+            {
+                ProductItemId = r.ProductItemId,
+                RecipeCode = r.RecipeCode,
+                RecipeName = r.RecipeName,
+                BatchQuantity = r.BatchQuantity,
+                BatchUnit = r.BatchUnit,
+                YieldQuantity = r.YieldQuantity,
+                YieldUnit = r.BatchUnit,
+                PiecesPerBatch = r.PiecesPerBatch,
+                WastePercentage = r.WastePercentage,
+                PreparationTimeMinutes = r.PreparationTimeMinutes,
+                Active = true,
+                Lines = r.Lines.Where(l => l.ComponentItemId > 0).ToList()
+            }).ToList();
+
+            var res = await Http.PostAsJsonAsync("api/recipes/bulk-import", payloads);
+            if (res.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                statusMessage = $"تم استيراد وحفظ وتحديث ({validRecipes.Count}) معيار خلطة BOM بنجاح!";
+                CloseImportModal();
+                await LoadData();
+            }
+            else
+            {
+                int savedCount = 0;
+                foreach (var item in payloads)
+                {
+                    var r = await Http.PostAsJsonAsync("api/recipes", item);
+                    if (r.IsSuccessStatusCode) savedCount++;
+                }
+
+                isSuccess = true;
+                statusMessage = $"تم استيراد وحفظ ({savedCount}) معيار خلطة بنجاح!";
+                CloseImportModal();
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = $"خطأ أثناء حفظ المعايير: {ex.Message}";
+        }
+        finally
+        {
+            isSavingImport = false;
+        }
+    }
+
+    private async Task TriggerBrowserDownload(string fileName, string content)
+    {
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+        var js = $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);";
+        await JS.InvokeVoidAsync("eval", js);
+    }
+
+    private string EscapeCsv(string val)
+    {
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        return val;
+    }
+}

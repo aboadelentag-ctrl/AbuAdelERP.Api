@@ -1,0 +1,477 @@
+﻿@page "/suppliers"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using System.Text
+@using KayanERP.UI.DTOs
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>دليل الموردين وسلاسل الإمداد - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid py-4" dir="rtl">
+    <!-- رأس الصفحة -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-2">
+        <div>
+            <h3 class="fw-bold text-primary mb-1">
+                <i class="bi bi-truck-flatbed me-2"></i>دليل الموردين وسلاسل الإمداد
+            </h3>
+            <p class="text-muted small mb-0">إدارة موردي الخامات ومواد التعبئة، شروط السداد، والبيانات الضريبية</p>
+        </div>
+        <div class="d-flex gap-2">
+            @if (suppliers.Any())
+            {
+                <button class="btn btn-outline-success px-3 shadow-sm btn-sm fw-bold" @onclick="ExportSuppliersToExcel">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير (Excel)
+                </button>
+            }
+            <button class="btn btn-primary px-4 shadow-sm btn-sm fw-bold" @onclick="OpenCreateModal">
+                <i class="bi bi-person-plus-fill me-1"></i> تسجيل مورد جديد
+            </button>
+            <button class="btn btn-outline-secondary px-3 btn-sm" @onclick="LoadSuppliers" disabled="@isLoading" title="تحديث البيانات">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- رسائل التنبيه -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isErrorAlert ? "alert-danger" : "alert-success") alert-dismissible fade show shadow-sm py-2 fw-bold" role="alert">
+            <i class="bi @(isErrorAlert ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-2"></i>@statusMessage
+            <button type="button" class="btn-close py-2" @onclick="() => statusMessage = null"></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm py-2 fw-bold" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+            <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <!-- بطاقات الإحصائيات السريعة -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-primary">
+                <span class="text-muted small fw-bold d-block">إجمالي الموردين المسجلين</span>
+                <h4 class="fw-bold text-dark mb-0 font-monospace mt-1">@suppliers.Count</h4>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-success">
+                <span class="text-muted small fw-bold d-block">الموردين النشطين</span>
+                <h4 class="fw-bold text-success mb-0 font-monospace mt-1">@suppliers.Count(s => s.Active)</h4>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 p-3 border-start border-4 border-warning">
+                <span class="text-muted small fw-bold d-block">موردين بتسهيلات سداد (آجل)</span>
+                <h4 class="fw-bold text-warning mb-0 font-monospace mt-1">@suppliers.Count(s => s.PaymentTerms != null && s.PaymentTerms.Contains("آجل"))</h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط البحث والفلترة -->
+    <div class="card shadow-sm border-0 rounded-3 mb-4 bg-light">
+        <div class="card-body p-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-8">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" placeholder="بحث باسم المورد، الكود، الهاتف، أو الرقم الضريبي..." 
+                               @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm fw-bold" @bind="activeFilter" @bind:after="LoadSuppliers">
+                        <option value="">كافة الموردين (نشط ومعطل)</option>
+                        <option value="true">الموردين النشطين فقط</option>
+                        <option value="false">الموردين المعطلين فقط</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <button class="btn btn-outline-secondary btn-sm w-100 fw-bold" @onclick="ResetFilters">إلغاء</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول الموردين -->
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold text-dark m-0">سجل الموردين المعتمدين (@FilteredSuppliers.Count() مورد)</h6>
+            <span class="badge bg-dark font-monospace">محدث من قاعدة البيانات</span>
+        </div>
+        <div class="card-body p-0">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="text-muted mt-2 mb-0">جاري تحميل بيانات الموردين...</p>
+                </div>
+            }
+            else if (!FilteredSuppliers.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-people fs-1 d-block mb-2"></i>
+                    لا يوجد موردين مطابقين لمعايير البحث.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center small">
+                        <thead class="table-light text-secondary">
+                            <tr>
+                                <th style="width: 110px;">كود المورد</th>
+                                <th class="text-start ps-3">اسم المورد</th>
+                                <th>الهاتف والتواصل</th>
+                                <th>العنوان</th>
+                                <th>الرقم الضريبي</th>
+                                <th>شروط السداد</th>
+                                <th>الحالة</th>
+                                <th style="width: 150px;">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in FilteredSuppliers)
+                            {
+                                <tr class="@(s.Active ? "" : "bg-light text-muted")">
+                                    <td class="fw-bold font-monospace text-primary">@s.SupplierCode</td>
+                                    <td class="text-start ps-3 fw-bold text-dark">
+                                        @s.SupplierName
+                                        @if (!string.IsNullOrEmpty(s.Notes))
+                                        {
+                                            <div class="small text-muted text-truncate" style="max-width: 200px;">@s.Notes</div>
+                                        }
+                                    </td>
+                                    <td class="small">
+                                        <div><i class="bi bi-telephone me-1 text-muted"></i>@(s.Phone ?? "---")</div>
+                                        @if (!string.IsNullOrEmpty(s.Email))
+                                        {
+                                            <div class="text-muted"><i class="bi bi-envelope me-1"></i>@s.Email</div>
+                                        }
+                                    </td>
+                                    <td class="small text-muted text-truncate" style="max-width: 160px;">@(s.Address ?? "---")</td>
+                                    <td class="font-monospace small">@(s.TaxNumber ?? "---")</td>
+                                    <td>
+                                        <span class="badge @(s.PaymentTerms == "نقدي" ? "bg-light text-dark border" : "bg-info text-dark")">
+                                            @(s.PaymentTerms ?? "نقدي")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(s.Active ? "bg-success" : "bg-danger")">
+                                            @(s.Active ? "نشط" : "معطل")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold me-1" @onclick="() => OpenEditModal(s)" title="تعديل">
+                                            <i class="bi bi-pencil-square"></i> تعديل
+                                        </button>
+                                        <button class="btn btn-sm @(s.Active ? "btn-outline-warning text-dark" : "btn-outline-success") py-0 px-2 fw-bold me-1"
+                                                @onclick="() => ToggleSupplierStatus(s.Id)" title="@(s.Active ? "إيقاف التعامل" : "تفعيل")">
+                                            @(s.Active ? "إيقاف" : "تفعيل")
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" @onclick="() => DeleteSupplier(s)" title="حذف">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal: إضافة / تعديل مورد -->
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered" dir="rtl">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white py-2 px-3">
+                    <h6 class="modal-title fw-bold">
+                        <i class="bi @(editingId > 0 ? "bi-pencil-square" : "bi-person-plus-fill") me-2"></i>
+                        @(editingId > 0 ? "تعديل بيانات مورد" : "تسجيل مورد جديد")
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    @if (!string.IsNullOrEmpty(modalError))
+                    {
+                        <div class="alert alert-danger py-2 small mb-3 fw-bold">@modalError</div>
+                    }
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">اسم المورد / الشركة <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm fw-bold border-primary" placeholder="مثال: مطاحن ومضارب الغربية" @bind="currentSupplier.SupplierName" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">كود المورد (اتركه فارغاً للتوليد التلقائي)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="مثال: SUP-0012" @bind="currentSupplier.SupplierCode" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">رقم الهاتف / المحمول</label>
+                            <input type="text" class="form-control form-control-sm" dir="ltr" placeholder="01xxxxxxxxx" @bind="currentSupplier.Phone" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">البريد الإلكتروني</label>
+                            <input type="email" class="form-control form-control-sm" dir="ltr" placeholder="supplier@domain.com" @bind="currentSupplier.Email" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">الرقم الضريبي</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" placeholder="رقم التسجيل الضريبي" @bind="currentSupplier.TaxNumber" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">شروط السداد المعتمدة</label>
+                            <select class="form-select form-select-sm fw-bold" @bind="currentSupplier.PaymentTerms">
+                                <option value="نقدي">نقدي عند الاستلام</option>
+                                <option value="آجل 15 يوم">آجل 15 يوم</option>
+                                <option value="آجل 30 يوم">آجل 30 يوم</option>
+                                <option value="آجل 60 يوم">آجل 60 يوم</option>
+                                <option value="دفعة مقدمة">دفعة مقدمة مع التوريد</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-dark mb-1">العنوان ومقر التوريد</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="المحافظة - المركز - العنوان بالتفصيل" @bind="currentSupplier.Address" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-dark mb-1">ملاحظات ومواصفات التوريد</label>
+                            <textarea class="form-control form-control-sm" rows="2" placeholder="أي شروط جودة خاصة، أصناف التوريد، أو بنود الاتفاق..." @bind="currentSupplier.Notes"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch fs-6">
+                                <input class="form-check-input" type="checkbox" id="supplierActiveSwitch" @bind="currentSupplier.Active" />
+                                <label class="form-check-label small fw-bold ms-2" for="supplierActiveSwitch">المورد نشط ومتاح لأوامر الشراء والتوريد</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="CloseModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" @onclick="SaveSupplier" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري الحفظ...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-save me-1"></i>
+                            <span>حفظ المورد</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SupplierViewDto> suppliers = new();
+    private SupplierCreateUpdateDto currentSupplier = new();
+    private long editingId = 0;
+    private string searchTerm = string.Empty;
+    private string activeFilter = "";
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool showModal = false;
+    private string? statusMessage;
+    private string? errorMessage;
+    private string? modalError;
+    private bool isErrorAlert = false;
+
+    private IEnumerable<SupplierViewDto> FilteredSuppliers =>
+        string.IsNullOrWhiteSpace(searchTerm)
+            ? suppliers
+            : suppliers.Where(s => (s.SupplierName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                || (s.SupplierCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                || (s.Phone?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                || (s.TaxNumber?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSuppliers();
+    }
+
+    private async Task LoadSuppliers()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            string url = "api/suppliers";
+            if (!string.IsNullOrEmpty(activeFilter))
+            {
+                url += $"?active={activeFilter}";
+            }
+            suppliers = await Http.GetFromJsonAsync<List<SupplierViewDto>>(url) ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تحميل الموردين: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ResetFilters()
+    {
+        searchTerm = string.Empty;
+        activeFilter = "";
+    }
+
+    private void OpenCreateModal()
+    {
+        editingId = 0;
+        currentSupplier = new SupplierCreateUpdateDto { Active = true, PaymentTerms = "نقدي" };
+        modalError = null;
+        showModal = true;
+    }
+
+    private void OpenEditModal(SupplierViewDto item)
+    {
+        editingId = item.Id;
+        currentSupplier = new SupplierCreateUpdateDto
+        {
+            SupplierCode = item.SupplierCode,
+            SupplierName = item.SupplierName,
+            Phone = item.Phone,
+            Email = item.Email,
+            Address = item.Address,
+            TaxNumber = item.TaxNumber,
+            PaymentTerms = item.PaymentTerms,
+            Active = item.Active,
+            Notes = item.Notes
+        };
+        modalError = null;
+        showModal = true;
+    }
+
+    private void CloseModal() => showModal = false;
+
+    private async Task SaveSupplier()
+    {
+        if (string.IsNullOrWhiteSpace(currentSupplier.SupplierName))
+        {
+            modalError = "اسم المورد مطلوب.";
+            return;
+        }
+
+        isSaving = true;
+        modalError = null;
+        try
+        {
+            HttpResponseMessage response;
+            if (editingId > 0)
+                response = await Http.PutAsJsonAsync($"api/suppliers/{editingId}", currentSupplier);
+            else
+                response = await Http.PostAsJsonAsync("api/suppliers", currentSupplier);
+
+            if (response.IsSuccessStatusCode)
+            {
+                statusMessage = editingId > 0 ? "تم تحديث بيانات المورد بنجاح." : "تم تسجيل المورد بنجاح.";
+                isErrorAlert = false;
+                CloseModal();
+                await LoadSuppliers();
+            }
+            else
+            {
+                modalError = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            modalError = $"خطأ: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ToggleSupplierStatus(long id)
+    {
+        try
+        {
+            var response = await Http.PutAsync($"api/suppliers/{id}/toggle-status", null);
+            if (response.IsSuccessStatusCode)
+            {
+                var s = suppliers.FirstOrDefault(x => x.Id == id);
+                if (s != null) s.Active = !s.Active;
+                statusMessage = "تم تحديث حالة المورد بنجاح.";
+                isErrorAlert = false;
+            }
+            else
+            {
+                errorMessage = "تعذر تحديث حالة المورد.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تغيير الحالة: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteSupplier(SupplierViewDto s)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف أو إيقاف المورد [{s.SupplierName}]؟");
+        if (!confirm) return;
+
+        try
+        {
+            var response = await Http.DeleteAsync($"api/suppliers/{s.Id}");
+            if (response.IsSuccessStatusCode)
+            {
+                statusMessage = "تمت معالجة حذف / إيقاف المورد بنجاح.";
+                isErrorAlert = false;
+                await LoadSuppliers();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في الحذف: {ex.Message}";
+        }
+    }
+
+    private async Task ExportSuppliersToExcel()
+    {
+        var list = FilteredSuppliers.ToList();
+        if (!list.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_المورد,اسم_المورد,الهاتف,البريد_الإلكتروني,العنوان,الرقم_الضريبي,شروط_السداد,الحالة");
+
+            foreach (var s in list)
+            {
+                var status = s.Active ? "نشط" : "معطل";
+                sb.AppendLine($"\"{s.SupplierCode}\",\"{s.SupplierName}\",\"{s.Phone ?? ""}\",\"{s.Email ?? ""}\",\"{s.Address ?? ""}\",\"{s.TaxNumber ?? ""}\",\"{s.PaymentTerms ?? "نقدي"}\",\"{status}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"دليل_الموردين_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+            statusMessage = "تم تصدير دليل الموردين إلى إكسيل بنجاح.";
+            isErrorAlert = false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل التصدير: {ex.Message}";
+        }
+    }
+}

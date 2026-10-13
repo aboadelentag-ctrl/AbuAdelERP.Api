@@ -1,0 +1,481 @@
+﻿@page "/form-reports"
+@layout KayanERP.UI.Pages.EmptyLayout
+@inject HttpClient Http
+@inject IJSRuntime JS
+@using System.Text.Json
+@using System.Net.Http.Json
+
+<PageTitle>لوحة المؤشرات والتقارير الرقابية - حلواني أبو عادل</PageTitle>
+
+<style>
+    @@media print {
+        .no-print, .sidebar, nav, header, button, .btn, .modal {
+            display: none !important;
+        }
+        body, .container-fluid {
+            background-color: #fff !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            direction: rtl !important;
+        }
+        .card {
+            border: 1px solid #ddd !important;
+            box-shadow: none !important;
+            break-inside: avoid;
+        }
+        .print-header {
+            display: block !important;
+        }
+    }
+    .print-header { display: none; }
+</style>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+    
+    <!-- ترويسة الطباعة الرسمية -->
+    <div class="print-header text-center mb-4 pb-3 border-bottom border-2 border-dark">
+        <h2 class="fw-bold m-0 text-dark">حلواني أبو عادل - نظام تخطيط وإدارة الموارد (ERP)</h2>
+        <h4 class="text-secondary mt-1">تقرير استجابات الرقابة الميدانية ومحاضر التشغيل</h4>
+        <div class="d-flex justify-content-between mt-3 text-muted small">
+            <span>تاريخ وتوقيت الاستخراج: <strong>@DateTime.Now.ToString("yyyy-MM-dd HH:mm")</strong></span>
+            <span>النموذج: <strong>@(reportData?.FormName ?? "") (@(reportData?.FormCode ?? ""))</strong></span>
+        </div>
+    </div>
+
+    <!-- Header الشاشة العادية -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom flex-wrap gap-2 no-print">
+        <div>
+            <h3 class="text-primary m-0 mb-1 fw-bold">📊 لوحة المؤشرات والتقارير الرقابية الشاملة (BI & KPIs)</h3>
+            <span class="text-muted small">تحليل معدلات المطابقة، نسب الهوالك بالأقسام، وفحص وثائق ومحاضر التشغيل</span>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-success btn-sm fw-bold shadow-sm px-3" 
+                    @onclick="PrintReport" 
+                    disabled="@(reportData == null || !reportData.SubmissionsLog.Any())">
+                🖨️ طباعة التقرير الرسمي / PDF
+            </button>
+            <button class="btn btn-primary btn-sm fw-bold shadow-sm px-3" 
+                    @onclick="LoadReportData" 
+                    disabled="@(selectedFormId <= 0 || isLoading)">
+                🔄 تحديث البيانات
+            </button>
+        </div>
+    </div>
+
+    <!-- 1. شريط الفلاتر والتحكم الحي (مربوط بقاعدة البيانات مباشرة) -->
+    <div class="card shadow-sm border-0 mb-4 bg-white rounded-3 no-print">
+        <div class="card-body p-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-dark">اختر النموذج المطلوب تحليله <span class="text-danger">*</span></label>
+                    <select class="form-select form-select-sm border-primary fw-bold" @onchange="OnFormSelected">
+                        <option value="0">-- اختر النموذج --</option>
+                        @if (formsList != null)
+                        {
+                            @foreach (var f in formsList)
+                            {
+                                <option value="@f.Id">@f.FormName (@f.FormCode)</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-dark">من تاريخ</label>
+                    <input type="date" class="form-control form-control-sm font-monospace" @bind="filterFromDate" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-dark">إلى تاريخ</label>
+                    <input type="date" class="form-control form-control-sm font-monospace" @bind="filterToDate" />
+                </div>
+                
+                <!-- قائمة الأقسام الحية المسحوبة من جدول Departments -->
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-dark">القسم / الصالة (بيانات حية)</label>
+                    <select class="form-select form-select-sm border-primary" @bind="filterDepartment">
+                        <option value="">-- كافة الأقسام والصالات --</option>
+                        @if (departmentsList != null)
+                        {
+                            @foreach (var d in departmentsList)
+                            {
+                                <option value="@d">@d</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" @onclick="LoadReportData" disabled="@(selectedFormId <= 0 || isLoading)">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري التحليل...</span>
+                        }
+                        else
+                        {
+                            <span>🔍 تشغيل الاستعلام</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (reportData != null)
+    {
+        <!-- 2. بطاقات مؤشرات الأداء التنفيذية (Executive KPI Cards) -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm rounded-3 bg-primary text-white p-3 h-100">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="small opacity-75 d-block">إجمالي المحاضر المعتمدة</span>
+                            <h3 class="fw-bold m-0 mt-1 font-monospace">@reportData.TotalSubmissions</h3>
+                        </div>
+                        <span class="fs-1 opacity-50">📑</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm rounded-3 @(reportData.ComplianceRate >= 90 ? "bg-success" : reportData.ComplianceRate >= 75 ? "bg-warning text-dark" : "bg-danger") text-white p-3 h-100">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="small opacity-75 d-block">معدل المطابقة العام (Compliance Rate)</span>
+                            <h3 class="fw-bold m-0 mt-1 font-monospace">@reportData.ComplianceRate%</h3>
+                        </div>
+                        <span class="fs-1 opacity-50">🎯</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm rounded-3 bg-danger text-white p-3 h-100">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="small opacity-75 d-block">حالات عدم المطابقة المرصودة</span>
+                            <h3 class="fw-bold m-0 mt-1 font-monospace">@reportData.TotalViolations</h3>
+                        </div>
+                        <span class="fs-1 opacity-50">⚠️</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm rounded-3 bg-dark text-white p-3 h-100">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="small opacity-75 d-block">إجمالي الكميات / الهالك المسجل</span>
+                            <h3 class="fw-bold m-0 mt-1 font-monospace text-warning">@reportData.TotalQuantity</h3>
+                        </div>
+                        <span class="fs-1 opacity-50">⚖️</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. تحليل التوزيع حسب الأقسام وصالات الإنتاج (Department Distribution) -->
+        @if (reportData.DepartmentStats != null && reportData.DepartmentStats.Any())
+        {
+            <div class="card shadow-sm border-0 rounded-3 mb-4">
+                <div class="card-header bg-white py-2 border-bottom">
+                    <h6 class="m-0 fw-bold text-dark">🏢 التوزيع التحليلي حسب صالات وأقسام المصنع</h6>
+                </div>
+                <div class="card-body p-3">
+                    <div class="row g-3">
+                        @foreach (var stat in reportData.DepartmentStats)
+                        {
+                            <div class="col-md-4">
+                                <div class="border rounded p-2 bg-light shadow-sm">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <strong class="text-primary small">@stat.DepartmentName</strong>
+                                        <span class="badge bg-secondary font-monospace">@stat.Count محضر (@stat.Percentage%)</span>
+                                    </div>
+                                    <div class="progress" style="height: 6px;">
+                                        <div class="progress-bar bg-success" role="progressbar" style="width: @stat.Percentage%;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- 4. جدول المحاضر التفصيلي الموسع والمزود ببيانات التشغيل والوسائط -->
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
+            <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                <h6 class="m-0 fw-bold text-dark">📋 سجل الاستجابات والمحاضر الموثقة (@reportData.SubmissionsLog.Count سجل)</h6>
+                <span class="badge bg-light text-dark border">النموذج: @reportData.FormName</span>
+            </div>
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover align-middle text-center small mb-0">
+                    <thead class="table-light text-secondary">
+                        <tr>
+                            <th style="width: 70px;">م</th>
+                            <th class="text-start ps-3">القسم / الصالة</th>
+                            <th>الصنف / الموظف</th>
+                            <th>الكمية</th>
+                            <th>المسبب / الملاحظة</th>
+                            <th>المرفقات</th>
+                            <th>تاريخ التوثيق</th>
+                            <th>الحالة</th>
+                            <th class="no-print">إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!reportData.SubmissionsLog.Any())
+                        {
+                            <tr>
+                                <td colspan="9" class="py-4 text-muted">لا توجد سجلات مطابقة لمعايير الفلترة المحددة.</td>
+                            </tr>
+                        }
+                        @foreach (var sub in reportData.SubmissionsLog)
+                        {
+                            <tr>
+                                <td class="font-monospace fw-bold text-primary">#@sub.Id</td>
+                                <td class="text-start ps-3 fw-bold text-dark">@(string.IsNullOrEmpty(sub.Department) ? "عام" : sub.Department)</td>
+                                <td class="fw-bold text-secondary">@(string.IsNullOrEmpty(sub.ItemOrName) ? "-" : sub.ItemOrName)</td>
+                                <td class="font-monospace fw-bold text-danger">@(string.IsNullOrEmpty(sub.Quantity) ? "-" : sub.Quantity)</td>
+                                <td class="text-muted small text-truncate" style="max-width: 150px;">@(string.IsNullOrEmpty(sub.ReasonOrAction) ? "-" : sub.ReasonOrAction)</td>
+                                
+                                <!-- شارات المرفقات التوثيقية -->
+                                <td>
+                                    <div class="d-flex justify-content-center gap-1">
+                                        @if (sub.HasImage) { <span title="مرفق صورة">📷</span> }
+                                        @if (sub.HasVideo) { <span title="مرفق فيديو">🎥</span> }
+                                        @if (sub.HasAudio) { <span title="مرفق صوت">🎙️</span> }
+                                        @if (!sub.HasImage && !sub.HasVideo && !sub.HasAudio) { <span class="text-muted">-</span> }
+                                    </div>
+                                </td>
+
+                                <td class="font-monospace text-muted small">@sub.SubmittedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    <span class="badge bg-success bg-opacity-10 text-success border border-success px-2 py-1">
+                                        ✓ @sub.Status
+                                    </span>
+                                </td>
+                                <td class="no-print">
+                                    <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold" @onclick="() => ViewSubmissionDetails(sub)">
+                                        🔍 معاينة كاملة
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (!isLoading && selectedFormId > 0)
+    {
+        <div class="alert alert-info text-center py-4 shadow-sm no-print">
+            اضغط على زر "🔍 تشغيل الاستعلام" لعرض بيانات ومؤشرات النموذج.
+        </div>
+    }
+
+    <!-- مودال المعاينة الكاملة للمحضر والمرفقات -->
+    @if (selectedSubmissionModal != null)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" dir="rtl">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-dark text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">معاينة تفاصيل المحضر رقم #@selectedSubmissionModal.Id</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="() => selectedSubmissionModal = null"></button>
+                    </div>
+                    <div class="modal-body p-3 bg-light">
+                        <div class="bg-white p-3 rounded shadow-sm mb-3">
+                            <div class="row g-2 small">
+                                <div class="col-md-6"><strong>المحرر:</strong> @selectedSubmissionModal.SubmittedByName</div>
+                                <div class="col-md-6 font-monospace"><strong>التاريخ:</strong> @selectedSubmissionModal.SubmittedAt.ToString("yyyy-MM-dd HH:mm")</div>
+                                <div class="col-md-6"><strong>القسم:</strong> @selectedSubmissionModal.Department</div>
+                                <div class="col-md-6"><strong>الصنف / الموظف:</strong> @selectedSubmissionModal.ItemOrName</div>
+                            </div>
+                        </div>
+
+                        <!-- تفاصيل المدخلات بالكامل -->
+                        <div class="bg-white p-3 rounded shadow-sm">
+                            <h6 class="border-bottom pb-2 text-secondary fw-bold small">كافة الحقول والملاحظات المسجلة:</h6>
+                            <div class="row g-2">
+                                @foreach (var item in modalAnswers)
+                                {
+                                    @if (!item.Key.StartsWith("report_attachment_"))
+                                    {
+                                        <div class="col-md-6 border-bottom py-1 small">
+                                            <span class="text-muted">@item.Key:</span>
+                                            <strong class="text-dark ms-1">@item.Value</strong>
+                                        </div>
+                                    }
+                                }
+                            </div>
+
+                            <!-- الوسائط التوثيقية -->
+                            <div class="mt-3 pt-3 border-top">
+                                <h6 class="text-primary fw-bold small mb-2">📎 المرفقات والوسائط المسجلة:</h6>
+                                <div class="row g-2 text-center">
+                                    @if (modalAnswers.TryGetValue("report_attachment_image", out var imgBase64) && !string.IsNullOrEmpty(imgBase64))
+                                    {
+                                        <div class="col-md-4">
+                                            <span class="small d-block text-muted mb-1">صورة المعاينة</span>
+                                            <img src="@imgBase64" class="img-thumbnail rounded shadow-sm" style="max-height: 140px;" />
+                                        </div>
+                                    }
+                                    @if (modalAnswers.TryGetValue("report_attachment_video", out var vidBase64) && !string.IsNullOrEmpty(vidBase64))
+                                    {
+                                        <div class="col-md-4">
+                                            <span class="small d-block text-muted mb-1">فيديو التشغيل</span>
+                                            <video src="@vidBase64" controls class="w-100 rounded" style="max-height: 140px;"></video>
+                                        </div>
+                                    }
+                                    @if (modalAnswers.TryGetValue("report_attachment_audio", out var audBase64) && !string.IsNullOrEmpty(audBase64))
+                                    {
+                                        <div class="col-md-4">
+                                            <span class="small d-block text-muted mb-1">التسجيل الصوتي</span>
+                                            <audio src="@audBase64" controls class="w-100 mt-2"></audio>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-white py-2">
+                        <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => selectedSubmissionModal = null">إغلاق</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<DynamicFormDto>? formsList;
+    private List<string>? departmentsList;
+    private long selectedFormId = 0;
+    private DateTime? filterFromDate = DateTime.Now.AddDays(-30);
+    private DateTime? filterToDate = DateTime.Now;
+    private string filterDepartment = "";
+
+    private FormReportDashboardDto? reportData;
+    private bool isLoading = false;
+
+    private FormSubmissionSummaryDto? selectedSubmissionModal;
+    private Dictionary<string, string> modalAnswers = new();
+
+    private string formsApiUrl = "api/DynamicForms";
+    private string reportsApiUrl = "api/FormReports";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // 1. جلب النماذج الفعالة
+            var forms = await Http.GetFromJsonAsync<List<DynamicFormDto>>(formsApiUrl);
+            if (forms != null) formsList = forms.Where(f => f.IsActive).ToList();
+
+            // 2. جلب الأقسام والصالات الحقيقية من قاعدة بيانات المصنع مباشرة
+            departmentsList = await Http.GetFromJsonAsync<List<string>>("api/FormImport/erp-lookups/departments");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FormReports] Error on init: {ex.Message}");
+        }
+    }
+
+    private void OnFormSelected(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long id))
+        {
+            selectedFormId = id;
+            reportData = null;
+        }
+    }
+
+    private async Task LoadReportData()
+    {
+        if (selectedFormId <= 0) return;
+
+        isLoading = true;
+        try
+        {
+            string url = $"{reportsApiUrl}/dashboard?formId={selectedFormId}";
+            if (filterFromDate.HasValue) url += $"&fromDate={filterFromDate.Value:yyyy-MM-dd}";
+            if (filterToDate.HasValue) url += $"&toDate={filterToDate.Value:yyyy-MM-dd}";
+            if (!string.IsNullOrWhiteSpace(filterDepartment)) url += $"&department={Uri.EscapeDataString(filterDepartment)}";
+
+            reportData = await Http.GetFromJsonAsync<FormReportDashboardDto>(url);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FormReports] Error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ViewSubmissionDetails(FormSubmissionSummaryDto sub)
+    {
+        selectedSubmissionModal = sub;
+        modalAnswers.Clear();
+        try
+        {
+            var opt = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            modalAnswers = JsonSerializer.Deserialize<Dictionary<string, string>>(sub.AnswersJson, opt) ?? new();
+        }
+        catch { }
+    }
+
+    private async Task PrintReport()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    public class DynamicFormDto
+    {
+        public long Id { get; set; }
+        public string FormName { get; set; } = string.Empty;
+        public string FormCode { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+    }
+
+    public class FormReportDashboardDto
+    {
+        public long FormId { get; set; }
+        public string FormName { get; set; } = string.Empty;
+        public string FormCode { get; set; } = string.Empty;
+        public int TotalSubmissions { get; set; }
+        public double ComplianceRate { get; set; } = 100.0;
+        public int TotalViolations { get; set; }
+        public double TotalQuantity { get; set; }
+        public List<DepartmentStatItem> DepartmentStats { get; set; } = new();
+        public List<TopViolationItem> TopViolations { get; set; } = new();
+        public List<FormSubmissionSummaryDto> SubmissionsLog { get; set; } = new();
+    }
+
+    public class DepartmentStatItem
+    {
+        public string DepartmentName { get; set; } = string.Empty;
+        public int Count { get; set; }
+        public double Percentage { get; set; }
+    }
+
+    public class TopViolationItem
+    {
+        public string ItemKey { get; set; } = string.Empty;
+        public int Count { get; set; }
+    }
+
+    public class FormSubmissionSummaryDto
+    {
+        public long Id { get; set; }
+        public string SubmittedByName { get; set; } = string.Empty;
+        public DateTime SubmittedAt { get; set; }
+        public string Department { get; set; } = string.Empty;
+        public string ItemOrName { get; set; } = string.Empty;
+        public string Quantity { get; set; } = string.Empty;
+        public string ReasonOrAction { get; set; } = string.Empty;
+        public bool HasImage { get; set; }
+        public bool HasVideo { get; set; }
+        public bool HasAudio { get; set; }
+        public string Status { get; set; } = "معتمد";
+        public string AnswersJson { get; set; } = "{}";
+    }
+}

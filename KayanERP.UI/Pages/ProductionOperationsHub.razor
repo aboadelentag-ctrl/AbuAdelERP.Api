@@ -1,0 +1,1379 @@
+﻿@page "/production-operations-hub"
+@page "/production-hub"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using System.Text
+@using System.IO
+@using KayanERP.UI.Services
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject AppState State
+
+<PageTitle>غرفة عمليات الإنتاج والتكاليف والورديات (MES) - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+
+    <!-- رأس الشاشة التنفيذي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-warning">⚙️ غرفة عمليات الإنتاج والتكاليف والورديات الموحدة (MES)</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">نظام الربط الصناعي المغلق</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    الربط الإجباري للصالة ومخزنها، تقفيل كامل أصناف الأوامر باللوطات، فرز وحضور الورديات، وقواعد ساعات العمل والتأخير الصناعية.
+                </small>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                @if (State.HasAnyPermission("Production.OrdersView", "Production.CreateOrder"))
+                {
+                    <button class="btn btn-warning text-dark btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="OpenCreateOrderModal">
+                        <i class="bi bi-plus-circle-fill me-1"></i> إصدار أمر تشغيل جديد
+                    </button>
+                    <label class="btn btn-outline-info btn-sm fw-bold px-3 py-2 shadow-sm mb-0 cursor-pointer">
+                        <i class="bi bi-file-earmark-arrow-up-fill me-1"></i> استيراد أوامر من إكسيل (CSV)
+                        <InputFile OnChange="ImportOrdersFromCsv" class="d-none" accept=".csv" />
+                    </label>
+                }
+                @if (State.HasAnyPermission("Reports.View", "Production.OrdersView"))
+                {
+                    <button class="btn btn-outline-light btn-sm fw-bold px-3 py-2 shadow-sm" @onclick="ExportOrdersToExcel">
+                        <i class="bi bi-file-earmark-excel-fill text-success me-1"></i> تصدير أوامر الإنتاج
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- رسائل التنبيه والنجاح -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") border-0 shadow-sm alert-dismissible fade show py-2 mb-3 fw-bold" role="alert">
+            @statusMessage
+            <button type="button" class="btn-close py-2" @onclick='() => statusMessage = ""'></button>
+        </div>
+    }
+
+    <!-- التبويبات الخمسة الرئيسية مشروطة بالصلاحيات الأمنية -->
+    <ul class="nav nav-tabs fw-bold mb-3 border-bottom-2" role="tablist">
+        @if (State.HasAnyPermission("Production.OrdersView", "Production.OperationsHub"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "orders" ? "active text-dark border-warning border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => SwitchTab("orders")'>
+                    📋 1. سجل أوامر التشغيل والإنتاج (@ordersList.Count)
+                </button>
+            </li>
+        }
+
+        @if (State.HasAnyPermission("Production.Execution", "Production.OperationsHub"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "execution" ? "active text-primary border-primary border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => SwitchTab("execution")'>
+                    ⚙️ 2. التنفيذ الميداني وتقفيل اللوط والهالك
+                </button>
+            </li>
+        }
+
+        @if (State.HasAnyPermission("Productivity.Entry", "Productivity.View", "Production.OperationsHub"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "shift" ? "active text-warning border-warning border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => SwitchTab("shift")'>
+                    ⏱️ 3. إدارة الوردية وحضور العمال بالصالات (@FilteredShiftCrew.Count() عامل)
+                </button>
+            </li>
+        }
+
+        @if (State.HasAnyPermission("BatchCosting.View", "Costing.View"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "costing" ? "active text-success border-success border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => SwitchTab("costing")'>
+                    💰 4. احتساب وتحليل تكلفة الدفعة (Costing)
+                </button>
+            </li>
+        }
+
+        @if (State.HasAnyPermission("Productivity.Reports", "DepartmentKPIS.View", "Reports.View"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "reports" ? "active text-info border-info border-bottom-0 fw-bold bg-white" : "text-muted")" @onclick='() => SwitchTab("reports")'>
+                    📊 5. مركز التقارير واليوميات وكفاءة الأقسام
+                </button>
+            </li>
+        }
+    </ul>
+
+    <!-- ======================================================== -->
+    <!-- التبويب 1: سجل أوامر التشغيل والإنتاج -->
+    <!-- ======================================================== -->
+    @if (activeTab == "orders" && State.HasAnyPermission("Production.OrdersView", "Production.OperationsHub"))
+    {
+        <div class="card shadow-sm border-0 mb-3 bg-light">
+            <div class="card-body p-2">
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-5">
+                        <input type="text" class="form-control form-control-sm" placeholder="بحث برقم الأمر، الصنف، الصالة..." @bind="searchOrderTerm" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select form-select-sm fw-bold" @bind="selectedOrderTrackFilter">
+                            <option value="">-- كل مسارات التشغيل --</option>
+                            <option value="منتج تام">منتج تام (حلويات وتام) 🍰</option>
+                            <option value="نصف مصنع">نصف مصنع (تجهيزات) 🥣</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select form-select-sm" @bind="selectedOrderStatusFilter">
+                            <option value="">-- كل الحالات --</option>
+                            <option value="PENDING_EXECUTION">جاهز للتنفيذ ⏳</option>
+                            <option value="COMPLETED">مكتمل ومقفل بالكامل ✓</option>
+                        </select>
+                    </div>
+                    <div class="col-md-1">
+                        <button class="btn btn-outline-secondary btn-sm w-100" @onclick="LoadOrders">🔄</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>رقم أمر التشغيل</th>
+                            <th>تاريخ التشغيل</th>
+                            <th>صالة الإنتاج</th>
+                            <th>مخزن الصالة</th>
+                            <th>الأصناف المطلوبة</th>
+                            <th>إجمالي الكمية</th>
+                            <th>المنفذ الفعلي</th>
+                            <th>الحالة</th>
+                            <th>الإجراء الميداني</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!FilteredOrders.Any())
+                        {
+                            <tr><td colspan="9" class="text-muted py-4 fw-bold">لا توجد أوامر تشغيل مطابقة للبحث.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var o in FilteredOrders)
+                            {
+                                <tr>
+                                    <td class="font-monospace fw-bold text-primary">@o.OrderNumber</td>
+                                    <td>@o.OrderDate.ToString("yyyy-MM-dd")</td>
+                                    <td class="fw-bold text-dark">@o.DepartmentName</td>
+                                    <td class="text-muted">@o.WarehouseName</td>
+                                    <td class="text-start ps-3">
+                                        @foreach (var d in o.Details)
+                                        {
+                                            <div>• <strong>@d.ItemName</strong> (@d.PlannedQuantity @d.Unit)</div>
+                                        }
+                                    </td>
+                                    <td class="fw-bold font-monospace">@o.Details.Sum(d => d.PlannedQuantity)</td>
+                                    <td class="fw-bold text-success font-monospace">@o.Details.Sum(d => d.ProducedQuantity)</td>
+                                    <td>
+                                        <span class="badge @(o.Status == "COMPLETED" ? "bg-success" : "bg-warning text-dark")">
+                                            @(o.Status == "COMPLETED" ? "مكتمل ومقفل ✓" : "جاهز للتنفيذ ⏳")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex justify-content-center gap-1">
+                                            @if (o.Status != "COMPLETED" && State.HasAnyPermission("Production.Execution", "Production.OperationsHub"))
+                                            {
+                                                <button class="btn btn-sm btn-primary fw-bold py-1 px-2" @onclick="() => LoadExecutionForOrder(o.OrderId)">
+                                                    ⚙️ تنفيذ وتقفيل
+                                                </button>
+                                            }
+                                            @if (State.HasAnyPermission("BatchCosting.View", "Costing.View"))
+                                            {
+                                                <button class="btn btn-sm btn-outline-success fw-bold py-1 px-2" @onclick="() => ViewCostingForOrder(o.OrderId)">
+                                                    💰 التكلفة
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- التبويب 2: التنفيذ الميداني وتقفيل اللوط والهالك -->
+    <!-- ======================================================== -->
+    @if (activeTab == "execution" && State.HasAnyPermission("Production.Execution", "Production.OperationsHub"))
+    {
+        <div class="card shadow-sm border-0 mb-3 bg-light p-3">
+            <div class="row align-items-center g-2">
+                <div class="col-md-6">
+                    <label class="small fw-bold text-primary">اختر أمر التشغيل المفتوح لمباشرة تقفيل أصنافه:</label>
+                    <select class="form-select fw-bold border-primary" value="@selectedExecutionOrderId" @onchange="OnExecutionOrderSelectionChanged">
+                        <option value="0">-- اضغط لاختيار أمر التشغيل المفتوح --</option>
+                        @foreach (var o in ordersList.Where(x => x.Status != "COMPLETED"))
+                        {
+                            <option value="@o.OrderId">[@o.OrderNumber] - @o.DepartmentName (@o.OrderDate.ToString("yyyy-MM-dd"))</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6 text-md-end pt-3">
+                    @if (currentExecutionOrder != null && State.HasAnyPermission("Production.Execution", "Production.OperationsHub"))
+                    {
+                        <button class="btn btn-success fw-bold px-4 py-2 shadow-sm" @onclick="SubmitFinalizeOrderComplete" disabled="@isSubmittingExecution">
+                            @(isSubmittingExecution ? "⏳ جاري الاعتماد والترصيد..." : "✅ اعتماد التنفيذ وتقفيل أمر التشغيل بالكامل")
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (currentExecutionOrder != null)
+        {
+            @foreach (var item in currentExecutionOrder.Items)
+            {
+                <div class="card shadow-sm border-0 mb-4 border-top border-4 border-primary">
+                    <div class="card-header bg-dark text-white py-2 px-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <h6 class="m-0 fw-bold text-warning">📦 الصنف: @item.ItemName (@item.ItemCode)</h6>
+                            <small class="text-light">المخطط: @item.PlannedQuantity @item.Unit | الحالة: @item.Status</small>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <div class="input-group input-group-sm" style="width: 250px;">
+                                <span class="input-group-text bg-secondary text-white fw-bold">رقم اللوط</span>
+                                <input type="text" class="form-control fw-bold font-monospace text-center text-primary" @bind="item.BatchNumber" />
+                            </div>
+                            <div class="input-group input-group-sm" style="width: 220px;">
+                                <span class="input-group-text bg-success text-white fw-bold">الإنتاج الفعلي</span>
+                                <input type="number" class="form-control fw-bold text-center text-success" @bind="item.ProducedQuantity" min="0" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-body p-3">
+                        <div class="row g-2 mb-3 p-2 bg-light rounded border">
+                            <div class="col-md-3">
+                                <label class="small fw-bold text-muted">هالك طبيعي تشغيلي (Normal)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-center" @bind="item.NormalScrapQuantity" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="small fw-bold text-danger">هالك غير طبيعي / إهمال (Abnormal)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-center text-danger" @bind="item.AbnormalScrapQuantity" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-dark">سبب الهالك والملاحظات</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="مثال: زيادة تسوية الفرن، خطأ في التقليب..." @bind="item.ScrapReason" />
+                            </div>
+                        </div>
+
+                        <h6 class="fw-bold small text-secondary mb-2">📋 استهلاك خامات الوصفة (BOM) وانحراف الهدر:</h6>
+                        <table class="table table-bordered table-sm text-center align-middle mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>كود الخامة</th>
+                                    <th>اسم الخامة</th>
+                                    <th>الوحدة</th>
+                                    <th>المعياري المطلوب</th>
+                                    <th>الاستهلاك الفعلي بالصالة</th>
+                                    <th>مؤشر الهدر / التوفير</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var mat in item.Materials)
+                                {
+                                    var variance = mat.ActualConsumedQuantity - mat.RequiredQuantity;
+                                    <tr>
+                                        <td class="font-monospace">@mat.ComponentCode</td>
+                                        <td class="text-start ps-3 fw-bold">@mat.ComponentName</td>
+                                        <td>@mat.Unit</td>
+                                        <td class="font-monospace fw-bold">@mat.RequiredQuantity.ToString("N2")</td>
+                                        <td>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-primary" @bind="mat.ActualConsumedQuantity" />
+                                        </td>
+                                        <td>
+                                            @if (variance > 0)
+                                            {
+                                                <span class="badge bg-danger">▲ +@variance.ToString("N2") هالك</span>
+                                            }
+                                            else if (variance < 0)
+                                            {
+                                                <span class="badge bg-success">▼ @variance.ToString("N2") توفير</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">مطابق 100%</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+        }
+    }
+
+    <!-- ======================================================== -->
+    <!-- التبويب 3: إدارة الوردية وحضور العمال -->
+    <!-- ======================================================== -->
+    @if (activeTab == "shift" && State.HasAnyPermission("Productivity.Entry", "Productivity.View", "Production.OperationsHub"))
+    {
+        <div class="card shadow-sm border-0 mb-3 bg-light p-3 border-start border-4 border-warning">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-3">
+                    <label class="small fw-bold text-primary">1. فرز الصالة الإنتاجية *</label>
+                    <select class="form-select form-select-sm fw-bold border-primary" value="@shiftDeptFilter" @onchange="OnShiftDepartmentSelectionChanged">
+                        @foreach (var d in allDepartmentsList)
+                        {
+                            <option value="@d.Id">@d.DepartmentName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="small fw-bold text-success">2. أمر التشغيل المرتبط بالصالة 🔒</label>
+                    <select class="form-select form-select-sm fw-bold border-success font-monospace" @bind="shiftSelectedOrderId">
+                        @if (!FilteredOrdersForShiftDept.Any())
+                        {
+                            <option value="0">-- لا توجد أوامر تشغيل مفتوحة لهذه الصالة --</option>
+                        }
+                        else
+                        {
+                            @foreach (var o in FilteredOrdersForShiftDept)
+                            {
+                                <option value="@o.OrderId">[@o.OrderNumber] - @o.WarehouseName</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="small fw-bold text-dark">3. نوع الوردية *</label>
+                    <select class="form-select form-select-sm fw-bold border-warning" @bind="shiftNameInput" @bind:after="OnShiftTypeChanged">
+                        <option value="وردية صباحية">وردية صباحية (07:00 - 15:00)</option>
+                        <option value="وردية مسائية">وردية مسائية (15:00 - 23:00)</option>
+                        <option value="وردية ليلية">وردية ليلية (23:00 - 07:00)</option>
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="small fw-bold">
+                        مواعيد الوردية (المدة: <span class="badge bg-secondary font-monospace">@ShiftDurationHours س</span>)
+                    </label>
+                    <div class="input-group input-group-sm">
+                        <input type="time" class="form-control fw-bold" value="@shiftStartTime" @onchange="OnShiftStartTimeChanged" />
+                        <input type="time" class="form-control fw-bold" value="@shiftEndTime" @onchange="OnShiftEndTimeChanged" />
+                    </div>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="small fw-bold text-success">إجمالي الإنتاج بالوردية:</label>
+                    <input type="number" class="form-control form-control-sm fw-bold text-success text-center" @bind="shiftProducedTotal" />
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                <div class="small fw-bold text-secondary">
+                    الصالة المختارة: <span class="badge bg-primary">@SelectedShiftDeptName</span> | عمال الصالة: <span class="badge bg-dark font-monospace">@FilteredShiftCrew.Count()</span> | الحاضرون فعلياً: <span class="badge bg-success font-monospace">@PresentActiveWorkersCount</span>
+                </div>
+                @if (State.HasAnyPermission("Productivity.Entry", "Productivity.Manage", "Production.OperationsHub"))
+                {
+                    <button class="btn btn-warning text-dark btn-sm fw-bold px-4 shadow-sm" disabled="@isSubmittingShift" @onclick="SubmitShiftAndProductivity">
+                        @(isSubmittingShift ? "⏳ جاري الاعتماد والترصيد..." : "⏱ اعتماد وإنهاء الوردية واحتساب معدل الإنتاجية بالساعة")
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>الكود</th>
+                            <th>اسم العامل</th>
+                            <th>الصالة الإنتاجية</th>
+                            <th>المسمى الوظيفي</th>
+                            <th>حالة الحضور السريعة</th>
+                            <th>ساعات العمل الفعلية (أقصاه @ShiftDurationHours س)</th>
+                            <th>معدل إنتاجية العامل المحسوب بالساعة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!FilteredShiftCrew.Any())
+                        {
+                            <tr><td colspan="7" class="text-muted py-4 fw-bold">لا يوجد عمال مسجلين في هذه الصالة. اختر صالة إنتاج أخرى من الأعلى.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var c in FilteredShiftCrew)
+                            {
+                                <tr class="@(c.AttendanceStatus != "حاضر" ? "table-light text-muted" : "")">
+                                    <td class="font-monospace">@c.EmployeeCode</td>
+                                    <td class="fw-bold text-start ps-3 text-dark">@c.EmployeeName</td>
+                                    <td><span class="badge bg-light text-dark border">@c.DepartmentName</span></td>
+                                    <td>@c.JobTitleName</td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn @(c.AttendanceStatus == "حاضر" ? "btn-success fw-bold" : "btn-outline-success")" @onclick='() => SetWorkerAttendance(c, "حاضر")'>
+                                                🟢 حاضر
+                                            </button>
+                                            <button type="button" class="btn @(c.AttendanceStatus == "غائب" ? "btn-danger fw-bold" : "btn-outline-danger")" @onclick='() => SetWorkerAttendance(c, "غائب")'>
+                                                🔴 غائب
+                                            </button>
+                                            <button type="button" class="btn @(c.AttendanceStatus == "إجازة" ? "btn-warning text-dark fw-bold" : "btn-outline-warning text-dark")" @onclick='() => SetWorkerAttendance(c, "إجازة")'>
+                                                🟡 إجازة
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center justify-content-center gap-1">
+                                            <input type="number" step="0.5" min="0" max="@ShiftDurationHours"
+                                                   class="form-control form-control-sm text-center fw-bold w-50"
+                                                   value="@c.HoursWorked"
+                                                   disabled="@(c.AttendanceStatus != "حاضر")"
+                                                   @onchange="@((ChangeEventArgs e) => OnWorkerHoursChanged(c, e))" />
+                                            <span class="small text-muted">س</span>
+                                        </div>
+                                        @if (c.AttendanceStatus == "حاضر" && c.HoursWorked < ShiftDurationHours)
+                                        {
+                                            <small class="text-danger fw-bold d-block mt-1">تأخير: @(ShiftDurationHours - c.HoursWorked) ساعة</small>
+                                        }
+                                    </td>
+                                    <td class="font-monospace fw-bold text-primary">
+                                        @if (c.AttendanceStatus == "حاضر" && c.HoursWorked > 0 && PresentActiveWorkersCount > 0)
+                                        {
+                                            var workerTotal = shiftProducedTotal / PresentActiveWorkersCount;
+                                            var rate = workerTotal / c.HoursWorked;
+                                            <span>@Math.Round(rate, 2) وحدة/ساعة</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">---</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- التبويب 4: احتساب تكاليف الدفعة (Costing) -->
+    <!-- ======================================================== -->
+    @if (activeTab == "costing" && State.HasAnyPermission("BatchCosting.View", "Costing.View"))
+    {
+        <div class="card shadow-sm border-0 mb-3 bg-light p-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                    <label class="small fw-bold">اختر أمر التشغيل لحساب تكلفته:</label>
+                    <select class="form-select fw-bold border-success" @bind="costCalculationReq.ProductionOrderId">
+                        <option value="0">-- اختر أمر التشغيل --</option>
+                        @foreach (var o in ordersList)
+                        {
+                            <option value="@o.OrderId">[@o.OrderNumber] - @o.WarehouseName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold">معدل أجر ساعة العمل (ج.م):</label>
+                    <input type="number" class="form-control text-center fw-bold" @bind="costCalculationReq.LaborCostPerHour" />
+                </div>
+                <div class="col-md-2">
+                    <label class="small fw-bold">مصاريف غير مباشرة (Overhead):</label>
+                    <input type="number" class="form-control text-center fw-bold" @bind="costCalculationReq.OverheadCost" />
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-success fw-bold w-100 shadow-sm" @onclick="CalculateBatchCost">
+                        📊 احتساب التكلفة
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @if (costResultData != null)
+        {
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="card p-3 border-0 shadow-sm bg-white border-top border-4 border-primary text-center">
+                        <small class="text-muted fw-bold">إجمالي تكلفة الوجبة</small>
+                        <h4 class="fw-bold text-primary mt-1 mb-0 font-monospace">@costResultData.TotalBatchCost.ToString("N2") ج.م</h4>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card p-3 border-0 shadow-sm bg-white border-top border-4 border-success text-center">
+                        <small class="text-muted fw-bold">تكلفة الوحدة الفعلية</small>
+                        <h4 class="fw-bold text-success mt-1 mb-0 font-monospace">@costResultData.UnitCost.ToString("N2") ج.م</h4>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card p-3 border-0 shadow-sm bg-white border-top border-4 border-info text-center">
+                        <small class="text-muted fw-bold">الكمية الصالحة</small>
+                        <h4 class="fw-bold text-info mt-1 mb-0 font-monospace">@costResultData.ProducedQuantity</h4>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card p-3 border-0 shadow-sm bg-white border-top border-4 border-warning text-center">
+                        <small class="text-muted fw-bold">ساعات الوردية الفعلية</small>
+                        <h4 class="fw-bold text-warning mt-1 mb-0 font-monospace">@costResultData.ActualHoursWorked ساعة</h4>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+
+    <!-- ======================================================== -->
+    <!-- التبويب 5: مركز التقارير واليوميات وكفاءة صالات الإنتاج -->
+    <!-- ======================================================== -->
+    @if (activeTab == "reports" && State.HasAnyPermission("Productivity.Reports", "DepartmentKPIS.View", "Reports.View"))
+    {
+        <div class="card shadow-sm border-0 mb-3 bg-light p-3 border-start border-4 border-info">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="small fw-bold">من تاريخ:</label>
+                    <input type="date" class="form-control form-control-sm fw-bold" @bind="reportStartDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold">إلى تاريخ:</label>
+                    <input type="date" class="form-control form-control-sm fw-bold" @bind="reportEndDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold">فلتر بصالة الإنتاج:</label>
+                    <select class="form-select form-select-sm fw-bold" @bind="reportDeptFilter">
+                        <option value="0">-- كل صالات الإنتاج --</option>
+                        @foreach (var d in allDepartmentsList)
+                        {
+                            <option value="@d.Id">@d.DepartmentName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex gap-1">
+                    <button class="btn btn-info text-white btn-sm fw-bold flex-fill shadow-sm" @onclick="LoadAllReportsData">
+                        🔍 استخراج التقارير
+                    </button>
+                    <button class="btn btn-outline-success btn-sm fw-bold" title="تصدير تقرير اليوميات لإكسيل" @onclick="ExportAttendanceLogsToCsv">
+                        <i class="bi bi-file-earmark-excel-fill"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
+            <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold m-0 text-warning">📊 1. تقرير كفاءة وإنتاجية صالات التصنيع (من @reportStartDate.ToString("yyyy-MM-dd") إلى @reportEndDate.ToString("yyyy-MM-dd"))</h6>
+            </div>
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>صالة الإنتاج</th>
+                            <th>إجمالي ساعات العمل</th>
+                            <th>إجمالي الإنتاج التام</th>
+                            <th>معدل الإنتاجية (وحدة / ساعة)</th>
+                            <th>الهالك التقديري</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!departmentKpisList.Any())
+                        {
+                            <tr><td colspan="5" class="text-muted py-3">لا توجد بيانات إنتاجية مسجلة لهذه الفترة. اضغط زر استخراج التقارير.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var k in departmentKpisList)
+                            {
+                                <tr>
+                                    <td class="fw-bold fs-6">@k.DepartmentName</td>
+                                    <td class="font-monospace">@k.TotalHours س</td>
+                                    <td class="font-monospace fw-bold text-primary">@k.TotalProduced</td>
+                                    <td>
+                                        <span class="badge @(k.ProductivityPerHour >= 40 ? "bg-success" : (k.ProductivityPerHour >= 20 ? "bg-warning text-dark" : "bg-danger")) px-2 py-1 fs-6">
+                                            @k.ProductivityPerHour وحدة/س
+                                        </span>
+                                    </td>
+                                    <td class="font-monospace text-danger fw-bold">@k.EstimatedWaste كجم</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-3 mb-4">
+            <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold m-0 text-primary">📅 2. سجل الحضور والإنتاجية المفصل باليوم والعامل (المعروض: @FilteredDetailedLogs.Count() حركة)</h6>
+                <div style="width: 250px;">
+                    <input type="text" class="form-control form-control-sm" placeholder="بحث باسم أو كود العامل..." @bind="logSearchTerm" @bind:event="oninput" />
+                </div>
+            </div>
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>التاريخ</th>
+                            <th>كود العامل</th>
+                            <th>اسم العامل</th>
+                            <th>صالة الإنتاج</th>
+                            <th>ساعات العمل</th>
+                            <th>الإنتاج المنجز</th>
+                            <th>معدل الإنجاز / ساعة</th>
+                            <th>البيان والملاحظات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!FilteredDetailedLogs.Any())
+                        {
+                            <tr><td colspan="8" class="text-muted py-3">لا توجد سجلات يومية مطابقة.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var log in FilteredDetailedLogs)
+                            {
+                                <tr>
+                                    <td class="font-monospace">@log.LogDate.ToString("yyyy-MM-dd")</td>
+                                    <td class="font-monospace text-muted">@log.EmployeeCode</td>
+                                    <td class="fw-bold text-start ps-3">@log.EmployeeName</td>
+                                    <td><span class="badge bg-light text-dark border">@log.DepartmentName</span></td>
+                                    <td class="font-monospace">@log.HoursWorked س</td>
+                                    <td class="font-monospace fw-bold text-success">@log.ProducedQuantity</td>
+                                    <td class="font-monospace fw-bold text-primary">@log.ProductivityPerHour و/س</td>
+                                    <td class="text-muted small">@log.Notes</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-3 p-3 bg-light border-top border-4 border-danger">
+            <h6 class="fw-bold text-danger mb-2">👤 3. بطاقة تقييم وملف أداء فني/شيف الصالة:</h6>
+            <div class="row g-2 align-items-center mb-3">
+                <div class="col-md-5">
+                    <select class="form-select form-select-sm fw-bold border-danger" @bind="selectedDossierEmpId">
+                        <option value="0">-- اضغط لاختيار العامل لعرض ملفه التراكمي --</option>
+                        @foreach (var emp in allEmployeesList)
+                        {
+                            <option value="@emp.Id">[@emp.EmployeeCode] @emp.Name (@emp.DepartmentName)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-danger btn-sm fw-bold w-100" disabled="@(selectedDossierEmpId == 0)" @onclick="LoadEmployeeDossier">
+                        عرض الملف
+                    </button>
+                </div>
+            </div>
+
+            @if (employeeDossierData != null)
+            {
+                <div class="card p-3 border-0 bg-white shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold m-0 text-dark">@employeeDossierData.EmployeeName [@employeeDossierData.EmployeeCode]</h5>
+                        <span class="badge bg-success fs-6">التقييم الفني: @employeeDossierData.Evaluation</span>
+                    </div>
+                    <small class="text-muted d-block mb-3">الصالة المعتمدة: @employeeDossierData.Department</small>
+                    <div class="row g-2 text-center">
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">أوامر منفذة</small><h4 class="fw-bold text-primary m-0 font-monospace">@employeeDossierData.TotalOrdersExecuted</h4></div></div>
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">إجمالي الإنتاج</small><h4 class="fw-bold text-success m-0 font-monospace">@employeeDossierData.TotalQuantityProduced كجم</h4></div></div>
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">ساعات العمل</small><h4 class="fw-bold text-info m-0 font-monospace">@employeeDossierData.TotalWorkingHours س</h4></div></div>
+                        <div class="col-md-3"><div class="p-2 border rounded bg-light"><small class="text-muted">معدل الإنجاز بالساعة</small><h4 class="fw-bold text-warning m-0 font-monospace">@employeeDossierData.ProductionPerHour كجم/س</h4></div></div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+</div>
+
+<!-- Modal إصدار أمر تشغيل جديد -->
+@if (isCreateModalOpen && State.HasAnyPermission("Production.OrdersView", "Production.CreateOrder"))
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.7);" dir="rtl">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white py-2 px-3 d-flex justify-content-between align-items-center">
+                    <h6 class="modal-title fw-bold">➕ إصدار أمر تشغيل لصالـة إنتاج (ربط آلي بالصالة ومخزنها)</h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isCreateModalOpen = false"></button>
+                </div>
+                <div class="modal-body bg-light p-3">
+                    <div class="card p-3 border-0 shadow-sm bg-white mb-3 border-start border-4 border-primary">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="small fw-bold text-primary mb-1">صالة الإنتاج المسؤولة *</label>
+                                <select class="form-select fw-bold border-primary" value="@newOrderDeptId" @onchange="OnCreateDeptSelectionChanged">
+                                    @foreach (var d in allDepartmentsList)
+                                    {
+                                        <option value="@d.Id">@d.DepartmentName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="small fw-bold text-success mb-1">
+                                    مخزن صالة التشغيل (مقفل ومربوط آلياً) 🔒
+                                </label>
+                                <input type="text" class="form-control fw-bold bg-light text-success font-monospace" value="@matchedWarehouseNameDisplay" readonly disabled />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="small fw-bold text-dark mb-1">تاريخ التشغيل *</label>
+                                <input type="date" class="form-control font-monospace" @bind="newOrderDate" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card p-3 border-0 shadow-sm bg-white mb-3">
+                        <h6 class="fw-bold text-primary small mb-2">إضافة أصناف لأمر التشغيل:</h6>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-6">
+                                <label class="small fw-bold">اختر صنف الصالة المطلوب تصنيعه *</label>
+                                <select class="form-select" @bind="selectedItemToAddId">
+                                    <option value="0">-- اختر الصنف --</option>
+                                    @foreach (var itm in AvailableItemsForSelectedDept)
+                                    {
+                                        <option value="@itm.Id">@itm.ItemName (@itm.ItemCode)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="small fw-bold">الكمية المخططة *</label>
+                                <input type="number" class="form-control text-center fw-bold font-monospace" @bind="itemToAddQty" min="1" />
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-success fw-bold w-100 shadow-sm" @onclick="AddItemToCreateList">➕ إضافة للقائمة</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive bg-white rounded border">
+                        <table class="table table-bordered bg-white text-center small mb-0">
+                            <thead class="table-light"><tr><th>الصنف</th><th>الكمية المخططة</th><th>الوحدة</th><th>إجراء</th></tr></thead>
+                            <tbody>
+                                @if (!newOrderLines.Any())
+                                {
+                                    <tr><td colspan="4" class="text-muted py-3">لا توجد أصناف مضافة للقائمة.</td></tr>
+                                }
+                                @foreach (var itm in newOrderLines)
+                                {
+                                    <tr>
+                                        <td class="text-start ps-3 fw-bold">@itm.ItemName</td>
+                                        <td class="fw-bold font-monospace text-primary">@itm.PlannedQuantity</td>
+                                        <td><span class="badge bg-light text-dark border">@itm.Unit</span></td>
+                                        <td><button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => newOrderLines.Remove(itm)"><i class="bi bi-trash"></i></button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 bg-white d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm px-4" @onclick="() => isCreateModalOpen = false">إلغاء</button>
+                    <button class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" disabled="@(!newOrderLines.Any())" @onclick="SubmitCreateOrder">
+                        💾 حفظ وإصدار أمر التشغيل
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string activeTab = "orders";
+    private string statusMessage = "";
+    private bool isSuccess = true;
+
+    private List<ProductionOrderDto> ordersList = new();
+    private List<DepartmentDto> allDepartmentsList = new();
+    private List<WarehouseDto> allWarehousesList = new();
+    private List<ItemDto> allItemsList = new();
+    private List<EmployeeDto> allEmployeesList = new();
+    private List<DepartmentKpiResultDto> departmentKpisList = new();
+    private List<DetailedAttendanceLogDto> detailedAttendanceLogsList = new();
+
+    private string searchOrderTerm = "";
+    private string selectedOrderTrackFilter = "";
+    private string selectedOrderStatusFilter = "";
+
+    private bool isCreateModalOpen = false;
+    private long newOrderDeptId = 0;
+    private long newOrderWarehouseId = 0;
+    private string matchedWarehouseNameDisplay = "";
+    private DateTime newOrderDate = DateTime.Today;
+    private long selectedItemToAddId = 0;
+    private decimal itemToAddQty = 10;
+    private List<NewOrderItemLine> newOrderLines = new();
+
+    private long selectedExecutionOrderId = 0;
+    private OrderExecutionFullDto? currentExecutionOrder;
+    private bool isSubmittingExecution = false;
+
+    private long shiftDeptFilter = 0;
+    private long shiftSelectedOrderId = 0;
+    private string shiftNameInput = "وردية صباحية";
+    private string shiftStartTime = "07:00";
+    private string shiftEndTime = "15:00";
+    private decimal shiftProducedTotal = 150m;
+    private bool isSubmittingShift = false;
+    private List<ShiftCrewMemberDto> shiftCrewList = new();
+
+    private decimal ShiftDurationHours
+    {
+        get
+        {
+            if (TimeOnly.TryParse(shiftStartTime, out var start) && TimeOnly.TryParse(shiftEndTime, out var end))
+            {
+                var duration = end - start;
+                if (duration.TotalHours < 0) duration += TimeSpan.FromHours(24);
+                return Math.Max(0.5m, Math.Round((decimal)duration.TotalHours, 1));
+            }
+            return 8m;
+        }
+    }
+
+    private int PresentActiveWorkersCount => FilteredShiftCrew.Count(c => c.AttendanceStatus == "حاضر" && c.HoursWorked > 0);
+
+    private BatchCostReq costCalculationReq = new();
+    private CostResultDto? costResultData;
+
+    private DateTime reportStartDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateTime reportEndDate = DateTime.Now;
+    private long reportDeptFilter = 0;
+    private string logSearchTerm = "";
+    private long selectedDossierEmpId = 0;
+    private EmployeeDossierDto? employeeDossierData;
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeDefaultActiveTab();
+        await LoadLookups();
+        await LoadOrders();
+        await LoadAllReportsData();
+    }
+
+    private void InitializeDefaultActiveTab()
+    {
+        if (State.HasAnyPermission("Production.OrdersView", "Production.OperationsHub")) activeTab = "orders";
+        else if (State.HasAnyPermission("Production.Execution", "Production.OperationsHub")) activeTab = "execution";
+        else if (State.HasAnyPermission("Productivity.Entry", "Productivity.View")) activeTab = "shift";
+        else if (State.HasAnyPermission("BatchCosting.View", "Costing.View")) activeTab = "costing";
+        else if (State.HasAnyPermission("Productivity.Reports", "DepartmentKPIS.View", "Reports.View")) activeTab = "reports";
+    }
+
+    private void SwitchTab(string tab) => activeTab = tab;
+
+    private async Task LoadLookups()
+    {
+        try
+        {
+            var res = await Http.GetFromJsonAsync<LookupsResponseDto>("api/productionoperations/lookups");
+            if (res != null)
+            {
+                allDepartmentsList = res.Departments ?? new();
+                allWarehousesList = res.Warehouses ?? new();
+                allItemsList = res.Items ?? new();
+                allEmployeesList = res.Employees ?? new();
+
+                if (allDepartmentsList.Any())
+                {
+                    newOrderDeptId = allDepartmentsList.First().Id;
+                    shiftDeptFilter = allDepartmentsList.First().Id;
+                    BindWarehouseToDepartment(newOrderDeptId);
+                }
+
+                shiftCrewList = allEmployeesList.Select(e => new ShiftCrewMemberDto
+                {
+                    EmployeeId = e.Id,
+                    EmployeeCode = e.EmployeeCode,
+                    EmployeeName = e.Name,
+                    DepartmentId = e.DepartmentId,
+                    DepartmentName = e.DepartmentName,
+                    JobTitleName = e.JobTitle,
+                    AttendanceStatus = "حاضر",
+                    HoursWorked = ShiftDurationHours
+                }).ToList();
+
+                SyncShiftOrdersWithSelectedDepartment();
+            }
+        }
+        catch { }
+    }
+
+    private void BindWarehouseToDepartment(long deptId)
+    {
+        var dept = allDepartmentsList.FirstOrDefault(d => d.Id == deptId);
+        if (dept == null) return;
+
+        var matched = allWarehousesList.FirstOrDefault(w =>
+            (!string.IsNullOrEmpty(w.WarehouseName) && dept.DepartmentName.Contains("الشرقي") && w.WarehouseName.Contains("شرقي")) ||
+            (!string.IsNullOrEmpty(w.WarehouseName) && (dept.DepartmentName.Contains("الاسبشيال") || dept.DepartmentName.Contains("جاتوه") || dept.DepartmentName.Contains("الغربي")) && (w.WarehouseName.Contains("اسبشيال") || w.WarehouseName.Contains("جاتوه") || w.WarehouseName.Contains("غربي"))) ||
+            (!string.IsNullOrEmpty(w.WarehouseName) && dept.DepartmentName.Contains("تورت") && (w.WarehouseName.Contains("تورت") || w.WarehouseName.Contains("جاتوه") || w.WarehouseName.Contains("اسبشيال"))) ||
+            (!string.IsNullOrEmpty(w.WarehouseName) && w.WarehouseName.Contains(dept.DepartmentName))
+        );
+
+        if (matched != null)
+        {
+            newOrderWarehouseId = matched.Id;
+            matchedWarehouseNameDisplay = matched.WarehouseName;
+        }
+        else if (allWarehousesList.Any())
+        {
+            newOrderWarehouseId = allWarehousesList.First().Id;
+            matchedWarehouseNameDisplay = allWarehousesList.First().WarehouseName;
+        }
+    }
+
+    private void OnCreateDeptSelectionChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var dId))
+        {
+            newOrderDeptId = dId;
+            BindWarehouseToDepartment(dId);
+            selectedItemToAddId = 0;
+        }
+    }
+
+    private void OnShiftDepartmentSelectionChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var dId))
+        {
+            shiftDeptFilter = dId;
+            SyncShiftOrdersWithSelectedDepartment();
+        }
+    }
+
+    private void SyncShiftOrdersWithSelectedDepartment()
+    {
+        var deptOrders = FilteredOrdersForShiftDept.ToList();
+        if (deptOrders.Any())
+        {
+            shiftSelectedOrderId = deptOrders.First().OrderId;
+        }
+        else
+        {
+            shiftSelectedOrderId = 0;
+        }
+    }
+
+    private void OnShiftTypeChanged()
+    {
+        if (shiftNameInput == "وردية صباحية") { shiftStartTime = "07:00"; shiftEndTime = "15:00"; }
+        else if (shiftNameInput == "وردية مسائية") { shiftStartTime = "15:00"; shiftEndTime = "23:00"; }
+        else if (shiftNameInput == "وردية ليلية") { shiftStartTime = "23:00"; shiftEndTime = "07:00"; }
+        UpdatePresentCrewMaxHours();
+    }
+
+    private void OnShiftStartTimeChanged(ChangeEventArgs e)
+    {
+        shiftStartTime = e.Value?.ToString() ?? "07:00";
+        UpdatePresentCrewMaxHours();
+    }
+
+    private void OnShiftEndTimeChanged(ChangeEventArgs e)
+    {
+        shiftEndTime = e.Value?.ToString() ?? "15:00";
+        UpdatePresentCrewMaxHours();
+    }
+
+    private void UpdatePresentCrewMaxHours()
+    {
+        var max = ShiftDurationHours;
+        foreach (var c in shiftCrewList.Where(x => x.AttendanceStatus == "حاضر"))
+        {
+            if (c.HoursWorked > max || c.HoursWorked == 8m)
+            {
+                c.HoursWorked = max;
+            }
+        }
+    }
+
+    private void SetWorkerAttendance(ShiftCrewMemberDto c, string status)
+    {
+        c.AttendanceStatus = status;
+        if (status == "حاضر")
+        {
+            c.HoursWorked = ShiftDurationHours;
+        }
+        else
+        {
+            c.HoursWorked = 0;
+        }
+    }
+
+    private void OnWorkerHoursChanged(ShiftCrewMemberDto c, ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), out var hours))
+        {
+            if (hours > ShiftDurationHours)
+            {
+                c.HoursWorked = ShiftDurationHours;
+                statusMessage = $"⚠️ تنبيه: ساعات العمل الفعلية لا يمكن أن تزيد عن ساعات الوردية الكاملة ({ShiftDurationHours}س). تم ضبطها على الحد الأقصى.";
+                isSuccess = false;
+            }
+            else if (hours < 0)
+            {
+                c.HoursWorked = 0;
+            }
+            else
+            {
+                c.HoursWorked = hours;
+            }
+        }
+    }
+
+    private async Task LoadOrders()
+    {
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<ProductionOrderDto>>("api/productionoperations/active-orders");
+            if (res != null)
+            {
+                ordersList = res;
+                SyncShiftOrdersWithSelectedDepartment();
+            }
+        }
+        catch { }
+    }
+
+    private IEnumerable<ProductionOrderDto> FilteredOrders => ordersList.Where(o =>
+        (string.IsNullOrWhiteSpace(searchOrderTerm) || o.OrderNumber.Contains(searchOrderTerm) || o.WarehouseName.Contains(searchOrderTerm) || o.DepartmentName.Contains(searchOrderTerm)) &&
+        (string.IsNullOrWhiteSpace(selectedOrderStatusFilter) || o.Status == selectedOrderStatusFilter)
+    );
+
+    private IEnumerable<ProductionOrderDto> FilteredOrdersForShiftDept => ordersList.Where(o =>
+        shiftDeptFilter == 0 || o.DepartmentId == shiftDeptFilter || o.DepartmentName.Contains(SelectedShiftDeptName)
+    );
+
+    private string SelectedShiftDeptName => allDepartmentsList.FirstOrDefault(d => d.Id == shiftDeptFilter)?.DepartmentName ?? "الصالة";
+
+    private IEnumerable<ItemDto> AvailableItemsForSelectedDept => allItemsList.Where(i => i.DepartmentId == newOrderDeptId || i.DepartmentId == null);
+
+    private IEnumerable<ShiftCrewMemberDto> FilteredShiftCrew => shiftCrewList.Where(c =>
+        shiftDeptFilter == 0 || c.DepartmentId == shiftDeptFilter
+    );
+
+    private IEnumerable<DetailedAttendanceLogDto> FilteredDetailedLogs => detailedAttendanceLogsList.Where(l =>
+        string.IsNullOrWhiteSpace(logSearchTerm) ||
+        l.EmployeeName.Contains(logSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+        l.EmployeeCode.Contains(logSearchTerm, StringComparison.OrdinalIgnoreCase)
+    );
+
+    private void OpenCreateOrderModal()
+    {
+        newOrderLines.Clear();
+        BindWarehouseToDepartment(newOrderDeptId);
+        isCreateModalOpen = true;
+    }
+
+    private void AddItemToCreateList()
+    {
+        var itm = allItemsList.FirstOrDefault(i => i.Id == selectedItemToAddId);
+        if (itm != null && itemToAddQty > 0)
+        {
+            newOrderLines.Add(new NewOrderItemLine
+            {
+                ItemId = itm.Id,
+                ItemName = itm.ItemName,
+                PlannedQuantity = itemToAddQty,
+                Unit = itm.Unit
+            });
+            selectedItemToAddId = 0;
+            itemToAddQty = 10;
+        }
+    }
+
+    private async Task SubmitCreateOrder()
+    {
+        try
+        {
+            var payload = new
+            {
+                WarehouseId = newOrderWarehouseId,
+                DepartmentId = newOrderDeptId,
+                OrderDate = DateOnly.FromDateTime(newOrderDate),
+                Items = newOrderLines.Select(l => new { l.ItemId, l.PlannedQuantity, l.Unit }).ToList()
+            };
+
+            var res = await Http.PostAsJsonAsync("api/productionoperations/create-order", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "✅ تم إصدار أمر التشغيل بنجاح وربطه بمخزن الصالة آلياً!";
+                isSuccess = true;
+                isCreateModalOpen = false;
+                await LoadOrders();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"❌ فشل إصدار الأمر: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private async Task ImportOrdersFromCsv(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+        try
+        {
+            using var reader = new StreamReader(file.OpenReadStream());
+            string? header = await reader.ReadLineAsync();
+            var lines = new List<NewOrderItemLine>();
+
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var cols = line.Split(',');
+                if (cols.Length >= 2)
+                {
+                    var itemCode = cols[0].Trim().Replace("\"", "");
+                    var qty = decimal.TryParse(cols[1].Trim(), out var q) ? q : 10m;
+                    var itm = allItemsList.FirstOrDefault(i => i.ItemCode.Equals(itemCode, StringComparison.OrdinalIgnoreCase) || i.ItemName.Contains(itemCode));
+                    if (itm != null)
+                    {
+                        lines.Add(new NewOrderItemLine { ItemId = itm.Id, ItemName = itm.ItemName, PlannedQuantity = qty, Unit = itm.Unit });
+                    }
+                }
+            }
+
+            if (lines.Any())
+            {
+                newOrderLines = lines;
+                OpenCreateOrderModal();
+                statusMessage = $"✅ تم استيراد ({lines.Count}) أصناف من الملف بنجاح!";
+                isSuccess = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ أثناء قراءة الملف: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private async Task OnExecutionOrderSelectionChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var oId) && oId > 0)
+        {
+            await LoadExecutionForOrder(oId);
+        }
+    }
+
+    private async Task LoadExecutionForOrder(long oId)
+    {
+        selectedExecutionOrderId = oId;
+        activeTab = "execution";
+        try
+        {
+            currentExecutionOrder = await Http.GetFromJsonAsync<OrderExecutionFullDto>($"api/productionoperations/order-execution-full/{oId}");
+        }
+        catch { }
+    }
+
+    private async Task SubmitFinalizeOrderComplete()
+    {
+        if (currentExecutionOrder == null) return;
+        isSubmittingExecution = true;
+        try
+        {
+            var payload = new
+            {
+                OrderId = currentExecutionOrder.Id,
+                Items = currentExecutionOrder.Items.Select(i => new
+                {
+                    DetailId = i.DetailId,
+                    ProducedQuantity = i.ProducedQuantity,
+                    BatchNumber = i.BatchNumber,
+                    NormalScrapQuantity = i.NormalScrapQuantity,
+                    AbnormalScrapQuantity = i.AbnormalScrapQuantity,
+                    ScrapReason = i.ScrapReason,
+                    Materials = i.Materials.Select(m => new
+                    {
+                        ComponentItemId = m.ComponentItemId,
+                        ActualConsumedQuantity = m.ActualConsumedQuantity
+                    }).ToList()
+                }).ToList()
+            };
+
+            var res = await Http.PostAsJsonAsync("api/productionoperations/finalize-order-complete", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = "✅ تم تقفيل واعتماد جميع أصناف الأمر وترصيد اللوطات وخصم الخامات المستهلكة بنجاح!";
+                isSuccess = true;
+                currentExecutionOrder = null;
+                selectedExecutionOrderId = 0;
+                await LoadOrders();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"❌ فشل اعتماد التقفيل: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+        finally { isSubmittingExecution = false; }
+    }
+
+    private async Task SubmitShiftAndProductivity()
+    {
+        var presentCrew = FilteredShiftCrew.Where(c => c.AttendanceStatus == "حاضر" && c.HoursWorked > 0).ToList();
+        if (!presentCrew.Any())
+        {
+            statusMessage = "⚠️ يرجى تحديد العمال الحاضرين في الصالة والتأكد من وجود ساعات عمل أكبر من صفر.";
+            isSuccess = false;
+            return;
+        }
+
+        isSubmittingShift = true;
+        try
+        {
+            long orderIdToSend = shiftSelectedOrderId > 0
+                ? shiftSelectedOrderId
+                : (FilteredOrdersForShiftDept.FirstOrDefault()?.OrderId ?? (ordersList.FirstOrDefault()?.OrderId ?? 0));
+
+            var payload = new
+            {
+                ProductionOrderId = orderIdToSend,
+                ShiftName = shiftNameInput,
+                StartTime = shiftStartTime,
+                EndTime = shiftEndTime,
+                TotalProducedQuantity = shiftProducedTotal,
+                CrewMembers = FilteredShiftCrew.Select(c => new { c.EmployeeId, c.HoursWorked, c.AttendanceStatus }).ToList()
+            };
+
+            var res = await Http.PostAsJsonAsync("api/productionoperations/submit-shift-productivity", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                statusMessage = $"✅ تم اعتماد الوردية واحتساب معدل الإنتاجية بالساعة لـ ({presentCrew.Count}) حاضرين في صالة [{SelectedShiftDeptName}] بنجاح!";
+                isSuccess = true;
+                await LoadAllReportsData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                statusMessage = $"❌ فشل اعتماد الوردية: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isSubmittingShift = false;
+        }
+    }
+
+    private void ViewCostingForOrder(long oId)
+    {
+        costCalculationReq.ProductionOrderId = oId;
+        activeTab = "costing";
+    }
+
+    private async Task CalculateBatchCost()
+    {
+        try
+        {
+            var res = await Http.PostAsJsonAsync("api/productionoperations/calculate-cost", costCalculationReq);
+            if (res.IsSuccessStatusCode)
+            {
+                costResultData = await res.Content.ReadFromJsonAsync<CostResultDto>();
+            }
+        }
+        catch { }
+    }
+
+    private async Task LoadAllReportsData()
+    {
+        try
+        {
+            var kpiUrl = $"api/productionoperations/kpis?startDate={reportStartDate:yyyy-MM-dd}&endDate={reportEndDate:yyyy-MM-dd}&departmentId={reportDeptFilter}";
+            departmentKpisList = await Http.GetFromJsonAsync<List<DepartmentKpiResultDto>>(kpiUrl) ?? new();
+
+            var logsUrl = $"api/productionoperations/detailed-attendance-logs?startDate={reportStartDate:yyyy-MM-dd}&endDate={reportEndDate:yyyy-MM-dd}&departmentId={reportDeptFilter}";
+            detailedAttendanceLogsList = await Http.GetFromJsonAsync<List<DetailedAttendanceLogDto>>(logsUrl) ?? new();
+        }
+        catch { }
+    }
+
+    private async Task LoadEmployeeDossier()
+    {
+        if (selectedDossierEmpId > 0)
+        {
+            try
+            {
+                employeeDossierData = await Http.GetFromJsonAsync<EmployeeDossierDto>($"api/productionoperations/employee-dossier/{selectedDossierEmpId}");
+            }
+            catch { }
+        }
+    }
+
+    private async Task ExportOrdersToExcel()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("رقم الأمر,تاريخ التشغيل,صالة الإنتاج,مخزن الصالة,الأصناف,الحالة");
+        foreach (var o in FilteredOrders)
+        {
+            var itemsNames = string.Join(" | ", o.Details.Select(d => $"{d.ItemName} ({d.PlannedQuantity})"));
+            sb.AppendLine($"\"{o.OrderNumber}\",\"{o.OrderDate:yyyy-MM-dd}\",\"{o.DepartmentName}\",\"{o.WarehouseName}\",\"{itemsNames}\",\"{o.Status}\"");
+        }
+        await DownloadCsvFile(sb.ToString(), $"أوامر_الإنتاج_{DateTime.Now:yyyyMMdd}.csv");
+    }
+
+    private async Task ExportAttendanceLogsToCsv()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("التاريخ,كود العامل,اسم العامل,صالة الإنتاج,ساعات العمل,الإنتاج المنجز,المعدل بالساعة,الملاحظات");
+        foreach (var l in FilteredDetailedLogs)
+        {
+            sb.AppendLine($"\"{l.LogDate:yyyy-MM-dd}\",\"{l.EmployeeCode}\",\"{l.EmployeeName}\",\"{l.DepartmentName}\",{l.HoursWorked},{l.ProducedQuantity},{l.ProductivityPerHour},\"{l.Notes}\"");
+        }
+        await DownloadCsvFile(sb.ToString(), $"يوميات_حضور_وإنتاجية_العمال_{DateTime.Now:yyyyMMdd}.csv");
+    }
+
+    private async Task DownloadCsvFile(string csvContent, string fileName)
+    {
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csvContent)).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+        var js = $"const link = document.createElement('a'); link.href = 'data:text/csv;charset=utf-8;base64,{base64}'; link.download = '{fileName}'; document.body.appendChild(link); link.click(); document.body.removeChild(link);";
+        await JS.InvokeVoidAsync("eval", js);
+    }
+
+    public class LookupsResponseDto { public List<DepartmentDto> Departments { get; set; } = new(); public List<WarehouseDto> Warehouses { get; set; } = new(); public List<ItemDto> Items { get; set; } = new(); public List<EmployeeDto> Employees { get; set; } = new(); }
+    public class ProductionOrderDto { public long OrderId { get; set; } public string OrderNumber { get; set; } = ""; public DateOnly OrderDate { get; set; } public long DepartmentId { get; set; } public string DepartmentName { get; set; } = ""; public string WarehouseName { get; set; } = ""; public string Status { get; set; } = ""; public List<OrderDetailDto> Details { get; set; } = new(); }
+    public class OrderDetailDto { public long DetailId { get; set; } public string ItemName { get; set; } = ""; public decimal PlannedQuantity { get; set; } public decimal ProducedQuantity { get; set; } public string Unit { get; set; } = ""; public string? BatchNumber { get; set; } public string Status { get; set; } = ""; }
+    public class DepartmentDto { public long Id { get; set; } public string DepartmentName { get; set; } = ""; }
+    public class WarehouseDto { public long Id { get; set; } public string WarehouseName { get; set; } = ""; }
+    public class ItemDto { public long Id { get; set; } public string ItemCode { get; set; } = ""; public string ItemName { get; set; } = ""; public string Unit { get; set; } = ""; public long? DepartmentId { get; set; } }
+    public class EmployeeDto { public long Id { get; set; } public string EmployeeCode { get; set; } = ""; public string Name { get; set; } = ""; public long? DepartmentId { get; set; } public string DepartmentName { get; set; } = ""; public string JobTitle { get; set; } = ""; }
+    public class NewOrderItemLine { public long ItemId { get; set; } public string ItemName { get; set; } = ""; public decimal PlannedQuantity { get; set; } public string Unit { get; set; } = ""; }
+    public class OrderExecutionFullDto { public long Id { get; set; } public string OrderNumber { get; set; } = ""; public List<ExecutionItemDetailDto> Items { get; set; } = new(); }
+    public class ExecutionItemDetailDto { public long DetailId { get; set; } public string ItemCode { get; set; } = ""; public string ItemName { get; set; } = ""; public string Unit { get; set; } = ""; public decimal PlannedQuantity { get; set; } public decimal ProducedQuantity { get; set; } public decimal NormalScrapQuantity { get; set; } public decimal AbnormalScrapQuantity { get; set; } public string ScrapReason { get; set; } = ""; public string BatchNumber { get; set; } = ""; public string Status { get; set; } = ""; public List<ExecutionMaterialItemDto> Materials { get; set; } = new(); }
+    public class ExecutionMaterialItemDto { public long ComponentItemId { get; set; } public string ComponentCode { get; set; } = ""; public string ComponentName { get; set; } = ""; public string Unit { get; set; } = ""; public decimal RequiredQuantity { get; set; } public decimal ActualConsumedQuantity { get; set; } }
+    public class ShiftCrewMemberDto { public long EmployeeId { get; set; } public string EmployeeCode { get; set; } = ""; public string EmployeeName { get; set; } = ""; public long? DepartmentId { get; set; } public string DepartmentName { get; set; } = ""; public string JobTitleName { get; set; } = ""; public string AttendanceStatus { get; set; } = "حاضر"; public decimal HoursWorked { get; set; } = 8; }
+    public class BatchCostReq { public long ProductionOrderId { get; set; } public decimal LaborCostPerHour { get; set; } = 50; public decimal OverheadCost { get; set; } = 0; }
+    public class CostResultDto { public decimal TotalBatchCost { get; set; } public decimal UnitCost { get; set; } public decimal ProducedQuantity { get; set; } public decimal ActualHoursWorked { get; set; } }
+    public class DepartmentKpiResultDto { public string DepartmentName { get; set; } = ""; public decimal TotalHours { get; set; } public decimal TotalProduced { get; set; } public decimal ProductivityPerHour { get; set; } public decimal EstimatedWaste { get; set; } }
+    public class DetailedAttendanceLogDto { public long Id { get; set; } public DateTime LogDate { get; set; } public string EmployeeCode { get; set; } = ""; public string EmployeeName { get; set; } = ""; public string DepartmentName { get; set; } = ""; public decimal HoursWorked { get; set; } public decimal ProducedQuantity { get; set; } public decimal ProductivityPerHour { get; set; } public string Notes { get; set; } = ""; }
+    public class EmployeeDossierDto { public string EmployeeName { get; set; } = ""; public string EmployeeCode { get; set; } = ""; public string Department { get; set; } = ""; public int TotalOrdersExecuted { get; set; } public decimal TotalQuantityProduced { get; set; } public decimal TotalWorkingHours { get; set; } public decimal ProductionPerHour { get; set; } public string Evaluation { get; set; } = ""; }
+}

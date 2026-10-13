@@ -1,0 +1,85 @@
+﻿@using KayanERP.UI.Services
+@layout KayanERP.UI.Pages.EmptyLayout
+@implements IDisposable
+@inject AppState State
+
+@if (IsAuthorized)
+{
+    @ChildContent
+}
+else if (ShowDisabled)
+{
+    <span class="d-inline-block text-muted opacity-50 pe-none" title="ليس لديك الصلاحية المطلوبة لتنفيذ هذا الإجراء">
+        @ChildContent
+    </span>
+}
+
+@code {
+    /// <summary>
+    /// كود الصلاحية المطلوب (مثال: Users.View أو Emergency.Create).
+    /// يدعم إدخال أكثر من صلاحية مفصولة بفاصلة (مثال: "Emergency.View, Emergency.Respond") ويكفي امتلاك إحداها.
+    /// </summary>
+    [Parameter]
+    public string Permission { get; set; } = string.Empty;
+
+    /// <summary>
+    /// المحتوى أو الزر المحمي داخل المكون
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// إذا كانت القيمة true يظهر الزر معطلاً وباهتاً بدلاً من إخفائه تماماً
+    /// </summary>
+    [Parameter]
+    public bool ShowDisabled { get; set; } = false;
+
+    protected override void OnInitialized()
+    {
+        // 🔒 الاشتراك الفوري في حدث تغير الجلسة لإعادة تقييم الصلاحية فور تبديل المستخدم
+        if (State != null)
+        {
+            State.OnChange += HandleStateChanged;
+        }
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsAuthorized
+    {
+        get
+        {
+            if (State == null || !State.IsLoggedIn)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(Permission))
+                return true;
+
+            // إذا كان المستخدم Admin يمتلك الوصول تلقائياً
+            if (string.Equals(State.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // فحص الصلاحية الفردية أو المتعددة (مفصولة بفواصل)
+            var permissions = Permission.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var p in permissions)
+            {
+                if (State.HasPermission(p))
+                    return true;
+            }
+
+            return false;
+        }
+    }
+
+    public void Dispose()
+    {
+        // إلغاء الاشتراك لمنع تسريب الذاكرة
+        if (State != null)
+        {
+            State.OnChange -= HandleStateChanged;
+        }
+    }
+}

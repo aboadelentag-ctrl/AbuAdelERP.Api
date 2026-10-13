@@ -1,0 +1,1032 @@
+﻿@page "/users-management"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using KayanERP.UI.Services
+@inject HttpClient Http
+@inject AppState State
+@inject NavigationManager Navigation
+
+<PageTitle>مركز حوكمة الصلاحيات والأدوار الميدانية - كيان Enterprise</PageTitle>
+
+<div class="kayan-security-viewport" dir="rtl">
+    <!-- الشريط العلوي -->
+    <header class="security-header-bar">
+        <div class="d-flex align-items-center gap-3">
+            <button class="back-home-btn" @onclick='() => Navigation.NavigateTo("/workspace")' title="العودة لمساحة العمل المركزية">
+                <i class="bi bi-arrow-right fs-5"></i>
+            </button>
+            <div>
+                <h4 class="mb-0 text-white fw-bold">مركز حوكمة الصلاحيات والأدوار الميدانية</h4>
+                <span class="text-muted small">مصفوفة التحكم الصارم في أزرار وإجراءات النظام • @State.TenantName</span>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-dark border border-secondary px-3 py-2 text-info">
+                <i class="bi bi-shield-lock-fill me-1"></i> المستخدم الحالي: @State.FullName (@State.Role)
+            </span>
+        </div>
+    </header>
+
+    <!-- شريط التبويبات الرئيسي مع أزرار الإضافة السريعة -->
+    <div class="container-fluid px-4 pt-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <ul class="nav nav-pills custom-pills-bar gap-2">
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "ROLES" ? "active" : "")" @onclick='() => activeTab = "ROLES"'>
+                    <i class="bi bi-diagram-3-fill me-1"></i> مصفوفة صلاحيات الأدوار (Roles Matrix)
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "USERS" ? "active" : "")" @onclick='() => activeTab = "USERS"'>
+                    <i class="bi bi-people-fill me-1"></i> مستخدمو المنشأة والعاملين
+                </button>
+            </li>
+        </ul>
+
+        <div>
+            @if (activeTab == "ROLES")
+            {
+                <button class="btn btn-primary btn-sm px-3 fw-bold shadow-sm" @onclick="OpenCreateRoleModal">
+                    <i class="bi bi-plus-circle me-1"></i> إضافة دور / مصفوفة جديدة
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-success btn-sm px-3 fw-bold shadow-sm" @onclick="OpenCreateUserModal">
+                    <i class="bi bi-person-plus-fill me-1"></i> إضافة مستخدم مرتبط بعامل
+                </button>
+            }
+        </div>
+    </div>
+
+    <!-- رسائل التنبيه والإشعارات -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="container-fluid px-4 pt-2">
+            <div class="alert alert-info py-2 small d-flex justify-content-between align-items-center border-0 shadow-sm">
+                <span><i class="bi bi-info-circle-fill me-1"></i> @statusMessage</span>
+                <button type="button" class="btn-close btn-close-white btn-sm" @onclick='() => statusMessage = null'></button>
+            </div>
+        </div>
+    }
+
+    <!-- المحتوى التفاعلي -->
+    <main class="container-fluid px-4 py-3">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-2">جاري قراءة بنود الحوكمة ومصفوفة الصلاحيات السحابية...</p>
+            </div>
+        }
+        else if (activeTab == "ROLES")
+        {
+            <!-- ======================================================== -->
+            <!-- تبويب 1: مصفوفة صلاحيات الأدوار الوظيفية (ROLES MATRIX)    -->
+            <!-- ======================================================== -->
+            <div class="row g-4">
+                <!-- قائمة الأدوار المتاحة -->
+                <div class="col-xl-3 col-lg-4">
+                    <div class="roles-sidebar-card shadow-sm">
+                        <div class="p-3 border-bottom border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
+                            <span class="fw-bold text-light small">الأدوار المعتمدة بالمنشأة</span>
+                            <span class="badge bg-primary">@rolesList.Count أدوار</span>
+                        </div>
+                        <div class="p-2 role-items-container">
+                            @foreach (var role in rolesList)
+                            {
+                                <div class="role-select-item @(selectedRoleId == role.Id ? "active" : "")" 
+                                     @onclick="() => SelectRole(role)">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="fw-bold role-title">@role.DisplayName</span>
+                                        <span class="badge bg-dark border border-secondary text-muted small">@role.UsersCount مستخدم</span>
+                                    </div>
+                                    <span class="small text-muted d-block text-truncate mt-1">@role.Description</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- شجرة ومصفوفة أزرار الدور المختار -->
+                <div class="col-xl-9 col-lg-8">
+                    @if (selectedRole != null)
+                    {
+                        <div class="permissions-matrix-card shadow-sm">
+                            <div class="p-3 border-bottom border-secondary border-opacity-25 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div>
+                                    <h5 class="text-warning fw-bold mb-0">
+                                        <i class="bi bi-sliders me-1"></i> ضبط صلاحيات: @selectedRole.DisplayName
+                                    </h5>
+                                    <span class="text-muted small">حدد الأزرار المسموح لهذا الدور بالضغط عليها وتنفيذها</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" 
+                                           style="width: 200px;" placeholder="بحث في الأزرار..." @bind="permSearchTerm" @bind:event="oninput" />
+                                    <button class="btn btn-outline-info btn-sm" @onclick="SelectAllPermissions">تحديد الكل</button>
+                                    <button class="btn btn-outline-secondary btn-sm" @onclick="ClearAllPermissions">إلغاء الكل</button>
+                                    <button class="btn btn-success btn-sm px-3 fw-bold" @onclick="SaveRolePermissions" disabled="@isSaving">
+                                        @if (isSaving)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                            <span>جاري الحفظ...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>✓ حفظ تعديلات الدور</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- مجموعات الصلاحيات التفصيلية -->
+                            <div class="p-3 permissions-scroll-area">
+                                @foreach (var group in FilteredCatalog)
+                                {
+                                    <div class="perm-group-box mb-4">
+                                        <div class="perm-group-header">
+                                            <span class="fw-bold text-white">@group.GroupName</span>
+                                            <span class="badge bg-dark border border-secondary text-info small">
+                                                @group.Permissions.Count(p => activePermissionsSet.Contains(p.Code)) / @group.Permissions.Count مفعل
+                                            </span>
+                                        </div>
+                                        <div class="row g-2 mt-1">
+                                            @foreach (var perm in group.Permissions)
+                                            {
+                                                bool isChecked = activePermissionsSet.Contains(perm.Code);
+                                                <div class="col-md-6 col-12">
+                                                    <div class="perm-item-tile @(isChecked ? "checked" : "")" 
+                                                         @onclick="() => TogglePermission(perm.Code)">
+                                                        <div class="form-check form-switch m-0 pointer-events-none">
+                                                            <input class="form-check-input" type="checkbox" checked="@isChecked" />
+                                                        </div>
+                                                        <div class="ms-2">
+                                                            <span class="fw-bold text-light d-block perm-name">@perm.Title</span>
+                                                            <span class="perm-desc text-muted">@perm.Description</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- ======================================================== -->
+            <!-- تبويب 2: مستخدمو المنشأة والعاملين المرتبطين               -->
+            <!-- ======================================================== -->
+            <div class="users-list-card shadow-sm p-3">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <div>
+                        <h5 class="text-white fw-bold mb-0">سجل مستخدمي المنشأة المستأجرة</h5>
+                        <span class="text-muted small">مراجعة رتب الموظفين، ربطهم بملفات العاملين، وتخصيص الصلاحيات</span>
+                    </div>
+                    <span class="badge bg-dark border border-secondary text-light px-3 py-2">
+                        إجمالي المستخدمين: @usersList.Count
+                    </span>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover align-middle border-secondary mb-0">
+                        <thead>
+                            <tr class="text-muted small border-secondary">
+                                <th>#</th>
+                                <th>اسم المستخدم</th>
+                                <th>اسم العامل المرتبط</th>
+                                <th>كود العامل</th>
+                                <th>القسم / الصالة</th>
+                                <th>الدور الوظيفي</th>
+                                <th>الحالة</th>
+                                <th>الصلاحيات الاستثنائية</th>
+                                <th>إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in usersList)
+                            {
+                                <tr>
+                                    <td class="font-monospace text-muted">@user.Id</td>
+                                    <td class="fw-bold text-info">@user.Username</td>
+                                    <td>@(string.IsNullOrEmpty(user.FullName) ? "---" : user.FullName)</td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(user.EmployeeCode))
+                                        {
+                                            <span class="badge bg-dark border border-info text-info font-monospace">@user.EmployeeCode</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">غير مرتبط</span>
+                                        }
+                                    </td>
+                                    <td><span class="badge bg-dark border border-secondary">@(user.DepartmentName ?? "الإدارة العامة")</span></td>
+                                    <td>
+                                        <span class="badge bg-primary bg-opacity-25 text-primary border border-primary border-opacity-50">
+                                            @user.Role
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (user.IsActive)
+                                        {
+                                            <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-50">نشط</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-50">معطل</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrWhiteSpace(user.CustomPermissions))
+                                        {
+                                            <span class="badge bg-warning bg-opacity-25 text-warning border border-warning border-opacity-50">
+                                                @user.CustomPermissions.Split(',').Length استثناءات
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">حسب الدور</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-warning" title="تخصيص صلاحيات أزرار خاصة" @onclick="() => OpenCustomPermsModal(user)">
+                                                <i class="bi bi-shield-plus"></i>
+                                            </button>
+                                            <button class="btn btn-outline-info" title="تغيير كلمة المرور" @onclick="() => OpenResetPassModal(user)">
+                                                <i class="bi bi-key"></i>
+                                            </button>
+                                            <button class="btn @(user.IsActive ? "btn-outline-danger" : "btn-outline-success")" 
+                                                    title="@(user.IsActive ? "تعطيل الحساب" : "تفعيل الحساب")" 
+                                                    @onclick="() => ToggleUserStatus(user)">
+                                                <i class="bi @(user.IsActive ? "bi-person-slash" : "bi-person-check")"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </main>
+
+    <!-- ======================================================== -->
+    <!-- Modal 1: نافذة إنشاء دور / مصفوفة جديدة                   -->
+    <!-- ======================================================== -->
+    @if (showCreateRoleModal)
+    {
+        <div class="modal-backdrop-custom">
+            <div class="modal-card-custom shadow-lg">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-diagram-3-fill text-primary me-2"></i>إضافة دور وظيفي / مصفوفة جديدة</h5>
+                    <button class="btn-close btn-close-white" @onclick='() => showCreateRoleModal = false'></button>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-light">اسم الدور بالعربية <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary" 
+                           placeholder="مثال: مسؤول خط تصنيع، كاشير فرع، أمين خامات" @bind="newRoleDisplayName" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-light">كود الدور بالإنجليزية</label>
+                    <input type="text" class="form-control bg-dark text-white border-secondary font-monospace" 
+                           placeholder="مثال: LINE_SUPERVISOR" @bind="newRoleName" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-light">الوصف الوظيفي</label>
+                    <textarea class="form-control bg-dark text-white border-secondary" rows="2" 
+                              placeholder="وصف مختصر للمسؤوليات الميدانية..." @bind="newRoleDescription"></textarea>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label small fw-bold text-light">نسخ صلاحيات مبدئية من دور آخر (اختياري)</label>
+                    <select class="form-select bg-dark text-white border-secondary" @bind="cloneFromRoleId">
+                        <option value="0">بدء بمصفوفة فارغة بدون صلاحيات</option>
+                        @foreach (var r in rolesList)
+                        {
+                            <option value="@r.Id">نسخ من: @r.DisplayName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button class="btn btn-secondary btn-sm" @onclick='() => showCreateRoleModal = false'>إلغاء</button>
+                    <button class="btn btn-primary btn-sm px-4 fw-bold" @onclick="SubmitCreateRole" disabled="@isSubmittingModal">
+                        @if (isSubmittingModal) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        <span>حفظ الدور والمصفوفة</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Modal 2: نافذة إنشاء مستخدم جديد مرتبط بعامل              -->
+    <!-- ======================================================== -->
+    @if (showCreateUserModal)
+    {
+        <div class="modal-backdrop-custom">
+            <div class="modal-card-custom shadow-lg">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-person-plus-fill text-success me-2"></i>إضافة حساب مستخدم مرتبط بعامل</h5>
+                    <button class="btn-close btn-close-white" @onclick='() => showCreateUserModal = false'></button>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-light">اختر العامل من السجل الرسمي <span class="text-danger">*</span></label>
+                    <select class="form-select bg-dark text-white border-secondary" @onchange="OnEmployeeSelected">
+                        <option value="0">-- اختر العامل لملء البيانات تلقائياً --</option>
+                        @foreach (var emp in employeesList)
+                        {
+                            <option value="@emp.Id">[@emp.EmployeeCode] @emp.FullName (@emp.DepartmentName)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-bold text-light">اسم الموظف الكامل</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" @bind="newUserFullName" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-bold text-light">القسم / الصالة</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" @bind="newUserDepartmentName" />
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-bold text-light">اسم المستخدم لتسجيل الدخول <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary font-monospace" placeholder="مثال: ahmad_ali" @bind="newUsername" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-bold text-light">كلمة المرور الشخصية <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control bg-dark text-white border-secondary" placeholder="••••••••" @bind="newUserPassword" />
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label small fw-bold text-light">الدور الوظيفي والمصفوفة المعتمدة <span class="text-danger">*</span></label>
+                    <select class="form-select bg-dark text-white border-secondary" @bind="newUserRoleId">
+                        @foreach (var r in rolesList)
+                        {
+                            <option value="@r.Id">@r.DisplayName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button class="btn btn-secondary btn-sm" @onclick='() => showCreateUserModal = false'>إلغاء</button>
+                    <button class="btn btn-success btn-sm px-4 fw-bold" @onclick="SubmitCreateUser" disabled="@isSubmittingModal">
+                        @if (isSubmittingModal) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        <span>إنشاء الحساب وتفعيله</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Modal 3: نافذة إعادة تعيين كلمة المرور                    -->
+    <!-- ======================================================== -->
+    @if (showResetPassModal && targetUser != null)
+    {
+        <div class="modal-backdrop-custom">
+            <div class="modal-card-custom shadow-lg" style="max-width: 420px;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-key text-warning me-2"></i>تغيير كلمة المرور: @targetUser.Username</h5>
+                    <button class="btn-close btn-close-white" @onclick='() => showResetPassModal = false'></button>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-light">كلمة المرور الجديدة</label>
+                    <input type="password" class="form-control bg-dark text-white border-secondary" placeholder="••••••••" @bind="resetPassNew" />
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button class="btn btn-secondary btn-sm" @onclick='() => showResetPassModal = false'>إلغاء</button>
+                    <button class="btn btn-warning btn-sm px-4 fw-bold" @onclick="SubmitResetPassword" disabled="@isSubmittingModal">
+                        تحديث كلمة المرور
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Modal 4: نافذة الصلاحيات الاستثنائية للمستخدم            -->
+    <!-- ======================================================== -->
+    @if (showCustomPermsModal && targetUser != null)
+    {
+        <div class="modal-backdrop-custom">
+            <div class="modal-card-custom shadow-lg" style="max-width: 780px;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h5 class="fw-bold text-white mb-0"><i class="bi bi-shield-plus text-info me-2"></i>صلاحيات استثنائية: @targetUser.FullName (@targetUser.Username)</h5>
+                        <span class="text-muted small">هذه الصلاحيات تمنح للمستخدم مباشرة وتتجاوز مصفوفة دوره الرسمي (@targetUser.Role)</span>
+                    </div>
+                    <button class="btn-close btn-close-white" @onclick='() => showCustomPermsModal = false'></button>
+                </div>
+
+                <div class="permissions-scroll-area mb-3" style="max-height: 50vh;">
+                    @foreach (var group in permissionCatalog)
+                    {
+                        <div class="perm-group-box mb-3">
+                            <span class="fw-bold text-white d-block mb-2 border-bottom border-secondary border-opacity-25 pb-1">@group.GroupName</span>
+                            <div class="row g-2">
+                                @foreach (var perm in group.Permissions)
+                                {
+                                    bool isCustom = userCustomPermsSet.Contains(perm.Code);
+                                    <div class="col-md-6 col-12">
+                                        <div class="perm-item-tile @(isCustom ? "checked" : "")" @onclick="() => ToggleUserCustomPerm(perm.Code)">
+                                            <div class="form-check form-switch m-0 pointer-events-none">
+                                                <input class="form-check-input" type="checkbox" checked="@isCustom" />
+                                            </div>
+                                            <div class="ms-2">
+                                                <span class="fw-bold text-light d-block perm-name">@perm.Title</span>
+                                                <span class="perm-desc text-muted">@perm.Description</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button class="btn btn-secondary btn-sm" @onclick='() => showCustomPermsModal = false'>إلغاء</button>
+                    <button class="btn btn-success btn-sm px-4 fw-bold" @onclick="SubmitSaveUserCustomPerms" disabled="@isSubmittingModal">
+                        حفظ الصلاحيات الاستثنائية
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .kayan-security-viewport {
+        min-height: 100vh;
+        width: 100vw;
+        background-color: #030712;
+        color: #F8FAFC;
+        font-family: system-ui, -apple-system, sans-serif;
+        overflow-x: hidden;
+    }
+
+    .security-header-bar {
+        background: rgba(17, 24, 39, 0.85);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 0.85rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .back-home-btn {
+        background: #1E293B;
+        border: 1px solid #334155;
+        color: #CBD5E1;
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .back-home-btn:hover { background: #334155; color: #FFF; }
+
+    .custom-pills-bar .nav-link {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #94A3B8;
+        border-radius: 10px;
+        padding: 0.55rem 1.25rem;
+        font-weight: 600;
+        font-size: 0.88rem;
+    }
+
+    .custom-pills-bar .nav-link.active {
+        background: #4F46E5;
+        border-color: #6366F1;
+        color: #FFF;
+        box-shadow: 0 0 15px rgba(99, 102, 241, 0.35);
+    }
+
+    .roles-sidebar-card, .permissions-matrix-card, .users-list-card {
+        background: rgba(17, 24, 39, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        backdrop-filter: blur(16px);
+    }
+
+    .role-items-container {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        max-height: calc(100vh - 220px);
+        overflow-y: auto;
+    }
+
+    .role-select-item {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        padding: 0.85rem;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .role-select-item:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .role-select-item.active {
+        background: rgba(99, 102, 241, 0.15);
+        border-color: #6366F1;
+    }
+
+    .role-select-item.active .role-title { color: #818CF8; }
+
+    .permissions-scroll-area {
+        max-height: calc(100vh - 220px);
+        overflow-y: auto;
+    }
+
+    .perm-group-box {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 1rem;
+    }
+
+    .perm-group-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .perm-item-tile {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 0.65rem 0.85rem;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .perm-item-tile:hover {
+        background: rgba(30, 41, 59, 0.8);
+        border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .perm-item-tile.checked {
+        border-color: rgba(99, 102, 241, 0.5);
+        background: rgba(99, 102, 241, 0.1);
+    }
+
+    .perm-name { font-size: 0.83rem; }
+    .perm-desc { font-size: 0.72rem; display: block; }
+    .pointer-events-none { pointer-events: none; }
+
+    /* Modal Backdrop and Card */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1050;
+        padding: 1rem;
+    }
+
+    .modal-card-custom {
+        width: 100%;
+        max-width: 580px;
+        background: #111827;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 18px;
+        padding: 1.75rem;
+    }
+</style>
+
+@code {
+    private string activeTab = "ROLES";
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isSubmittingModal = false;
+    private string? statusMessage;
+    private string permSearchTerm = "";
+
+    private List<RoleDto> rolesList = new();
+    private List<UserRowDto> usersList = new();
+    private List<EmployeeLookupDto> employeesList = new();
+    private List<PermissionGroupDto> permissionCatalog = new();
+
+    private int selectedRoleId = 0;
+    private RoleDto? selectedRole;
+    private HashSet<string> activePermissionsSet = new(StringComparer.OrdinalIgnoreCase);
+
+    // متغيرات الـ Modals
+    private bool showCreateRoleModal = false;
+    private string newRoleDisplayName = "";
+    private string newRoleName = "";
+    private string newRoleDescription = "";
+    private int cloneFromRoleId = 0;
+
+    private bool showCreateUserModal = false;
+    private string newUsername = "";
+    private string newUserPassword = "";
+    private string newUserFullName = "";
+    private string newUserDepartmentName = "";
+    private long? selectedEmployeeId;
+    private string? selectedEmployeeCode;
+    private int newUserRoleId = 0;
+
+    private bool showResetPassModal = false;
+    private UserRowDto? targetUser;
+    private string resetPassNew = "";
+
+    private bool showCustomPermsModal = false;
+    private HashSet<string> userCustomPermsSet = new(StringComparer.OrdinalIgnoreCase);
+
+    // فلترة الأزرار بالبحث السريع
+    private IEnumerable<PermissionGroupDto> FilteredCatalog
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(permSearchTerm)) return permissionCatalog;
+            string term = permSearchTerm.Trim();
+
+            return permissionCatalog.Select(g => new PermissionGroupDto
+            {
+                GroupCode = g.GroupCode,
+                GroupName = g.GroupName,
+                Permissions = g.Permissions.Where(p => 
+                    p.Title.Contains(term, StringComparison.OrdinalIgnoreCase) || 
+                    p.Description.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.Code.Contains(term, StringComparison.OrdinalIgnoreCase)).ToList()
+            }).Where(g => g.Permissions.Any());
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            long companyId = State.CompanyId > 0 ? State.CompanyId : 1;
+
+            // 1. تحميل فهرس الصلاحيات الكامل
+            var catalogResponse = await Http.GetFromJsonAsync<List<PermissionGroupDto>>("api/roles/catalog");
+            if (catalogResponse != null) permissionCatalog = catalogResponse;
+
+            // 2. تحميل أدوار المنشأة
+            var rolesResponse = await Http.GetFromJsonAsync<List<RoleDto>>($"api/roles/company/{companyId}");
+            if (rolesResponse != null && rolesResponse.Any())
+            {
+                rolesList = rolesResponse;
+                SelectRole(rolesList.First());
+            }
+
+            // 3. تحميل مستخدمي المنشأة
+            var usersResponse = await Http.GetFromJsonAsync<List<UserRowDto>>($"api/roles/users/{companyId}");
+            if (usersResponse != null) usersList = usersResponse;
+
+            // 4. تحميل العاملين لملء القوائم المنسدلة
+            var employeesResponse = await Http.GetFromJsonAsync<List<EmployeeLookupDto>>($"api/roles/employees/{companyId}");
+            if (employeesResponse != null) employeesList = employeesResponse;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"خطأ في جلب البيانات: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SelectRole(RoleDto role)
+    {
+        selectedRole = role;
+        selectedRoleId = role.Id;
+
+        activePermissionsSet.Clear();
+        if (!string.IsNullOrWhiteSpace(role.Permissions))
+        {
+            var perms = role.Permissions.Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var p in perms) activePermissionsSet.Add(p.Trim());
+        }
+    }
+
+    private void TogglePermission(string code)
+    {
+        if (activePermissionsSet.Contains(code)) activePermissionsSet.Remove(code);
+        else activePermissionsSet.Add(code);
+    }
+
+    private void SelectAllPermissions()
+    {
+        foreach (var grp in permissionCatalog)
+        {
+            foreach (var p in grp.Permissions) activePermissionsSet.Add(p.Code);
+        }
+    }
+
+    private void ClearAllPermissions() => activePermissionsSet.Clear();
+
+    private async Task SaveRolePermissions()
+    {
+        if (selectedRole == null) return;
+        isSaving = true;
+        try
+        {
+            var payload = new { Permissions = activePermissionsSet.ToList() };
+            var response = await Http.PutAsJsonAsync($"api/roles/{selectedRole.Id}/permissions", payload);
+
+            if (response.IsSuccessStatusCode)
+            {
+                selectedRole.Permissions = string.Join(",", activePermissionsSet);
+                statusMessage = $"✓ تم حفظ وتحديث مصفوفة أزرار ({selectedRole.DisplayName}) بنجاح.";
+            }
+        }
+        catch (Exception ex) { statusMessage = $"خطأ: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    // Modal 1: إنشاء دور جديد
+    private void OpenCreateRoleModal()
+    {
+        newRoleDisplayName = "";
+        newRoleName = "";
+        newRoleDescription = "";
+        cloneFromRoleId = 0;
+        showCreateRoleModal = true;
+    }
+
+    private async Task SubmitCreateRole()
+    {
+        if (string.IsNullOrWhiteSpace(newRoleDisplayName))
+        {
+            statusMessage = "يرجى كتابة اسم الدور بالعربية.";
+            return;
+        }
+
+        isSubmittingModal = true;
+        try
+        {
+            var initialPerms = new List<string>();
+            if (cloneFromRoleId > 0)
+            {
+                var cloneSource = rolesList.FirstOrDefault(r => r.Id == cloneFromRoleId);
+                if (cloneSource != null && !string.IsNullOrEmpty(cloneSource.Permissions))
+                    initialPerms = cloneSource.Permissions.Split(',').Select(p => p.Trim()).ToList();
+            }
+
+            var payload = new
+            {
+                DisplayName = newRoleDisplayName.Trim(),
+                Name = newRoleName.Trim(),
+                Description = newRoleDescription,
+                CompanyId = State.CompanyId > 0 ? State.CompanyId : 1,
+                Permissions = initialPerms
+            };
+
+            var res = await Http.PostAsJsonAsync("api/roles", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                showCreateRoleModal = false;
+                statusMessage = "✓ تم إنشاء الدور والمصفوفة بنجاح.";
+                await LoadDataAsync();
+            }
+        }
+        catch (Exception ex) { statusMessage = $"خطأ: {ex.Message}"; }
+        finally { isSubmittingModal = false; }
+    }
+
+    // Modal 2: إنشاء مستخدم جديد
+    private void OpenCreateUserModal()
+    {
+        newUsername = "";
+        newUserPassword = "";
+        newUserFullName = "";
+        newUserDepartmentName = "";
+        selectedEmployeeId = null;
+        selectedEmployeeCode = null;
+        newUserRoleId = rolesList.FirstOrDefault()?.Id ?? 0;
+        showCreateUserModal = true;
+    }
+
+    private void OnEmployeeSelected(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long empId) && empId > 0)
+        {
+            var emp = employeesList.FirstOrDefault(x => x.Id == empId);
+            if (emp != null)
+            {
+                selectedEmployeeId = emp.Id;
+                selectedEmployeeCode = emp.EmployeeCode;
+                newUserFullName = emp.FullName;
+                newUserDepartmentName = emp.DepartmentName;
+                if (string.IsNullOrEmpty(newUsername))
+                    newUsername = emp.EmployeeCode.ToLower();
+            }
+        }
+    }
+
+    private async Task SubmitCreateUser()
+    {
+        if (string.IsNullOrWhiteSpace(newUsername) || string.IsNullOrWhiteSpace(newUserPassword))
+        {
+            statusMessage = "اسم المستخدم وكلمة المرور مطلوبان.";
+            return;
+        }
+
+        isSubmittingModal = true;
+        try
+        {
+            var selectedRoleObj = rolesList.FirstOrDefault(r => r.Id == newUserRoleId);
+            var payload = new
+            {
+                Username = newUsername.Trim(),
+                Password = newUserPassword.Trim(),
+                FullName = newUserFullName,
+                DepartmentName = newUserDepartmentName,
+                CompanyId = State.CompanyId > 0 ? State.CompanyId : 1,
+                RoleId = (long?)newUserRoleId,
+                RoleName = selectedRoleObj?.DisplayName ?? "User",
+                EmployeeId = selectedEmployeeId,
+                EmployeeCode = selectedEmployeeCode
+            };
+
+            var res = await Http.PostAsJsonAsync("api/roles/users", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                showCreateUserModal = false;
+                statusMessage = "✓ تم إنشاء حساب المستخدم وربطه بالعامل بنجاح.";
+                await LoadDataAsync();
+            }
+            else
+            {
+                statusMessage = await res.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex) { statusMessage = $"خطأ: {ex.Message}"; }
+        finally { isSubmittingModal = false; }
+    }
+
+    // Modal 3: إعادة تعيين كلمة المرور
+    private void OpenResetPassModal(UserRowDto user)
+    {
+        targetUser = user;
+        resetPassNew = "";
+        showResetPassModal = true;
+    }
+
+    private async Task SubmitResetPassword()
+    {
+        if (targetUser == null || string.IsNullOrWhiteSpace(resetPassNew)) return;
+        isSubmittingModal = true;
+        try
+        {
+            var payload = new { IsActive = targetUser.IsActive, NewPassword = resetPassNew.Trim() };
+            var res = await Http.PutAsJsonAsync($"api/roles/users/{targetUser.Id}/status", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                showResetPassModal = false;
+                statusMessage = $"✓ تم تغيير كلمة المرور للمستخدم ({targetUser.Username}) بنجاح.";
+            }
+        }
+        catch (Exception ex) { statusMessage = $"خطأ: {ex.Message}"; }
+        finally { isSubmittingModal = false; }
+    }
+
+    // تفعيل / تعطيل الحساب
+    private async Task ToggleUserStatus(UserRowDto user)
+    {
+        try
+        {
+            var payload = new { IsActive = !user.IsActive, NewPassword = (string?)null };
+            var res = await Http.PutAsJsonAsync($"api/roles/users/{user.Id}/status", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                user.IsActive = !user.IsActive;
+                statusMessage = $"✓ تم تحديث حالة حساب ({user.Username}).";
+            }
+        }
+        catch (Exception ex) { statusMessage = $"خطأ: {ex.Message}"; }
+    }
+
+    // Modal 4: الصلاحيات الاستثنائية
+    private void OpenCustomPermsModal(UserRowDto user)
+    {
+        targetUser = user;
+        userCustomPermsSet.Clear();
+        if (!string.IsNullOrWhiteSpace(user.CustomPermissions))
+        {
+            var perms = user.CustomPermissions.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var p in perms) userCustomPermsSet.Add(p.Trim());
+        }
+        showCustomPermsModal = true;
+    }
+
+    private void ToggleUserCustomPerm(string code)
+    {
+        if (userCustomPermsSet.Contains(code)) userCustomPermsSet.Remove(code);
+        else userCustomPermsSet.Add(code);
+    }
+
+    private async Task SubmitSaveUserCustomPerms()
+    {
+        if (targetUser == null) return;
+        isSubmittingModal = true;
+        try
+        {
+            var payload = new { Permissions = userCustomPermsSet.ToList() };
+            var res = await Http.PutAsJsonAsync($"api/roles/users/{targetUser.Id}/custom-permissions", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                targetUser.CustomPermissions = string.Join(",", userCustomPermsSet);
+                showCustomPermsModal = false;
+                statusMessage = $"✓ تم حفظ الصلاحيات الاستثنائية للمستخدم ({targetUser.Username}) بنجاح.";
+            }
+        }
+        catch (Exception ex) { statusMessage = $"خطأ: {ex.Message}"; }
+        finally { isSubmittingModal = false; }
+    }
+
+    // نماذج البيانات للـ UI (محفوظة داخلياً لضمان عدم وجود أخطاء Reference)
+    public class RoleDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string? Description { get; set; }
+        public string? Permissions { get; set; }
+        public bool Active { get; set; }
+        public int UsersCount { get; set; }
+    }
+
+    public class UserRowDto
+    {
+        public long Id { get; set; }
+        public string Username { get; set; } = "";
+        public string? FullName { get; set; }
+        public long? EmployeeId { get; set; }
+        public string? EmployeeCode { get; set; }
+        public string Role { get; set; } = "";
+        public long? RoleId { get; set; }
+        public string? DepartmentName { get; set; }
+        public bool IsActive { get; set; }
+        public string? CustomPermissions { get; set; }
+    }
+
+    public class EmployeeLookupDto
+    {
+        public long Id { get; set; }
+        public string EmployeeCode { get; set; } = "";
+        public string FullName { get; set; } = "";
+        public string DepartmentName { get; set; } = "";
+    }
+
+    public class PermissionGroupDto
+    {
+        public string GroupCode { get; set; } = string.Empty;
+        public string GroupName { get; set; } = string.Empty;
+        public List<PermissionItemDto> Permissions { get; set; } = new();
+    }
+
+    public class PermissionItemDto
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+}

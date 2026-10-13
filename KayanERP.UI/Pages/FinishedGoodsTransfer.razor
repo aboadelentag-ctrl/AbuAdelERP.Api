@@ -1,0 +1,1337 @@
+﻿@page "/fg-transfers"
+@page "/finished-goods-transfer"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using KayanERP.UI.Services
+@using System.Net.Http.Json
+@using System.Text
+@using System.IO
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject AppState State
+
+<PageTitle>حوكمة تحويل المنتج التام واستلام الكنترول - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+
+    <!-- رأس الشاشة التنفيذي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h4 class="fw-bold m-0 text-warning">⚖️ حوكمة تحويل المنتج التام واستلام الكنترول</h4>
+                    <span class="badge bg-warning text-dark px-2 py-1 small fw-bold">دورة تسليم مغلقة بنظام الحلقات الرقابية</span>
+                </div>
+                <small class="text-light text-opacity-75">
+                    الدورة الصناعية المتكاملة: تسليم الصالة ⇦ ميزان التكاليف ⇦ فحص الجودة ⇦ استلام الكنترول ⇦ تدوير المرتجعات للتعديل.
+                </small>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportTransfersToCsv" disabled="@(transfers.Count == 0 || isProcessing)">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير سجل الإذونات (Excel)
+                </button>
+                <button class="btn btn-outline-light btn-sm fw-bold shadow-sm" @onclick="LoadData" disabled="@isProcessing">
+                    🔄 تحديث البيانات اللحظية
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط التنبيهات -->
+    @if (!string.IsNullOrEmpty(alertMessage))
+    {
+        <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show shadow-sm mb-3 py-2 fw-bold" role="alert">
+            <strong>@(isSuccess ? "✓ نجاح: " : "⚠️ تنبيه: ")</strong> @alertMessage
+            <button type="button" class="btn-close py-2" @onclick="() => alertMessage = string.Empty"></button>
+        </div>
+    }
+
+    <!-- تبويبات المحطات الخمس مشروطة بالصلاحيات -->
+    <ul class="nav nav-pills mb-3 bg-light p-2 rounded shadow-sm border">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "list" ? "active fw-bold" : "")" @onclick='() => activeTab = "list"'>
+                📋 سجل الإذونات والمتابعة (@transfers.Count)
+            </button>
+        </li>
+        @if (State.HasAnyPermission("Production.Execution", "Production.OperationsHub", "FinishedGoods.Dispatch"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "new" ? "active fw-bold" : "")" @onclick='() => activeTab = "new"'>
+                    ➕ 1. تسليم إنتاج الصالة
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Costing.Audit", "Production.CostingAudit", "Roles.Manage"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "costing" ? "active fw-bold" : "") position-relative" @onclick='() => activeTab = "costing"'>
+                    ⚖️ 2. ميزان وتدقيق التكاليف
+                    @if (CostingCount > 0)
+                    {
+                        <span class="badge rounded-pill bg-danger ms-1">@CostingCount</span>
+                    }
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Quality.Inspect", "FinishedGoods.QC"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "qc" ? "active fw-bold" : "") position-relative" @onclick='() => activeTab = "qc"'>
+                    🔬 3. فحص وتصنيف الجودة
+                    @if (QcCount > 0)
+                    {
+                        <span class="badge rounded-pill bg-warning text-dark ms-1">@QcCount</span>
+                    }
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Warehouse.Receive", "FinishedGoods.ControlReceive"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "control" ? "active fw-bold" : "") position-relative" @onclick='() => activeTab = "control"'>
+                    🏢 4. استلام الكنترول ولجنة النزاع
+                    @if (ControlCount > 0)
+                    {
+                        <span class="badge rounded-pill bg-info text-dark ms-1">@ControlCount</span>
+                    }
+                </button>
+            </li>
+        }
+        @if (State.HasAnyPermission("Production.Execution", "FinishedGoods.Rework"))
+        {
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "rework" ? "active fw-bold" : "") position-relative" @onclick='() => activeTab = "rework"'>
+                    🔄 5. تشغيل وتعديل المرتجعات
+                    @if (ReworkCount > 0)
+                    {
+                        <span class="badge rounded-pill bg-danger ms-1">@ReworkCount</span>
+                    }
+                </button>
+            </li>
+        }
+    </ul>
+
+    <!-- ======================================================== -->
+    <!-- Tab 1: السجل العام للمتابعة                              -->
+    <!-- ======================================================== -->
+    @if (activeTab == "list")
+    {
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-body p-0 table-responsive">
+                <table class="table table-hover table-bordered mb-0 align-middle text-center small">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>رقم الإذن</th>
+                            <th>التاريخ</th>
+                            <th>الصنف / التشغيلة</th>
+                            <th>تسليم الصالة</th>
+                            <th>ميزان التكاليف</th>
+                            <th>مقبول الجودة</th>
+                            <th>مستلم الكنترول</th>
+                            <th>الحالة الرقابية</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (transfers.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="8" class="text-muted py-4 fw-bold">لا توجد أذونات تحويل مسجلة حالياً.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var t in transfers)
+                            {
+                                <tr>
+                                    <td class="fw-bold text-primary font-monospace">@t.TransferNumber</td>
+                                    <td class="font-monospace">@t.TransferDate.ToString("yyyy-MM-dd")</td>
+                                    <td class="text-start ps-3">
+                                        <div class="fw-bold">@t.ItemName</div>
+                                        <small class="text-muted"><code>@t.BatchNumber</code> | ص: @(t.ExpiryDate?.ToString("yyyy-MM-dd") ?? "-")</small>
+                                    </td>
+                                    <td>
+                                        <span class="fw-bold font-monospace">@t.ProdDispatchedQty.ToString("N2")</span>
+                                        <small class="d-block text-muted">(@t.ProdDispatchedCount صاج)</small>
+                                    </td>
+                                    <td>
+                                        @if (t.CostingActualQty.HasValue)
+                                        {
+                                            <span class="fw-bold font-monospace @(t.CostingDiscrepancyFlag ? "text-danger" : "text-success")">
+                                                @t.CostingActualQty.Value.ToString("N2")
+                                            </span>
+                                            <small class="d-block text-muted">(@t.CostingActualCount صاج)</small>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (t.QcApprovedQty > 0)
+                                        {
+                                            <span class="fw-bold font-monospace text-success">@t.QcApprovedQty.ToString("N2")</span>
+                                            @if (t.QcReworkQty > 0)
+                                            {
+                                                <small class="d-block text-warning fw-bold">مرتجع: @t.QcReworkQty.ToString("N2")</small>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (t.ReceivedActualQty.HasValue)
+                                        {
+                                            <span class="fw-bold font-monospace text-primary">@t.ReceivedActualQty.Value.ToString("N2")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">لم يستلم بعد</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (t.Status == "PENDING_COSTING")
+                                        {
+                                            <span class="badge bg-secondary">1. بانتظار ميزان التكاليف</span>
+                                        }
+                                        else if (t.Status == "DISPUTE_COSTING")
+                                        {
+                                            <span class="badge bg-danger">🚨 نزاع: إنتاج وتكاليف</span>
+                                        }
+                                        else if (t.Status == "PENDING_QC")
+                                        {
+                                            <span class="badge bg-warning text-dark">2. بانتظار فحص الجودة</span>
+                                        }
+                                        else if (t.Status == "PENDING_RECEIPT")
+                                        {
+                                            <span class="badge bg-info text-dark">3. بانتظار استلام الكنترول</span>
+                                        }
+                                        else if (t.Status == "IN_DISPUTE")
+                                        {
+                                            <span class="badge bg-danger">🚨 نزاع: جودة وكنترول</span>
+                                        }
+                                        else if (t.Status == "REWORK_IN_PRODUCTION")
+                                        {
+                                            <span class="badge bg-warning text-dark">🔄 قيد التعديل بالصالة</span>
+                                        }
+                                        else if (t.Status == "COMPLETED")
+                                        {
+                                            <span class="badge bg-success">✓ تم الاستلام والترصيد</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Tab 2: تسليم إنتاج الصالة                                -->
+    <!-- ======================================================== -->
+    @if (activeTab == "new" && State.HasAnyPermission("Production.Execution", "Production.OperationsHub", "FinishedGoods.Dispatch"))
+    {
+        <div class="card shadow-sm border-0 border-top border-primary border-4 mb-4">
+            <div class="card-header bg-white py-3">
+                <h6 class="mb-0 fw-bold text-primary">1. إصدار إذن تسليم منتج تام من صالة التشغيل</h6>
+            </div>
+            <div class="card-body bg-light p-4">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark">مخزن صالة التشغيل (المصدر) *</label>
+                        <select class="form-select form-select-sm border-primary fw-bold" value="@newTransfer.SourceWarehouseId" @onchange="OnSourceWarehouseChanged">
+                            <option value="0">-- اختر صالة التشغيل --</option>
+                            @foreach (var w in warehouses.Where(w => w.WarehouseType == "صالة تشغيل" || w.WarehouseType == "FLOOR_STOCK" || w.WarehouseName.Contains("صالة")))
+                            {
+                                <option value="@w.Id">@w.WarehouseName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark">مخزن الكنترول (الوجهة) *</label>
+                        <select class="form-select form-select-sm border-primary fw-bold" @bind="newTransfer.DestinationWarehouseId">
+                            <option value="0">-- اختر مخزن الكنترول --</option>
+                            @foreach (var w in warehouses.Where(w => w.WarehouseName.Contains("كنترول") || w.WarehouseCode == "1000" || w.WarehouseType != "صالة تشغيل"))
+                            {
+                                <option value="@w.Id">@w.WarehouseName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark">المنتج التام المسلّم *</label>
+                        <select class="form-select form-select-sm border-primary fw-bold" value="@newTransfer.ItemId" @onchange="OnItemSelected">
+                            <option value="0">-- اختر المنتج --</option>
+                            @foreach (var itm in displayedItems)
+                            {
+                                <option value="@itm.Id">@itm.ItemName (@itm.ItemCode)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark">رقم التشغيلة / اللوط</label>
+                        <input class="form-control form-control-sm fw-bold text-primary font-monospace bg-white" placeholder="يُولّد آلياً" @bind="newTransfer.BatchNumber" readonly />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark">الكمية الصافية (@selectedItemUnit) *</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-primary font-monospace" @bind="newTransfer.DispatchedQty" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark">عدد الصواني / الصناديق *</label>
+                        <input type="number" step="1" class="form-control form-control-sm fw-bold font-monospace" @bind="newTransfer.DispatchedCount" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark">تاريخ الصلاحية</label>
+                        <input type="date" class="form-control form-control-sm font-monospace" @bind="newTransfer.ExpiryDate" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold text-dark d-flex justify-content-between">
+                            <span>مشرف الصالة المسلّم:</span>
+                            <span class="badge bg-secondary font-monospace">🔒 موثق تلقائياً</span>
+                        </label>
+                        <input class="form-control form-control-sm fw-bold bg-white text-primary" value="@CurrentDispatcherDisplayName" readonly disabled />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted">ملاحظات التشغيل والتحويل</label>
+                    <input class="form-control form-control-sm" placeholder="مثال: تسليم تشغيل وردية أولى" @bind="newTransfer.Notes" />
+                </div>
+
+                <button class="btn btn-primary px-4 fw-bold shadow-sm" @onclick="SubmitNewTransfer" disabled="@isProcessing">
+                    @(isProcessing ? "⏳ جارٍ الإرسال..." : "✓ إرسال الإذن لميزان ورقابة التكاليف")
+                </button>
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Tab 3: ميزان وتدقيق التكاليف                             -->
+    <!-- ======================================================== -->
+    @if (activeTab == "costing" && State.HasAnyPermission("Costing.Audit", "Production.CostingAudit", "Roles.Manage"))
+    {
+        <div class="card shadow-sm border-0 border-top border-secondary border-4 mb-4">
+            <div class="card-header bg-white py-3">
+                <h6 class="mb-0 fw-bold text-dark">⚖ محطة ميزان التكاليف وبوابة نزاع الإنتاج</h6>
+            </div>
+            <div class="card-body p-0">
+                @if (CostingList.Count == 0)
+                {
+                    <div class="text-center text-muted py-5 fw-bold">لا توجد أذونات بانتظار وزن وتدقيق التكاليف حالياً.</div>
+                }
+                else
+                {
+                    @foreach (var trf in CostingList)
+                    {
+                        <div class="p-3 border-bottom @(trf.Status == "DISPUTE_COSTING" ? "bg-danger bg-opacity-10 border-danger" : "bg-light")">
+                            @if (trf.Status == "DISPUTE_COSTING")
+                            {
+                                <div class="alert alert-danger py-2 mb-3 fw-bold small d-flex justify-content-between align-items-center">
+                                    <div>🚨 نزاع نشط بين الإنتاج والتكاليف: @trf.CostingDisputeReason</div>
+                                    <button class="btn btn-danger btn-sm fw-bold shadow-sm" @onclick="() => OpenCostingDisputeModal(trf)">
+                                        ⚖️ فض نزاع التكاليف والإنتاج
+                                    </button>
+                                </div>
+                            }
+
+                            <div class="row align-items-center g-3">
+                                <div class="col-md-3">
+                                    <h6 class="fw-bold text-primary font-monospace mb-1">@trf.TransferNumber</h6>
+                                    <div class="fw-bold">@trf.ItemName</div>
+                                    <small class="text-muted font-monospace">تشغيلة: <code>@trf.BatchNumber</code></small>
+                                </div>
+                                <div class="col-md-3 border-start">
+                                    <span class="small text-muted d-block">تسليم الصالة المعتمد:</span>
+                                    <span class="fw-bold fs-6 font-monospace">@trf.ProdDispatchedQty.ToString("N2")</span> | 
+                                    <span class="fw-bold font-monospace">@trf.ProdDispatchedCount صاج</span>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="row g-2 mb-1">
+                                        <div class="col-6">
+                                            <label class="small fw-bold text-danger">الكمية الفعلية بالميزان *</label>
+                                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-center font-monospace border-danger" placeholder="الوزن الفعلي" @bind="trf.TempAuditWeight" />
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="small fw-bold text-danger">عدد الصواني / الصاجات *</label>
+                                            <input type="number" class="form-control form-control-sm fw-bold text-center font-monospace border-danger" placeholder="صاج" @bind="trf.TempAuditCount" />
+                                        </div>
+                                    </div>
+                                    <input type="text" class="form-control form-control-sm" placeholder="ملاحظات الميزان والتكاليف..." @bind="trf.TempCostingNotes" />
+                                </div>
+                                <div class="col-md-2 text-center d-flex flex-column gap-2">
+                                    @if (trf.Status != "DISPUTE_COSTING")
+                                    {
+                                        <button class="btn btn-success btn-sm w-100 fw-bold py-1 shadow-sm" @onclick="() => SubmitCostingAudit(trf, false)" disabled="@isProcessing">
+                                            ✓ اعتماد وتمرير للجودة
+                                        </button>
+                                        @if (trf.TempAuditWeight != trf.ProdDispatchedQty || trf.TempAuditCount != trf.ProdDispatchedCount)
+                                        {
+                                            <button class="btn btn-outline-danger btn-sm w-100 fw-bold py-1" @onclick="() => SubmitCostingAudit(trf, true)" disabled="@isProcessing">
+                                                🚨 تصعيد نزاع للجنة
+                                            </button>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Tab 4: فحص وتصنيف الجودة                                 -->
+    <!-- ======================================================== -->
+    @if (activeTab == "qc" && State.HasAnyPermission("Quality.Inspect", "FinishedGoods.QC"))
+    {
+        <div class="card shadow-sm border-0 border-top border-warning border-4 mb-4">
+            <div class="card-header bg-white py-3">
+                <h6 class="mb-0 fw-bold text-dark">🔬 محطة توكيد الجودة (QC) - ميزان الخصم الصارم</h6>
+            </div>
+            <div class="card-body p-0">
+                @if (PendingQcList.Count == 0)
+                {
+                    <div class="text-center text-muted py-5 fw-bold">لا توجد أذونات بانتظار فحص الجودة حالياً.</div>
+                }
+                else
+                {
+                    @foreach (var trf in PendingQcList)
+                    {
+                        decimal baseCosting = trf.CostingActualQty ?? trf.ProdDispatchedQty;
+                        decimal totalDeducted = trf.TempQcSample + trf.TempQcRework + trf.TempQcScrap;
+                        decimal calculatedNetApproved = baseCosting - totalDeducted;
+
+                        <div class="p-3 border-bottom bg-white">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <h6 class="fw-bold text-primary font-monospace mb-0 d-inline me-2">@trf.TransferNumber</h6>
+                                    <span class="fw-bold">@trf.ItemName</span>
+                                    <span class="badge bg-secondary font-monospace ms-2">كمية التكاليف المعتمدة: @baseCosting.ToString("N2")</span>
+                                </div>
+                                <span class="badge @(calculatedNetApproved >= 0 ? "bg-success" : "bg-danger") px-3 py-2 font-monospace">
+                                    @(calculatedNetApproved >= 0 ? $"✓ الصافي للكنترول: {calculatedNetApproved:N2}" : "⚠️ خطأ: مجموع الخصومات أكبر من وزن التكاليف!")
+                                </span>
+                            </div>
+
+                            <div class="row align-items-center g-3">
+                                <div class="col-md-10">
+                                    <div class="row g-2 text-center mb-2">
+                                        <div class="col-3">
+                                            <label class="small fw-bold text-success">مقبول للكنترول (تلقائي)</label>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-success bg-light font-monospace" value="@(calculatedNetApproved >= 0 ? calculatedNetApproved : 0)" readonly />
+                                        </div>
+                                        <div class="col-3">
+                                            <label class="small fw-bold text-info">عينة فحص معملي</label>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-info font-monospace" @bind="trf.TempQcSample" />
+                                        </div>
+                                        <div class="col-3">
+                                            <label class="small fw-bold text-warning">مرتجع للصالة للتعديل</label>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-dark font-monospace" @bind="trf.TempQcRework" />
+                                        </div>
+                                        <div class="col-3">
+                                            <label class="small fw-bold text-danger">إهلاك وتالف فني</label>
+                                            <input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-danger font-monospace" @bind="trf.TempQcScrap" />
+                                        </div>
+                                    </div>
+                                    <input type="text" class="form-control form-control-sm" placeholder="ملاحظات فحص وتوكيد الجودة والمعمل..." @bind="trf.TempQcNotes" />
+                                </div>
+                                <div class="col-md-2 text-center">
+                                    <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm" @onclick="() => SubmitQcInspection(trf)" disabled="@(calculatedNetApproved < 0 || isProcessing)">
+                                        ✓ إفراج وتوجيه للكنترول
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Tab 5: استلام مخزن الكنترول الفعلي                        -->
+    <!-- ======================================================== -->
+    @if (activeTab == "control" && State.HasAnyPermission("Warehouse.Receive", "FinishedGoods.ControlReceive"))
+    {
+        <div class="card shadow-sm border-0 border-top border-dark border-4 mb-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 fw-bold text-dark">🏢 استلام مخزن الكنترول الفعلي وبوابة نزاع الكنترول</h6>
+            </div>
+            <div class="card-body p-0">
+                @if (ControlList.Count == 0)
+                {
+                    <div class="text-center text-muted py-5 fw-bold">لا توجد شحنات معلقة لاستلام الكنترول أو نزاعات مفتوحة.</div>
+                }
+                else
+                {
+                    @foreach (var trf in ControlList)
+                    {
+                        <div class="p-3 border-bottom @(trf.Status == "IN_DISPUTE" ? "bg-danger bg-opacity-10 border-danger" : "bg-white")">
+                            @if (trf.Status == "IN_DISPUTE")
+                            {
+                                <div class="alert alert-danger py-2 mb-3 fw-bold small d-flex justify-content-between align-items-center">
+                                    <div>🚨 نزاع نشط بين الجودة والكنترول: @trf.DisputeReason</div>
+                                    <button class="btn btn-danger btn-sm fw-bold shadow-sm" @onclick="() => OpenDisputeModal(trf)">
+                                        ⚖️ فض نزاع الكنترول واعتماد التسوية
+                                    </button>
+                                </div>
+                            }
+
+                            <div class="row align-items-center g-3">
+                                <div class="col-md-3">
+                                    <h6 class="fw-bold text-primary font-monospace mb-1">@trf.TransferNumber</h6>
+                                    <div class="fw-bold">@trf.ItemName</div>
+                                    <small class="text-muted">المفرج عنه الصافي من الجودة: <strong class="text-success fs-6 font-monospace">@trf.QcApprovedQty.ToString("N2")</strong></small>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="row g-2 mb-1">
+                                        <div class="col-6">
+                                            <label class="small fw-bold">الكمية المستلمة فعلياً *</label>
+                                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-primary font-monospace text-center" @bind="trf.TempControlQty" />
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="small fw-bold">العدد الفعلي المستلم *</label>
+                                            <input type="number" class="form-control form-control-sm fw-bold text-center font-monospace" placeholder="صاج" @bind="trf.TempControlCount" />
+                                        </div>
+                                    </div>
+                                    <input type="text" class="form-control form-control-sm" placeholder="ملاحظات أمين مخزن الكنترول..." @bind="trf.TempControlNotes" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted d-flex justify-content-between">
+                                        <span>أمين المخزن المستلم:</span>
+                                        <span class="badge bg-secondary font-monospace">🔒 موثق تلقائياً</span>
+                                    </label>
+                                    <input class="form-control form-control-sm fw-bold bg-white text-primary" value="@CurrentDispatcherDisplayName" readonly disabled />
+                                </div>
+                                <div class="col-md-2 text-center">
+                                    @if (trf.Status != "IN_DISPUTE")
+                                    {
+                                        <button class="btn btn-primary btn-sm w-100 fw-bold py-2 shadow-sm" 
+                                                @onclick="() => SubmitControlReceipt(trf)" 
+                                                disabled="@isProcessing">
+                                            @(isProcessing ? "⏳ جارٍ الترصيد..." : "📥 تأكيد الاستلام والترصيد")
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger p-2 w-100">مجمد بقرار نزاع</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <!-- ======================================================== -->
+    <!-- Tab 6: تشغيل وتعديل المرتجعات بالصالة                    -->
+    <!-- ======================================================== -->
+    @if (activeTab == "rework" && State.HasAnyPermission("Production.Execution", "FinishedGoods.Rework"))
+    {
+        <div class="card shadow-sm border-0 border-top border-danger border-4 mb-4">
+            <div class="card-header bg-white py-3">
+                <h6 class="mb-0 fw-bold text-danger">🔄 تشغيل وتعديل مرتجعات الجودة داخل الصالة</h6>
+            </div>
+            <div class="card-body p-0">
+                @if (ReworkList.Count == 0)
+                {
+                    <div class="text-center text-muted py-5 fw-bold">لا توجد كميات مرتجعة للتعديل بالصالة حالياً. كل التشغيلات معتمدة!</div>
+                }
+                else
+                {
+                    @foreach (var rw in ReworkList)
+                    {
+                        <div class="p-3 border-bottom bg-light">
+                            <div class="row align-items-center g-3">
+                                <div class="col-md-3">
+                                    <span class="badge bg-danger mb-1 font-monospace">إذن مرتجع: @rw.TransferNumber</span>
+                                    <div class="fw-bold">@rw.ItemName</div>
+                                    <small class="text-muted d-block font-monospace">تشغيلة: <code>@rw.BatchNumber</code></small>
+                                </div>
+                                <div class="col-md-3 border-start">
+                                    <span class="small text-danger fw-bold d-block">الكمية المطلوب تعديلها:</span>
+                                    <span class="fs-5 fw-bold text-danger font-monospace">@rw.ProdDispatchedQty.ToString("N2")</span>
+                                    <small class="d-block text-muted">@rw.ProdNotes</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="row g-2">
+                                        <div class="col-6">
+                                            <label class="small fw-bold">الوزن بعد التعديل والتجهيز *</label>
+                                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-success font-monospace text-center" @bind="rw.TempAuditWeight" />
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="small fw-bold">العدد بعد التعديل *</label>
+                                            <input type="number" class="form-control form-control-sm fw-bold font-monospace text-center" @bind="rw.TempAuditCount" />
+                                        </div>
+                                    </div>
+                                    <input class="form-control form-control-sm mt-1" placeholder="الإجراء الفني المتخذ لتصحيح العيب..." @bind="rw.TempReceiverName" />
+                                </div>
+                                <div class="col-md-2 text-center">
+                                    <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm" @onclick="() => SubmitReworkReDispatch(rw)" disabled="@isProcessing">
+                                        ✓ إعادة إرسال للتكاليف
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <!-- نافذة منبثقة: فض نزاع بوابة التكاليف والإنتاج -->
+    @if (selectedCostingDispute != null)
+    {
+        <div class="modal fade show d-block" style="background-color: rgba(0,0,0,0.5);" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-danger shadow-lg">
+                    <div class="modal-header bg-danger text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">⚖️ اجتماع لجنة الإنتاج والتكاليف - حسم تضارب الأوزان</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="() => selectedCostingDispute = null"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-light border small mb-3">
+                            <div><strong>الإذن:</strong> @selectedCostingDispute.TransferNumber</div>
+                            <div><strong>الصنف:</strong> @selectedCostingDispute.ItemName</div>
+                            <div><strong>سبب النزاع:</strong> @selectedCostingDispute.CostingDisputeReason</div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">الوزن النهائي المعتمد للتمرير للجودة *</label>
+                                <input type="number" step="0.01" class="form-control fw-bold text-success font-monospace" @bind="costingDisputeFinalWeight" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">العدد النهائي المعتمد *</label>
+                                <input type="number" class="form-control fw-bold font-monospace" @bind="costingDisputeFinalCount" />
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">تحميل فرق الوزن ومسؤولية الانحراف *</label>
+                            <select class="form-select form-select-sm fw-bold" @bind="costingDisputeChargeTo">
+                                <option value="عجز تصنيع يُحمّل على تقرير وردية الصالة">عجز تصنيع يُحمّل على تقرير وردية الصالة</option>
+                                <option value="جفاف وفقد طبيعي أثناء التبريد والتكييف">جفاف وفقد طبيعي أثناء التبريد والتكييف</option>
+                                <option value="خطأ في قراءة وتصفير ميزان الصالة (تصحيح)">خطأ في قراءة وتصفير ميزان الصالة (تصحيح)</option>
+                                <option value="سقوط أو هدر أثناء النقل الداخلي">سقوط أو هدر أثناء النقل الداخلي</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">محضر وتفاصيل قرار اللجنة *</label>
+                            <textarea class="form-control" rows="2" placeholder="أسباب القرار المشترك..." @bind="costingDisputeNotes"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer py-2 bg-light d-flex justify-content-between">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => selectedCostingDispute = null">إلغاء</button>
+                        <button class="btn btn-danger btn-sm fw-bold px-3 shadow-sm" @onclick="SubmitResolveCostingDispute" disabled="@isProcessing">
+                            ✓ اعتماد قرار التكاليف والتمرير للجودة
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- نافذة منبثقة: فض نزاع بوابة الجودة والكنترول -->
+    @if (selectedDisputeTransfer != null)
+    {
+        <div class="modal fade show d-block" style="background-color: rgba(0,0,0,0.5);" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-danger shadow-lg">
+                    <div class="modal-header bg-danger text-white py-2 px-3">
+                        <h6 class="modal-title fw-bold">⚖️ اجتماع لجنة فض المنازعات - تسوية عجز الكنترول</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="() => selectedDisputeTransfer = null"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-light border small mb-3">
+                            <div><strong>الإذن:</strong> @selectedDisputeTransfer.TransferNumber</div>
+                            <div><strong>الصنف:</strong> @selectedDisputeTransfer.ItemName</div>
+                            <div><strong>سبب النزاع:</strong> @selectedDisputeTransfer.DisputeReason</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">الكمية النهائية المعتمدة لدخول مخزن الكنترول *</label>
+                            <input type="number" step="0.01" class="form-control fw-bold text-success font-monospace" @bind="disputeFinalQty" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">توجيه العجز وتحميل المسؤولية *</label>
+                            <select class="form-select form-select-sm fw-bold" @bind="controlDisputeChargeTo">
+                                <option value="عهدة سائق وعامل النقل الداخلي">عهدة سائق وعامل النقل الداخلي</option>
+                                <option value="هدر وتلف أثناء النقل والتحميل">هدر وتلف أثناء النقل والتحميل</option>
+                                <option value="جفاف وفقد طبيعي أثناء التخزين">جفاف وفقد طبيعي أثناء التخزين</option>
+                                <option value="تسوية جردية دائنة / مدينة للمخزن">تسوية جردية دائنة / مدينة للمخزن</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">قرار اللجنة ومحضر التسوية *</label>
+                            <textarea class="form-control" rows="2" placeholder="محضر اللجنة المشتركة..." @bind="disputeResolutionNotes"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer py-2 bg-light d-flex justify-content-between">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => selectedDisputeTransfer = null">إلغاء</button>
+                        <button class="btn btn-danger btn-sm fw-bold px-3 shadow-sm" @onclick="SubmitResolveDispute" disabled="@isProcessing">
+                            ✓ اعتماد قرار اللجنة وترصيد الكنترول
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string activeTab = "list";
+    private string alertMessage = string.Empty;
+    private bool isSuccess = false;
+    private bool isProcessing = false;
+
+    private List<FinishedGoodsTransferViewDto> transfers = new();
+    private List<ItemDto> allFinishedItems = new();
+    private List<ItemDto> displayedItems = new();
+    private List<WarehouseDto> warehouses = new();
+
+    private List<FinishedGoodsTransferViewDto> CostingList => transfers.Where(t => t.Status == "PENDING_COSTING" || t.Status == "DISPUTE_COSTING").ToList();
+    private List<FinishedGoodsTransferViewDto> PendingQcList => transfers.Where(t => t.Status == "PENDING_QC").ToList();
+    private List<FinishedGoodsTransferViewDto> ControlList => transfers.Where(t => t.Status == "PENDING_RECEIPT" || t.Status == "IN_DISPUTE").ToList();
+    private List<FinishedGoodsTransferViewDto> ReworkList => transfers.Where(t => t.Status == "REWORK_IN_PRODUCTION").ToList();
+
+    private int CostingCount => CostingList.Count;
+    private int QcCount => PendingQcList.Count;
+    private int ControlCount => ControlList.Count;
+    private int ReworkCount => ReworkList.Count;
+
+    private CreateTransferRequestDto newTransfer = new();
+    private string selectedItemUnit = "كجم";
+
+    // نزاع 1: إنتاج وتكاليف
+    private FinishedGoodsTransferViewDto? selectedCostingDispute;
+    private decimal costingDisputeFinalWeight;
+    private int costingDisputeFinalCount;
+    private string costingDisputeChargeTo = "عجز تصنيع يُحمّل على تقرير وردية الصالة";
+    private string costingDisputeNotes = string.Empty;
+
+    // نزاع 2: جودة وكنترول
+    private FinishedGoodsTransferViewDto? selectedDisputeTransfer;
+    private decimal disputeFinalQty;
+    private string controlDisputeChargeTo = "عهدة سائق وعامل النقل الداخلي";
+    private string disputeResolutionNotes = string.Empty;
+
+    private string CurrentDispatcherDisplayName => 
+        !string.IsNullOrWhiteSpace(State.FullName) 
+            ? $"{State.FullName} [{(!string.IsNullOrWhiteSpace(State.EmployeeCode) ? State.EmployeeCode : State.Username)}]" 
+            : "مشرف الصالة المعتمد";
+
+    public class LookupsResponseDto
+    {
+        public List<WarehouseDto> Warehouses { get; set; } = new();
+        public List<ItemDto> FinishedItems { get; set; } = new();
+    }
+
+    public class ItemDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string? Unit { get; set; } = "كجم";
+        public long? DepartmentId { get; set; }
+        public int? ShelfLifeDays { get; set; }
+    }
+
+    public class WarehouseDto
+    {
+        public long Id { get; set; }
+        public string WarehouseName { get; set; } = string.Empty;
+        public string WarehouseCode { get; set; } = string.Empty;
+        public string WarehouseType { get; set; } = string.Empty;
+        public long? DepartmentId { get; set; }
+    }
+
+    public class FinishedGoodsTransferViewDto
+    {
+        public long Id { get; set; }
+        public string TransferNumber { get; set; } = string.Empty;
+        public DateOnly TransferDate { get; set; }
+        public string SourceWarehouseName { get; set; } = string.Empty;
+        public string DestinationWarehouseName { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemCode { get; set; } = string.Empty;
+        public string BatchNumber { get; set; } = string.Empty;
+        public DateOnly? ExpiryDate { get; set; }
+        public decimal ProdDispatchedQty { get; set; }
+        public int ProdDispatchedCount { get; set; }
+        public string? ProdNotes { get; set; }
+        public decimal? CostingActualQty { get; set; }
+        public int? CostingActualCount { get; set; }
+        public decimal CostingWeightDiff { get; set; }
+        public int CostingCountDiff { get; set; }
+        public bool CostingDiscrepancyFlag { get; set; }
+        public string CostingDisputeStatus { get; set; } = string.Empty;
+        public string? CostingDisputeReason { get; set; }
+        public string? CostingDisputeChargeTo { get; set; }
+        public decimal QcApprovedQty { get; set; }
+        public decimal QcSampleQty { get; set; }
+        public decimal QcReworkQty { get; set; }
+        public decimal QcScrapQty { get; set; }
+        public decimal? ReceivedActualQty { get; set; }
+        public int? ReceivedActualCount { get; set; }
+        public bool HasDispute { get; set; }
+        public string? DisputeReason { get; set; }
+        public string DisputeStatus { get; set; } = string.Empty;
+        public string? ControlDisputeChargeTo { get; set; }
+        public string Status { get; set; } = string.Empty;
+
+        public decimal TempAuditWeight { get; set; }
+        public int TempAuditCount { get; set; }
+        public string TempCostingNotes { get; set; } = string.Empty;
+        public decimal TempQcSample { get; set; }
+        public decimal TempQcRework { get; set; }
+        public decimal TempQcScrap { get; set; }
+        public string TempQcNotes { get; set; } = string.Empty;
+        public decimal TempControlQty { get; set; }
+        public int TempControlCount { get; set; }
+        public string TempControlNotes { get; set; } = string.Empty;
+        public string TempReceiverName { get; set; } = string.Empty;
+    }
+
+    public class CreateTransferRequestDto
+    {
+        public long SourceWarehouseId { get; set; }
+        public long DestinationWarehouseId { get; set; }
+        public long ItemId { get; set; }
+        public string BatchNumber { get; set; } = string.Empty;
+        public DateOnly? ExpiryDate { get; set; } = DateOnly.FromDateTime(DateTime.Today.AddDays(3));
+        public decimal DispatchedQty { get; set; }
+        public int DispatchedCount { get; set; }
+        public string? Notes { get; set; }
+        public string SubmittedBy { get; set; } = string.Empty;
+        public string? SubmittedByCode { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<FinishedGoodsTransferViewDto>>("api/FinishedGoodsTransfers");
+            transfers = res ?? new();
+
+            foreach (var trf in transfers)
+            {
+                if (trf.TempAuditWeight == 0) trf.TempAuditWeight = trf.ProdDispatchedQty;
+                if (trf.TempAuditCount == 0) trf.TempAuditCount = trf.ProdDispatchedCount;
+                if (trf.TempControlQty == 0) trf.TempControlQty = trf.QcApprovedQty;
+                if (trf.TempControlCount == 0) trf.TempControlCount = trf.CostingActualCount ?? trf.ProdDispatchedCount;
+                if (string.IsNullOrEmpty(trf.TempReceiverName)) trf.TempReceiverName = CurrentDispatcherDisplayName;
+            }
+
+            var lookups = await Http.GetFromJsonAsync<LookupsResponseDto>("api/FinishedGoodsTransfers/lookups");
+            if (lookups != null)
+            {
+                warehouses = lookups.Warehouses ?? new();
+                allFinishedItems = lookups.FinishedItems ?? new();
+                displayedItems = allFinishedItems;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ في جلب البيانات: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private void OnSourceWarehouseChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long wId) && wId > 0)
+        {
+            newTransfer.SourceWarehouseId = wId;
+            var wh = warehouses.FirstOrDefault(w => w.Id == wId);
+
+            if (wh != null && wh.DepartmentId.HasValue && wh.DepartmentId.Value > 0)
+            {
+                var matched = allFinishedItems.Where(i => i.DepartmentId == wh.DepartmentId.Value).ToList();
+                displayedItems = matched.Any() ? matched : allFinishedItems;
+            }
+            else
+            {
+                displayedItems = allFinishedItems;
+            }
+
+            newTransfer.ItemId = 0;
+            newTransfer.BatchNumber = string.Empty;
+            selectedItemUnit = "كجم";
+        }
+        else
+        {
+            newTransfer.SourceWarehouseId = 0;
+            displayedItems = allFinishedItems;
+        }
+    }
+
+    private void OnItemSelected(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out long itmId) && itmId > 0)
+        {
+            newTransfer.ItemId = itmId;
+            var itm = displayedItems.FirstOrDefault(i => i.Id == itmId);
+            if (itm != null)
+            {
+                selectedItemUnit = !string.IsNullOrWhiteSpace(itm.Unit) ? itm.Unit : "كجم";
+                string todayStr = DateTime.Today.ToString("yyyyMMdd");
+                string codeStr = !string.IsNullOrEmpty(itm.ItemCode) ? itm.ItemCode : itm.Id.ToString();
+                newTransfer.BatchNumber = $"LOT-PRD-{todayStr}-{codeStr}-1";
+
+                int shelfDays = (itm.ShelfLifeDays.HasValue && itm.ShelfLifeDays.Value > 0) ? itm.ShelfLifeDays.Value : 3;
+                newTransfer.ExpiryDate = DateOnly.FromDateTime(DateTime.Today.AddDays(shelfDays));
+            }
+        }
+        else
+        {
+            newTransfer.ItemId = 0;
+            newTransfer.BatchNumber = string.Empty;
+            selectedItemUnit = "كجم";
+        }
+    }
+
+    private async Task SubmitNewTransfer()
+    {
+        if (newTransfer.SourceWarehouseId <= 0 || newTransfer.DestinationWarehouseId <= 0 || newTransfer.ItemId <= 0 || newTransfer.DispatchedQty <= 0)
+        {
+            alertMessage = "يرجى استيفاء بيانات الصنف والمخازن والكمية المسلمة.";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            newTransfer.SubmittedBy = CurrentDispatcherDisplayName;
+            newTransfer.SubmittedByCode = State.EmployeeCode;
+
+            var res = await Http.PostAsJsonAsync("api/FinishedGoodsTransfers/create", newTransfer);
+            if (res.IsSuccessStatusCode)
+            {
+                alertMessage = "تم تسجيل إذن التسليم بنجاح وتمريره لميزان التكاليف.";
+                isSuccess = true;
+                newTransfer = new CreateTransferRequestDto();
+                selectedItemUnit = "كجم";
+                activeTab = "costing";
+                await LoadData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                alertMessage = $"فشل إنشاء الإذن: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ في الاتصال: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task SubmitCostingAudit(FinishedGoodsTransferViewDto trf, bool escalateDispute)
+    {
+        if (trf.TempAuditWeight <= 0)
+        {
+            alertMessage = "يرجى تسجيل الكمية الفعلية بالميزان.";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            var dto = new
+            {
+                TransferId = trf.Id,
+                ActualWeight = trf.TempAuditWeight,
+                ActualCount = trf.TempAuditCount,
+                AuditorName = CurrentDispatcherDisplayName,
+                AuditorCode = State.EmployeeCode,
+                Notes = trf.TempCostingNotes,
+                EscalateDispute = escalateDispute
+            };
+
+            var res = await Http.PostAsJsonAsync("api/FinishedGoodsTransfers/audit-costing", dto);
+            if (res.IsSuccessStatusCode)
+            {
+                if (escalateDispute)
+                {
+                    alertMessage = "🚨 تم تصعيد الإذن إلى «لجنة الإنتاج والتكاليف» لتسوية تضارب الأوزان والأعداد!";
+                    isSuccess = false;
+                }
+                else
+                {
+                    alertMessage = "تم اعتماد ميزان التكاليف وإحالة الإذن للجودة.";
+                    isSuccess = true;
+                    activeTab = "qc";
+                }
+                await LoadData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                alertMessage = $"فشل اعتماد ميزان التكاليف: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ في الاتصال: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void OpenCostingDisputeModal(FinishedGoodsTransferViewDto trf)
+    {
+        selectedCostingDispute = trf;
+        costingDisputeFinalWeight = trf.CostingActualQty ?? trf.ProdDispatchedQty;
+        costingDisputeFinalCount = trf.CostingActualCount ?? trf.ProdDispatchedCount;
+        costingDisputeNotes = string.Empty;
+    }
+
+    private async Task SubmitResolveCostingDispute()
+    {
+        if (selectedCostingDispute == null || string.IsNullOrWhiteSpace(costingDisputeNotes))
+        {
+            alertMessage = "يرجى تسجيل محضر وقرار لجنة الإنتاج والتكاليف.";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            var dto = new
+            {
+                TransferId = selectedCostingDispute.Id,
+                FinalAcceptedWeight = costingDisputeFinalWeight,
+                FinalAcceptedCount = costingDisputeFinalCount,
+                ResolvedBy = CurrentDispatcherDisplayName,
+                ResolvedByCode = State.EmployeeCode,
+                ChargeTo = costingDisputeChargeTo,
+                ResolutionNotes = costingDisputeNotes
+            };
+
+            var res = await Http.PostAsJsonAsync("api/FinishedGoodsTransfers/resolve-costing-dispute", dto);
+            if (res.IsSuccessStatusCode)
+            {
+                alertMessage = "تم حسم نزاع الإنتاج والتكاليف وتمرير الإذن لمحطة الجودة بنجاح!";
+                isSuccess = true;
+                selectedCostingDispute = null;
+                activeTab = "qc";
+                await LoadData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                alertMessage = $"فشل حسم النزاع: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ في الاتصال: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task SubmitQcInspection(FinishedGoodsTransferViewDto trf)
+    {
+        decimal baseCosting = trf.CostingActualQty ?? trf.ProdDispatchedQty;
+        decimal netApproved = baseCosting - (trf.TempQcSample + trf.TempQcRework + trf.TempQcScrap);
+
+        if (netApproved < 0)
+        {
+            alertMessage = "مجموع الخصومات يتجاوز وزن التكاليف المعتمد!";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            var dto = new
+            {
+                TransferId = trf.Id,
+                ApprovedQty = netApproved,
+                SampleQty = trf.TempQcSample,
+                ReworkQty = trf.TempQcRework,
+                ScrapQty = trf.TempQcScrap,
+                InspectorName = CurrentDispatcherDisplayName,
+                InspectorCode = State.EmployeeCode,
+                Notes = trf.TempQcNotes
+            };
+
+            var res = await Http.PostAsJsonAsync("api/FinishedGoodsTransfers/inspect-qc", dto);
+            if (res.IsSuccessStatusCode)
+            {
+                alertMessage = $"تم إفراج الجودة بصافي {netApproved:N2} كجم للكنترول، وتوجيه {trf.TempQcRework:N2} كجم للمرتجعات بالصالة.";
+                isSuccess = true;
+                activeTab = "control";
+                await LoadData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                alertMessage = $"فشل إفراج الجودة: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ في الاتصال: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task SubmitControlReceipt(FinishedGoodsTransferViewDto trf)
+    {
+        if (trf.TempControlQty <= 0)
+        {
+            alertMessage = "يرجى إدخال الكمية المستلمة فعلياً في مخزن الكنترول.";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        alertMessage = string.Empty;
+
+        try
+        {
+            var dto = new
+            {
+                TransferId = trf.Id,
+                ReceivedQty = trf.TempControlQty,
+                ReceivedCount = trf.TempControlCount,
+                ReceiverName = CurrentDispatcherDisplayName,
+                ReceiverCode = State.EmployeeCode,
+                Notes = trf.TempControlNotes
+            };
+
+            var res = await Http.PostAsJsonAsync("api/FinishedGoodsTransfers/receive-control", dto);
+            if (res.IsSuccessStatusCode)
+            {
+                if (trf.TempControlQty < trf.QcApprovedQty)
+                {
+                    alertMessage = "⚠️ تم إحالة الإذن إلى «لجنة فض المنازعات» لوجود عجز غير مبرر بالجودة!";
+                    isSuccess = false;
+                }
+                else
+                {
+                    alertMessage = "تم استلام الشحنة بمخزن الكنترول وترصيدها في كارت الصنف واللوطات بنجاح!";
+                    isSuccess = true;
+                }
+                await LoadData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                alertMessage = $"فشل الاستلام: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ في الاتصال بالسيرفر: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task SubmitReworkReDispatch(FinishedGoodsTransferViewDto rw)
+    {
+        if (rw.TempAuditWeight <= 0)
+        {
+            alertMessage = "يرجى تسجيل الوزن الفعلي بعد التعديل والتجهيز.";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            var body = new
+            {
+                TransferId = rw.Id,
+                AdjustedQty = rw.TempAuditWeight,
+                AdjustedCount = rw.TempAuditCount,
+                Notes = rw.TempReceiverName ?? "تم التعديل بالصالة",
+                ReworkBy = CurrentDispatcherDisplayName
+            };
+
+            var res = await Http.PostAsJsonAsync("api/FinishedGoodsTransfers/resubmit-rework", body);
+            if (res.IsSuccessStatusCode)
+            {
+                alertMessage = "تم الانتهاء من التعديل وإرسال الدفعة إلى ميزان التكاليف بنجاح!";
+                isSuccess = true;
+                activeTab = "costing";
+                await LoadData();
+            }
+            else
+            {
+                alertMessage = "فشل إرسال الدفعة المعدلة.";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void OpenDisputeModal(FinishedGoodsTransferViewDto trf)
+    {
+        selectedDisputeTransfer = trf;
+        disputeFinalQty = trf.ReceivedActualQty ?? trf.QcApprovedQty;
+        disputeResolutionNotes = string.Empty;
+    }
+
+    private async Task SubmitResolveDispute()
+    {
+        if (selectedDisputeTransfer == null || string.IsNullOrWhiteSpace(disputeResolutionNotes))
+        {
+            alertMessage = "يرجى كتابة محضر وقرار لجنة فض المنازعات.";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            var dto = new
+            {
+                TransferId = selectedDisputeTransfer.Id,
+                FinalAcceptedQty = disputeFinalQty,
+                ResolvedBy = $"لجنة فض المنازعات ({CurrentDispatcherDisplayName})",
+                ResolvedByCode = State.EmployeeCode,
+                ChargeTo = controlDisputeChargeTo,
+                ResolutionNotes = disputeResolutionNotes
+            };
+
+            var res = await Http.PostAsJsonAsync("api/FinishedGoodsTransfers/resolve-dispute", dto);
+            if (res.IsSuccessStatusCode)
+            {
+                alertMessage = "تم فض النزاع واعتماد التسوية وترصيد الكمية المتفق عليها بالكنترول!";
+                isSuccess = true;
+                selectedDisputeTransfer = null;
+                await LoadData();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                alertMessage = $"فشل اعتماد قرار اللجنة: {err}";
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"خطأ في الاتصال: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    // ========================================================
+    // تصدير سجل أذونات تحويل المنتج التام إلى ملف Excel (CSV)
+    // ========================================================
+    private async Task ExportTransfersToCsv()
+    {
+        if (transfers == null || !transfers.Any())
+        {
+            alertMessage = "لا توجد أذونات لتصديرها.";
+            isSuccess = false;
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("رقم_الإذن,التاريخ,الصنف,كود_الصنف,رقم_اللوط,تاريخ_الصلاحية,صالة_المصدر,مخزن_الكنترول,تسليم_الصالة_وزن,تسليم_الصالة_صاج,ميزان_التكاليف_وزن,ميزان_التكاليف_صاج,صافي_مقبول_الجودة,عينات_الجودة,مرتجع_تعديل_الصالة,تالف_جودة,مستلم_الكنترول_وزن,مستلم_الكنترول_صاج,الحالة_الرقابية,ملاحظات_التسليم");
+
+            foreach (var t in transfers)
+            {
+                var expDate = t.ExpiryDate?.ToString("yyyy-MM-dd") ?? "-";
+                var notes = (t.ProdNotes ?? "").Replace(",", " - ").Replace("\r", " ").Replace("\n", " ");
+                var statusText = TranslateStatus(t.Status);
+
+                sb.AppendLine($"{EscapeCsv(t.TransferNumber)},{t.TransferDate:yyyy-MM-dd},{EscapeCsv(t.ItemName)},{EscapeCsv(t.ItemCode)},{EscapeCsv(t.BatchNumber)},{expDate},{EscapeCsv(t.SourceWarehouseName)},{EscapeCsv(t.DestinationWarehouseName)},{t.ProdDispatchedQty:F2},{t.ProdDispatchedCount},{t.CostingActualQty ?? 0:F2},{t.CostingActualCount ?? 0},{t.QcApprovedQty:F2},{t.QcSampleQty:F2},{t.QcReworkQty:F2},{t.QcScrapQty:F2},{t.ReceivedActualQty ?? 0:F2},{t.ReceivedActualCount ?? 0},{EscapeCsv(statusText)},{EscapeCsv(notes)}");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"سجل_تحويلات_المنتج_التام_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            var js = $"const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);";
+            await JS.InvokeVoidAsync("eval", js);
+
+            alertMessage = $"✅ تم تصدير بيانات ({transfers.Count}) إذن تحويل إلى Excel بنجاح.";
+            isSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            alertMessage = $"❌ فشل التصدير: {ex.Message}";
+            isSuccess = false;
+        }
+    }
+
+    private string TranslateStatus(string? status) => status switch
+    {
+        "PENDING_COSTING" => "1. بانتظار ميزان التكاليف",
+        "DISPUTE_COSTING" => "🚨 نزاع: إنتاج وتكاليف",
+        "PENDING_QC" => "2. بانتظار فحص الجودة",
+        "PENDING_RECEIPT" => "3. بانتظار استلام الكنترول",
+        "IN_DISPUTE" => "🚨 نزاع: جودة وكنترول",
+        "REWORK_IN_PRODUCTION" => "🔄 قيد التعديل بالصالة",
+        "COMPLETED" => "✓ تم الاستلام والترصيد",
+        _ => status ?? "غير محدد"
+    };
+
+    private string EscapeCsv(string val)
+    {
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        return val;
+    }
+}

@@ -1,0 +1,1478 @@
+﻿@page "/items"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using System.IO
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>مركز إدارة الأصناف والمواد الشامل - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+    
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded shadow-sm border-start border-warning border-4 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-1 text-dark fw-bold">📦 مركز إدارة الأصناف والمواد الشامل (Item Master Hub)</h4>
+            <small class="text-muted">إدارة موحدة لجميع الأصناف: منتجات تامة، نصف مصنع، خامات، مواد تعبئة، وحاويات التداول</small>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-warning btn-sm fw-bold shadow-sm" @onclick="OpenCreateItemModal">
+                <i class="bi bi-plus-circle me-1"></i> إضافة صنف جديد
+            </button>
+            <button class="btn btn-outline-dark btn-sm fw-bold shadow-sm" @onclick="OpenCategoriesModal">
+                <i class="bi bi-tags me-1"></i> 🏷️ تصنيفات الأصناف
+            </button>
+            <button class="btn btn-outline-success btn-sm fw-bold shadow-sm" @onclick="ExportToExcelAsync">
+                <i class="bi bi-file-earmark-excel me-1"></i> تصدير إكسيل
+            </button>
+            <button class="btn btn-outline-info btn-sm fw-bold shadow-sm" @onclick="DownloadTemplateAsync">
+                <i class="bi bi-download me-1"></i> قالب الاستيراد
+            </button>
+            <button class="btn btn-success btn-sm fw-bold shadow-sm px-3" @onclick="OpenImportModal">
+                <i class="bi bi-file-earmark-arrow-up me-1"></i> استيراد إكسيل
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadDataAsync">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- تنبيهات النظام -->
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+            <i class="bi bi-check-circle me-1"></i> @successMessage
+            <button type="button" class="btn-close py-2" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+            <i class="bi bi-exclamation-triangle me-1"></i> @errorMessage
+            <button type="button" class="btn-close py-2" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <!-- بطاقات التصفية السريعة حسب نوع الصنف -->
+    <div class="card shadow-sm mb-3 border-0 bg-white">
+        <div class="card-body p-2 d-flex flex-wrap gap-2 align-items-center">
+            <span class="fw-bold text-secondary me-2 small">التصفية السريعة:</span>
+            <button class="btn btn-sm @(selectedTypeFilter == null ? "btn-dark" : "btn-outline-dark") rounded-pill px-3" 
+                    @onclick="() => FilterByType(null)">
+                الكل (@items.Count)
+            </button>
+            <button class="btn btn-sm @(selectedTypeFilter == "منتج تام" ? "btn-primary fw-bold" : "btn-outline-primary") rounded-pill px-3" 
+                    @onclick='() => FilterByType("منتج تام")'>
+                🍰 منتج تام (@items.Count(i => i.ItemType == "منتج تام"))
+            </button>
+            <button class="btn btn-sm @(selectedTypeFilter == "نصف مصنع" ? "btn-warning text-dark fw-bold" : "btn-outline-warning text-dark") rounded-pill px-3" 
+                    @onclick='() => FilterByType("نصف مصنع")'>
+                🥣 نصف مصنع / خلطات (@items.Count(i => i.ItemType == "نصف مصنع"))
+            </button>
+            <button class="btn btn-sm @(selectedTypeFilter == "خامات" ? "btn-success fw-bold" : "btn-outline-success") rounded-pill px-3" 
+                    @onclick='() => FilterByType("خامات")'>
+                🌾 خامات ومستلزمات (@items.Count(i => i.ItemType == "خامات"))
+            </button>
+            <button class="btn btn-sm @(selectedTypeFilter == "مواد تعبئة وتغليف" ? "btn-info text-dark fw-bold" : "btn-outline-info text-dark") rounded-pill px-3" 
+                    @onclick='() => FilterByType("مواد تعبئة وتغليف")'>
+                📦 مواد تعبئة وتغليف (@items.Count(i => i.ItemType == "مواد تعبئة وتغليف"))
+            </button>
+            <button class="btn btn-sm @(selectedTypeFilter == "أصول / حاويات تداول" ? "btn-secondary fw-bold" : "btn-outline-secondary") rounded-pill px-3" 
+                    @onclick='() => FilterByType("أصول / حاويات تداول")'>
+                🛒 أصول وحاويات تداول (@items.Count(i => i.ItemType == "أصول / حاويات تداول"))
+            </button>
+        </div>
+    </div>
+
+    <!-- شريط البحث والفلترة -->
+    <div class="card shadow-sm border-0 mb-3 bg-light">
+        <div class="card-body p-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <input type="text" class="form-control form-control-sm" placeholder="بحث بالاسم، الكود، أو الباركود..." 
+                           @bind="searchTerm" @bind:event="oninput" />
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm" @bind="selectedCategoryFilter">
+                        <option value="0">-- كل التصنيفات --</option>
+                        @foreach (var cat in categories)
+                        {
+                            <option value="@cat.Id">@cat.CategoryName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm" @bind="selectedDeptFilter">
+                        <option value="0">-- كل الأقسام والصالات --</option>
+                        @foreach (var dept in departments)
+                        {
+                            <option value="@dept.Id">@dept.DepartmentName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <button class="btn btn-outline-danger btn-sm w-100" title="تفريغ الفلاتر" @onclick="ResetFilters">✕</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول عرض الأصناف الشامل -->
+    <div class="card shadow-sm border-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 text-center small">
+                <thead class="table-dark">
+                    <tr>
+                        <th style="width: 100px;">الكود</th>
+                        <th class="text-start">اسم الصنف</th>
+                        <th>النوع</th>
+                        <th>القسم / الصالة</th>
+                        <th>الوحدة</th>
+                        <th>سعر البيع</th>
+                        <th>حد الأمان</th>
+                        <th>حد الطلب</th>
+                        <th>الخصائص</th>
+                        <th>الحالة</th>
+                        <th style="width: 140px;">إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (isLoading)
+                    {
+                        <tr>
+                            <td colspan="11" class="py-4 text-muted">
+                                <div class="spinner-border spinner-border-sm text-primary me-2"></div> جاري تحميل مركز الأصناف...
+                            </td>
+                        </tr>
+                    }
+                    else if (!FilteredItems.Any())
+                    {
+                        <tr>
+                            <td colspan="11" class="py-4 text-muted">لا توجد أصناف مطابقة للبحث أو التصفية الحالية.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in FilteredItems)
+                        {
+                            <tr @key="item.Id">
+                                <td class="font-monospace fw-bold text-secondary">@item.ItemCode</td>
+                                <td class="text-start fw-bold text-dark">
+                                    @item.ItemName
+                                    @if (item.Variants.Any())
+                                    {
+                                        <button class="btn btn-sm @(expandedItemIds.Contains(item.Id) ? "btn-info text-dark" : "btn-outline-info") py-0 px-2 ms-2 fw-bold" 
+                                                style="font-size: 0.72rem;" @onclick="() => ToggleExpand(item.Id)">
+                                            @(expandedItemIds.Contains(item.Id) ? "▲ إخفاء النكهات" : $"▼ عرض النكهات ({item.Variants.Count})")
+                                        </button>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge @GetTypeBadgeClass(item.ItemType)">
+                                        @item.ItemType
+                                    </span>
+                                </td>
+                                <td class="fw-bold text-primary">
+                                    @GetDisplayDeptName(item)
+                                </td>
+                                <td><span class="badge bg-light text-dark border">@item.Unit</span></td>
+                                <td class="fw-bold font-monospace text-primary">@(item.SalePrice > 0 ? $"{item.SalePrice:N2} ج.م" : (item.BasePrice > 0 ? $"{item.BasePrice:N2} ج.م" : "-"))</td>
+                                <td class="font-monospace text-muted">@item.SafetyStockLevel.ToString("N2")</td>
+                                <td class="font-monospace text-muted">@item.ReorderPoint.ToString("N2")</td>
+                                <td>
+                                    @if (item.HasVariants || item.Variants.Any())
+                                    {
+                                        <span class="badge bg-info text-dark fw-bold" title="صنف يحتوي على نكهات أو مقاسات متعددة">
+                                            متنوع (@item.Variants.Count)
+                                        </span>
+                                    }
+                                    @if (item.UnitsHierarchy.Any())
+                                    {
+                                        <span class="badge bg-secondary ms-1" title="له وحدات فرعية متعددة">وحدات متعددة</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge @(item.Active ? "bg-success" : "bg-danger")">
+                                        @(item.Active ? "مفعل" : "معطل")
+                                    </span>
+                                </td>
+                                <td>
+                                    <button class="btn btn-outline-primary btn-sm py-0 px-2 fw-bold me-1" @onclick="() => EditItem(item)">
+                                        تعديل
+                                    </button>
+                                    <button class="btn btn-outline-@(item.Active ? "danger" : "success") btn-sm py-0 px-2 fw-bold" @onclick="() => ToggleItemStatus(item)">
+                                        @(item.Active ? "إيقاف" : "تفعيل")
+                                    </button>
+                                </td>
+                            </tr>
+
+                            @if (expandedItemIds.Contains(item.Id) && item.Variants.Any())
+                            {
+                                @foreach (var v in item.Variants)
+                                {
+                                    <tr class="table-light text-muted">
+                                        <td class="font-monospace fw-bold text-primary pe-4">↳ @v.VariantCode</td>
+                                        <td class="text-start pe-4">
+                                            <span class="fw-bold text-dark">@v.VariantName</span>
+                                            <span class="badge bg-white text-secondary border font-monospace ms-2">باركود: @(!string.IsNullOrEmpty(v.Barcode) ? v.Barcode : "-")</span>
+                                        </td>
+                                        <td><span class="badge bg-light text-dark border">نكهة / مقاس</span></td>
+                                        <td>@GetDisplayDeptName(item)</td>
+                                        <td>@item.Unit</td>
+                                        <td class="font-monospace text-success fw-bold">@(v.PriceOverride > 0 ? $"{v.PriceOverride:N2} ج.م" : $"{item.SalePrice:N2} ج.م")</td>
+                                        <td colspan="4" class="text-muted small">نوع فرعي تابع لـ: (@item.ItemName)</td>
+                                        <td>-</td>
+                                    </tr>
+                                }
+                            }
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================================= -->
+<!-- 1. نافذة الصنف الكبرى التفاعلية: التبويبات الأربعة                                         -->
+<!-- ========================================================================================= -->
+@if (isItemModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                
+                <div class="modal-header bg-dark text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">
+                        @(currentItem.Id > 0 ? $"✏️ تعديل الصنف: {currentItem.ItemName}" : "➕ إضافة صنف جديد إلى المنظومة")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseItemModal"></button>
+                </div>
+
+                <div class="bg-light border-bottom px-3 pt-2">
+                    <ul class="nav nav-tabs card-header-tabs">
+                        <li class="nav-item">
+                            <button class="nav-link @(itemModalActiveTab == 1 ? "active fw-bold text-primary" : "text-secondary")" 
+                                    @onclick="() => itemModalActiveTab = 1">
+                                1. البيانات الأساسية والتصنيف
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(itemModalActiveTab == 2 ? "active fw-bold text-primary" : "text-secondary")" 
+                                    @onclick="() => itemModalActiveTab = 2">
+                                2. منظومة الوحدات والأوزان (@currentItem.UnitsHierarchy.Count وحدات)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(itemModalActiveTab == 3 ? "active fw-bold text-primary" : "text-secondary")" 
+                                    @onclick="() => itemModalActiveTab = 3">
+                                3. الأرصدة ومحددات المخزون
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(itemModalActiveTab == 4 ? "active fw-bold text-primary" : "text-secondary")" 
+                                    @onclick="() => itemModalActiveTab = 4">
+                                4. التشكيلات المركبة والخصائص والأنواع المتعددة (@currentItem.Variants.Count أنواع)
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="modal-body p-3">
+                    <!-- TAB 1: البيانات الأساسية -->
+                    @if (itemModalActiveTab == 1)
+                    {
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-secondary">كود الصنف <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="مثال: 301001" 
+                                       @bind="currentItem.ItemCode" />
+                            </div>
+
+                            <div class="col-md-5">
+                                <label class="form-label small fw-bold text-secondary">اسم الصنف الكامل <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control form-control-sm fw-bold" placeholder="مثال: بسبوسة سادة / دقيق فاخر" 
+                                       @bind="currentItem.ItemName" />
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-secondary">نوع الصنف في دورة الإنتاج <span class="text-danger">*</span></label>
+                                <select class="form-select form-select-sm fw-bold" @bind="currentItem.ItemType">
+                                    <option value="منتج تام">🍰 منتج تام (حلويات وتام)</option>
+                                    <option value="نصف مصنع">🥣 نصف مصنع / خلطات وتجهيزات</option>
+                                    <option value="خامات">🌾 خامات ومستلزمات</option>
+                                    <option value="مواد تعبئة وتغليف">📦 مواد تعبئة وتغليف</option>
+                                    <option value="أصول / حاويات تداول">🛒 أصول / حاويات تداول (أسبات وصواني)</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-secondary">القسم / الصالة المسؤولة <span class="text-danger">*</span></label>
+                                <select class="form-select form-select-sm" @bind="currentItem.DepartmentId">
+                                    <option value="">-- اختر الصالة أو القسم --</option>
+                                    @foreach (var d in departments)
+                                    {
+                                        <option value="@d.Id">@d.DepartmentName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-secondary">تصنيف الصنف</label>
+                                <select class="form-select form-select-sm" @bind="currentItem.CategoryId">
+                                    <option value="">-- اختر التصنيف --</option>
+                                    @foreach (var c in categories)
+                                    {
+                                        <option value="@c.Id">@c.CategoryName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-secondary">الباركود الرئيسي (Barcode)</label>
+                                <input type="text" class="form-control form-control-sm font-monospace" placeholder="مثال: 6221234567890" 
+                                       @bind="currentItem.Barcode" />
+                            </div>
+
+                            <div class="col-md-12">
+                                <label class="form-label small fw-bold text-secondary">وصف الصنف وملاحظات التشغيل</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="ملاحظات توجيهية عن الصنف وطريقة حفظه..." 
+                                       @bind="currentItem.Description" />
+                            </div>
+
+                            <div class="col-md-12">
+                                <div class="form-check form-switch mt-2">
+                                    <input class="form-check-input" type="checkbox" id="itemActiveCheck" @bind="currentItem.Active" />
+                                    <label class="form-check-label small fw-bold" for="itemActiveCheck">حالة الصنف: مفعل ومتاح في حركة المخازن والتشغيل</label>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- TAB 2: منظومة الوحدات والأوزان المتعددة -->
+                    @if (itemModalActiveTab == 2)
+                    {
+                        <div class="card p-3 bg-light border-0 mb-3">
+                            <div class="row g-3 align-items-center">
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold text-dark">الوحدة الأساسية للمخزون (Base Unit) <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control form-control-sm fw-bold text-primary" placeholder="مثال: قطعة / كجم" 
+                                           @bind="currentItem.Unit" />
+                                    <small class="text-muted">أصغر وحدة يتعامل بها الجرد وحساب التكاليف</small>
+                                </div>
+                                <div class="col-md-8">
+                                    <div class="alert alert-info py-2 px-3 small mb-0">
+                                        <i class="bi bi-info-circle me-1"></i> يمكنك إضافة وحدات متعددة (مثل: كرتونة، علبة، دستة، شيكارة) وتحديد معامل التحويل المباشر مع الوحدة الأساسية.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card border mb-2">
+                            <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                                <span class="small fw-bold text-dark">جدول الوحدات البديلة والتحويلات</span>
+                                <button type="button" class="btn btn-outline-success btn-sm py-0 px-2 fw-bold" @onclick="AddNewUnitRow">
+                                    ➕ إضافة وحدة جديدة
+                                </button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-sm text-center mb-0 small align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>اسم الوحدة البديلة</th>
+                                            <th>تساوي كم من الوحدة الأساسية (@currentItem.Unit)</th>
+                                            <th>الباركود الخاص بهذه الوحدة</th>
+                                            <th style="width: 80px;">إجراء</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (!currentItem.UnitsHierarchy.Any())
+                                        {
+                                            <tr>
+                                                <td colspan="4" class="py-3 text-muted">لم يتم تعريف وحدات بديلة بعد. يتعامل النظام حالياً بوحدة: (@currentItem.Unit) فقط.</td>
+                                            </tr>
+                                        }
+                                        @foreach (var u in currentItem.UnitsHierarchy)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <input type="text" class="form-control form-control-sm text-center fw-bold" placeholder="مثال: كرتونة" 
+                                                           @bind="u.UnitName" />
+                                                </td>
+                                                <td>
+                                                    <div class="input-group input-group-sm">
+                                                        <input type="number" step="0.01" class="form-control text-center fw-bold text-primary" 
+                                                               @bind="u.ConversionFactor" />
+                                                        <span class="input-group-text">@currentItem.Unit</span>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <input type="text" class="form-control form-control-sm font-monospace text-center" placeholder="باركود العبوة" 
+                                                           @bind="u.Barcode" />
+                                                </td>
+                                                <td>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" @onclick="() => currentItem.UnitsHierarchy.Remove(u)">
+                                                        🗑️
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- TAB 3: الأرصدة ومحددات المخزون والتسعير -->
+                    @if (itemModalActiveTab == 3)
+                    {
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-secondary">سعر البيع الافتراضي (ج.م)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm font-monospace fw-bold text-success" 
+                                       @bind="currentItem.SalePrice" />
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-secondary">سعر الشراء / التكلفة المعيارية (ج.م)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm font-monospace" 
+                                       @bind="currentItem.PurchasePrice" />
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-secondary">حد الأمان (Safety Stock)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm font-monospace text-danger" 
+                                       @bind="currentItem.SafetyStockLevel" />
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-secondary">نقطة إعادة الطلب (Reorder Point)</label>
+                                <input type="number" step="0.01" class="form-control form-control-sm font-monospace text-warning" 
+                                       @bind="currentItem.ReorderPoint" />
+                            </div>
+                        </div>
+                    }
+
+                    <!-- TAB 4: التشكيلات المركبة والأنواع المتعددة (VARIANTS) -->
+                    @if (itemModalActiveTab == 4)
+                    {
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <div class="form-check form-switch p-3 border rounded bg-light">
+                                    <input class="form-check-input ms-2" type="checkbox" id="varCheck" @bind="currentItem.HasVariants" />
+                                    <label class="form-check-label fw-bold text-dark small" for="varCheck">
+                                        صنف متنوع (له نكهات أو مقاسات متعددة)
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="form-check form-switch p-3 border rounded bg-light">
+                                    <input class="form-check-input ms-2" type="checkbox" id="comboCheck" @bind="currentItem.IsComposite" />
+                                    <label class="form-check-label fw-bold text-dark small" for="comboCheck">
+                                        صنف تشكيلة مركبة (ميكس / صينية شرقي مشكل)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (currentItem.HasVariants)
+                        {
+                            <div class="card border border-primary border-2 shadow-sm">
+                                <div class="card-header bg-primary text-white py-2 d-flex justify-content-between align-items-center">
+                                    <span class="small fw-bold">
+                                        <i class="bi bi-diagram-3 me-1"></i> جدول الأنواع والنكهات والمقاسات التابعة للصنف (@currentItem.Variants.Count نوع)
+                                    </span>
+                                    <button type="button" class="btn btn-light btn-sm py-0 px-2 fw-bold text-primary" @onclick="AddNewVariantRow">
+                                        ➕ إضافة نكهة / مقاس جديد
+                                    </button>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-sm text-center mb-0 small align-middle">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 140px;">الكود الفرعي (SKU)</th>
+                                                <th>النوع / النكهة / المقاس <span class="text-danger">*</span></th>
+                                                <th style="width: 130px;">سعر البيع الخاص</th>
+                                                <th>الباركود الخاص</th>
+                                                <th style="width: 70px;">إجراء</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @if (!currentItem.Variants.Any())
+                                            {
+                                                <tr>
+                                                    <td colspan="5" class="py-3 text-muted">
+                                                        اضغط زر "إضافة نكهة / مقاس جديد" لتسجيل تفريعات هذا الصنف.
+                                                    </td>
+                                                </tr>
+                                            }
+                                            @foreach (var v in currentItem.Variants)
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        <input type="text" class="form-control form-control-sm font-monospace text-center" 
+                                                               placeholder="تلقائي" @bind="v.VariantCode" />
+                                                    </td>
+                                                    <td>
+                                                        <input type="text" class="form-control form-control-sm fw-bold text-start" 
+                                                               placeholder="مثال: نكهة شيكولاتة / مقاس كبير" @bind="v.VariantName" />
+                                                    </td>
+                                                    <td>
+                                                        <input type="number" step="0.5" class="form-control form-control-sm text-center font-monospace text-success fw-bold" 
+                                                               placeholder="@currentItem.SalePrice" @bind="v.PriceOverride" />
+                                                    </td>
+                                                    <td>
+                                                        <input type="text" class="form-control form-control-sm font-monospace text-center" 
+                                                               placeholder="باركود النوع" @bind="v.Barcode" />
+                                                    </td>
+                                                    <td>
+                                                        <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" @onclick="() => currentItem.Variants.Remove(v)">
+                                                            🗑️
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseItemModal">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" 
+                            disabled="@isSavingItem" @onclick="SaveItemAsync">
+                        @if (isSavingItem)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري الحفظ...</span>
+                        }
+                        else
+                        {
+                            <span><i class="bi bi-check-circle"></i> @(currentItem.Id > 0 ? "تحديث بيانات الصنف" : "حفظ الصنف بالمنظومة")</span>
+                        }
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================================= -->
+<!-- 2. نافذة تصنيفات الأصناف المدمجة                                                          -->
+<!-- ========================================================================================= -->
+@if (isCategoriesModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                
+                <div class="modal-header bg-warning text-dark py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">
+                        🏷️ إدارة تصنيفات الأصناف والمواد (Category Center)
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => isCategoriesModalOpen = false"></button>
+                </div>
+
+                <div class="modal-body p-3">
+                    <div class="row g-3">
+                        <div class="col-lg-7">
+                            <div class="card border-0 shadow-sm h-100">
+                                <div class="card-header bg-dark text-white py-1 px-3 small fw-bold">
+                                    قائمة التصنيفات المسجلة (@categories.Count تصنيف)
+                                </div>
+                                <div class="table-responsive" style="max-height: 450px;">
+                                    <table class="table table-hover align-middle text-center small mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>الكود</th>
+                                                <th class="text-start">اسم التصنيف</th>
+                                                <th>النوع المرتبط</th>
+                                                <th>الحالة</th>
+                                                <th>إجراءات</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var c in categories)
+                                            {
+                                                <tr class="@(c.Id == currentCategory.Id ? "table-warning" : "")">
+                                                    <td class="font-monospace fw-bold">@c.CategoryCode</td>
+                                                    <td class="text-start fw-bold">@c.CategoryName</td>
+                                                    <td><span class="badge @GetTypeBadgeClass(c.ItemType)">@c.ItemType</span></td>
+                                                    <td>
+                                                        <span class="badge @(c.Active ? "bg-success" : "bg-danger")">
+                                                            @(c.Active ? "مفعل" : "موقوف")
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <button class="btn btn-outline-primary btn-sm py-0 px-2" @onclick="() => EditCategory(c)">
+                                                            تعديل
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-lg-5">
+                            <div class="card border border-warning shadow-sm">
+                                <div class="card-header bg-light py-2 fw-bold text-dark small">
+                                    @(currentCategory.Id > 0 ? "✏️ تعديل بيانات تصنيف" : "➕ إضافة تصنيف جديد")
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold text-secondary">كود التصنيف <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control form-control-sm font-monospace fw-bold" placeholder="مثال: CAT-01" 
+                                               @bind="currentCategory.CategoryCode" />
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold text-secondary">اسم التصنيف <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control form-control-sm fw-bold" placeholder="مثال: خامات التعبئة / حلويات شرقية" 
+                                               @bind="currentCategory.CategoryName" />
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold text-secondary">نوع الأصناف في هذا التصنيف</label>
+                                        <select class="form-select form-select-sm" @bind="currentCategory.ItemType">
+                                            <option value="منتج تام">منتج تام</option>
+                                            <option value="نصف مصنع">نصف مصنع</option>
+                                            <option value="خامات">خامات</option>
+                                            <option value="مواد تعبئة وتغليف">مواد تعبئة وتغليف</option>
+                                            <option value="أصول / حاويات تداول">أصول / حاويات تداول</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold text-secondary">الوصف / ملاحظات</label>
+                                        <textarea class="form-control form-control-sm" rows="2" @bind="currentCategory.Description"></textarea>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="catActive" @bind="currentCategory.Active" />
+                                        <label class="form-check-label small fw-bold" for="catActive">التصنيف مفعل ومتاح للاستخدام</label>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        @if (currentCategory.Id > 0)
+                                        {
+                                            <button type="button" class="btn btn-secondary btn-sm flex-fill" @onclick="() => currentCategory = new()">إلغاء</button>
+                                        }
+                                        <button type="button" class="btn btn-warning btn-sm flex-fill fw-bold shadow-sm" 
+                                                disabled="@isSavingCategory" @onclick="SaveCategoryAsync">
+                                            <i class="bi bi-check2-circle"></i> @(currentCategory.Id > 0 ? "تحديث التصنيف" : "إضافة التصنيف")
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => isCategoriesModalOpen = false">إغلاق</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================================= -->
+<!-- 3. نافذة استيراد الأصناف                                                                 -->
+<!-- ========================================================================================= -->
+@if (isImportModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0" dir="rtl">
+                
+                <div class="modal-header bg-success text-white py-2 px-3">
+                    <h5 class="modal-title fw-bold fs-6">
+                        <i class="bi bi-file-earmark-excel me-1"></i> استيراد دليل الأصناف من ملف إكسيل
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseImportModal"></button>
+                </div>
+
+                <div class="modal-body p-3">
+                    <div class="alert alert-info py-2 small mb-3">
+                        <i class="bi bi-info-circle me-1"></i> 
+                        يدعم الاستيراد ربط الصنف بصالته الإنتاجية تلقائياً، وتعيين حالته كمفعل لتفادي حظر الأصناف بعد الاستيراد.
+                    </div>
+
+                    <div class="mb-3 p-3 border rounded bg-light">
+                        <label class="form-label small fw-bold text-dark">اختر ملف الإكسيل / CSV من جهازك:</label>
+                        <InputFile OnChange="HandleFileSelected" accept=".csv, text/csv" class="form-control form-control-sm" />
+                    </div>
+
+                    @if (importedPreviewList.Any())
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-bold text-dark">معاينة الأصناف المقروءة من الملف (@importedPreviewList.Count صنف):</span>
+                            <span class="badge bg-success">جاهز للاستيراد</span>
+                        </div>
+                        <div class="table-responsive" style="max-height: 250px;">
+                            <table class="table table-bordered table-sm align-middle text-center small mb-0">
+                                <thead class="table-secondary">
+                                    <tr>
+                                        <th>الكود</th>
+                                        <th class="text-start">اسم الصنف</th>
+                                        <th>النوع</th>
+                                        <th>القسم / الصالة</th>
+                                        <th>الوحدة</th>
+                                        <th>سعر البيع</th>
+                                        <th>الحالة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in importedPreviewList)
+                                    {
+                                        <tr>
+                                            <td class="font-monospace fw-bold">@row.ItemCode</td>
+                                            <td class="text-start fw-bold">@row.ItemName</td>
+                                            <td>@row.ItemType</td>
+                                            <td class="fw-bold text-primary">@(!string.IsNullOrEmpty(row.DepartmentNameOrCode) ? row.DepartmentNameOrCode : "غير محدد")</td>
+                                            <td>@row.Unit</td>
+                                            <td class="font-monospace">@row.SalePrice.ToString("N2")</td>
+                                            <td>
+                                                <span class="badge @(row.Active ? "bg-success" : "bg-secondary")">
+                                                    @(row.Active ? "مفعل" : "معطل")
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="CloseImportModal">إلغاء</button>
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" 
+                            disabled="@(isSavingImport || !importedPreviewList.Any())" 
+                            @onclick="ProcessAndSaveImportAsync">
+                        @if (isSavingImport)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري حفظ الأصناف وربطها بالصالات...</span>
+                        }
+                        else
+                        {
+                            <span><i class="bi bi-check-circle"></i> تأكيد واستيراد كافة الأصناف (@importedPreviewList.Count)</span>
+                        }
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public class ItemDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; } = 1;
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = "منتج تام";
+        public string Unit { get; set; } = "كجم";
+        public string? Barcode { get; set; }
+        public string? Description { get; set; }
+        public long? DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
+        public long? CategoryId { get; set; }
+        public decimal SalePrice { get; set; } = 0;
+        public decimal BasePrice { get; set; } = 0;
+        public decimal PurchasePrice { get; set; } = 0;
+        public decimal SafetyStockLevel { get; set; } = 0;
+        public decimal ReorderPoint { get; set; } = 0;
+        public bool Active { get; set; } = true;
+
+        public bool HasVariants { get; set; } = false;
+        public bool IsComposite { get; set; } = false;
+
+        public DepartmentItemDto? Department { get; set; }
+        public CategoryDto? Category { get; set; }
+
+        public List<ItemUnitConversionDto> UnitsHierarchy { get; set; } = new();
+        public List<ItemVariantDto> Variants { get; set; } = new();
+    }
+
+    public class ItemUnitConversionDto
+    {
+        public string UnitName { get; set; } = string.Empty;
+        public decimal ConversionFactor { get; set; } = 1;
+        public string? Barcode { get; set; }
+    }
+
+    public class ItemVariantDto
+    {
+        public long Id { get; set; }
+        public string VariantCode { get; set; } = string.Empty;
+        public string VariantName { get; set; } = string.Empty;
+        public decimal? PriceOverride { get; set; }
+        public string? Barcode { get; set; }
+    }
+
+    public class CategoryDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; } = 1;
+        public string CategoryCode { get; set; } = string.Empty;
+        public string CategoryName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = "منتج تام";
+        public string? Description { get; set; }
+        public bool Active { get; set; } = true;
+    }
+
+    public class DepartmentItemDto
+    {
+        public long Id { get; set; }
+        public string DepartmentCode { get; set; } = string.Empty;
+        public string DepartmentName { get; set; } = string.Empty;
+    }
+
+    public class ItemImportRowDto
+    {
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = "منتج تام";
+        public string DepartmentNameOrCode { get; set; } = string.Empty;
+        public string Unit { get; set; } = "كجم";
+        public decimal SalePrice { get; set; } = 0;
+        public bool Active { get; set; } = true;
+    }
+
+    private List<ItemDto> items = new();
+    private List<CategoryDto> categories = new();
+    private List<DepartmentItemDto> departments = new();
+    private ItemDto currentItem = new();
+    private CategoryDto currentCategory = new();
+    private List<ItemImportRowDto> importedPreviewList = new();
+
+    private HashSet<long> expandedItemIds = new();
+
+    private bool isLoading = true;
+    private bool isSavingItem = false;
+    private bool isSavingCategory = false;
+    private bool isSavingImport = false;
+    private bool isItemModalOpen = false;
+    private bool isCategoriesModalOpen = false;
+    private bool isImportModalOpen = false;
+    private int itemModalActiveTab = 1;
+
+    private string? selectedTypeFilter = null;
+    private string searchTerm = "";
+    private long selectedCategoryFilter = 0;
+    private long selectedDeptFilter = 0;
+
+    private string? successMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            departments = await Http.GetFromJsonAsync<List<DepartmentItemDto>>("api/departments") ?? new();
+        }
+        catch { }
+
+        try
+        {
+            categories = await Http.GetFromJsonAsync<List<CategoryDto>>("api/itemcategories") ?? new();
+        }
+        catch { }
+
+        try
+        {
+            items = await Http.GetFromJsonAsync<List<ItemDto>>("api/items") ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"تعذر جلب الأصناف: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ToggleExpand(long itemId)
+    {
+        if (expandedItemIds.Contains(itemId))
+        {
+            expandedItemIds.Remove(itemId);
+        }
+        else
+        {
+            expandedItemIds.Add(itemId);
+        }
+    }
+
+    private IEnumerable<ItemDto> FilteredItems
+    {
+        get
+        {
+            var query = items.AsEnumerable();
+
+            if (!string.IsNullOrEmpty(selectedTypeFilter))
+            {
+                query = query.Where(i => i.ItemType == selectedTypeFilter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(i => 
+                    i.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    i.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(i.Barcode) && i.Barcode.Contains(term)) ||
+                    i.Variants.Any(v => v.VariantName.Contains(term, StringComparison.OrdinalIgnoreCase) || v.VariantCode.Contains(term, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (selectedCategoryFilter > 0)
+            {
+                query = query.Where(i => i.CategoryId == selectedCategoryFilter);
+            }
+
+            if (selectedDeptFilter > 0)
+            {
+                query = query.Where(i => i.DepartmentId == selectedDeptFilter);
+            }
+
+            return query;
+        }
+    }
+
+    private void FilterByType(string? type) => selectedTypeFilter = type;
+
+    private void ResetFilters()
+    {
+        selectedTypeFilter = null;
+        searchTerm = "";
+        selectedCategoryFilter = 0;
+        selectedDeptFilter = 0;
+    }
+
+    private string GetDisplayDeptName(ItemDto item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.DepartmentName) && item.DepartmentName != "-")
+            return item.DepartmentName;
+
+        if (item.Department != null && !string.IsNullOrWhiteSpace(item.Department.DepartmentName))
+            return item.Department.DepartmentName;
+
+        if (item.DepartmentId.HasValue && item.DepartmentId.Value > 0)
+        {
+            var found = departments.FirstOrDefault(d => d.Id == item.DepartmentId.Value);
+            if (found != null) return found.DepartmentName;
+        }
+
+        return "-";
+    }
+
+    private string GetTypeBadgeClass(string type) => type switch
+    {
+        "منتج تام" => "bg-primary",
+        "نصف مصنع" => "bg-warning text-dark",
+        "خامات" => "bg-success",
+        "مواد تعبئة وتغليف" => "bg-info text-dark",
+        "أصول / حاويات تداول" => "bg-secondary",
+        _ => "bg-dark"
+    };
+
+    private void OpenCreateItemModal()
+    {
+        currentItem = new ItemDto
+        {
+            CompanyId = 1,
+            ItemType = selectedTypeFilter ?? "منتج تام",
+            DepartmentId = departments.FirstOrDefault()?.Id,
+            Unit = "كجم",
+            Active = true
+        };
+        itemModalActiveTab = 1;
+        isItemModalOpen = true;
+    }
+
+    private void EditItem(ItemDto item)
+    {
+        currentItem = new ItemDto
+        {
+            Id = item.Id,
+            CompanyId = item.CompanyId,
+            ItemCode = item.ItemCode,
+            ItemName = item.ItemName,
+            ItemType = item.ItemType,
+            Unit = item.Unit,
+            Barcode = item.Barcode,
+            Description = item.Description,
+            DepartmentId = item.DepartmentId,
+            DepartmentName = item.DepartmentName,
+            CategoryId = item.CategoryId,
+            SalePrice = item.SalePrice > 0 ? item.SalePrice : item.BasePrice,
+            BasePrice = item.BasePrice,
+            PurchasePrice = item.PurchasePrice,
+            SafetyStockLevel = item.SafetyStockLevel,
+            ReorderPoint = item.ReorderPoint,
+            Active = item.Active,
+            HasVariants = item.HasVariants || item.Variants.Any(),
+            IsComposite = item.IsComposite,
+            UnitsHierarchy = item.UnitsHierarchy.Select(u => new ItemUnitConversionDto { UnitName = u.UnitName, ConversionFactor = u.ConversionFactor, Barcode = u.Barcode }).ToList(),
+            Variants = item.Variants.Select(v => new ItemVariantDto { Id = v.Id, VariantCode = v.VariantCode, VariantName = v.VariantName, PriceOverride = v.PriceOverride, Barcode = v.Barcode }).ToList()
+        };
+        itemModalActiveTab = 1;
+        isItemModalOpen = true;
+    }
+
+    private void CloseItemModal()
+    {
+        isItemModalOpen = false;
+        currentItem = new ItemDto();
+    }
+
+    private void AddNewUnitRow()
+    {
+        currentItem.UnitsHierarchy.Add(new ItemUnitConversionDto
+        {
+            UnitName = "",
+            ConversionFactor = 12
+        });
+    }
+
+    private void AddNewVariantRow()
+    {
+        var suffix = (currentItem.Variants.Count + 1).ToString("D2");
+        currentItem.Variants.Add(new ItemVariantDto
+        {
+            VariantCode = $"{currentItem.ItemCode}-{suffix}",
+            VariantName = "",
+            PriceOverride = currentItem.SalePrice,
+            Barcode = currentItem.Barcode
+        });
+    }
+
+    private async Task SaveItemAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentItem.ItemName) || string.IsNullOrWhiteSpace(currentItem.ItemCode))
+        {
+            errorMessage = "يرجى إدخال كود واسم الصنف بشكل صحيح.";
+            return;
+        }
+
+        isSavingItem = true;
+        errorMessage = null;
+
+        try
+        {
+            var dept = departments.FirstOrDefault(d => d.Id == currentItem.DepartmentId);
+            var payload = new
+            {
+                Id = currentItem.Id,
+                CompanyId = currentItem.CompanyId > 0 ? currentItem.CompanyId : 1,
+                ItemCode = currentItem.ItemCode.Trim(),
+                ItemName = currentItem.ItemName.Trim(),
+                ItemType = currentItem.ItemType,
+                Unit = currentItem.Unit.Trim(),
+                Barcode = currentItem.Barcode,
+                Description = currentItem.Description,
+                DepartmentId = currentItem.DepartmentId,
+                DepartmentName = dept?.DepartmentName ?? currentItem.DepartmentName,
+                CategoryId = currentItem.CategoryId > 0 ? currentItem.CategoryId : 1,
+                SalePrice = currentItem.SalePrice,
+                BasePrice = currentItem.SalePrice,
+                PurchasePrice = currentItem.PurchasePrice,
+                SafetyStock = currentItem.SafetyStockLevel,
+                SafetyStockLevel = currentItem.SafetyStockLevel,
+                ReorderLevel = currentItem.ReorderPoint,
+                ReorderPoint = currentItem.ReorderPoint,
+                Active = currentItem.Active,
+                HasVariants = currentItem.HasVariants,
+                IsComposite = currentItem.IsComposite,
+                UnitsHierarchy = currentItem.UnitsHierarchy,
+                Variants = currentItem.Variants
+            };
+
+            HttpResponseMessage res;
+            if (currentItem.Id > 0)
+            {
+                res = await Http.PutAsJsonAsync($"api/items/{currentItem.Id}", payload);
+            }
+            else
+            {
+                res = await Http.PostAsJsonAsync("api/items", payload);
+            }
+
+            if (res.IsSuccessStatusCode)
+            {
+                successMessage = currentItem.Id > 0 ? "تم تحديث بيانات الصنف ونكهاته بنجاح." : "تمت إضافة الصنف ونكهاته بنجاح.";
+                if (currentItem.Id > 0) expandedItemIds.Add(currentItem.Id);
+                CloseItemModal();
+                await LoadDataAsync();
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                errorMessage = $"فشل حفظ الصنف: {err}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ في الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSavingItem = false;
+        }
+    }
+
+    private async Task ToggleItemStatus(ItemDto item)
+    {
+        item.Active = !item.Active;
+        try
+        {
+            var payload = new
+            {
+                Id = item.Id,
+                ItemCode = item.ItemCode,
+                ItemName = item.ItemName,
+                ItemType = item.ItemType,
+                DepartmentId = item.DepartmentId,
+                DepartmentName = item.DepartmentName,
+                Unit = item.Unit,
+                Active = item.Active
+            };
+            var res = await Http.PutAsJsonAsync($"api/items/{item.Id}", payload);
+            if (res.IsSuccessStatusCode)
+            {
+                successMessage = $"تم تغيير حالة الصنف إلى: {(item.Active ? "مفعل" : "معطل")}";
+            }
+            else
+            {
+                item.Active = !item.Active;
+            }
+        }
+        catch
+        {
+            item.Active = !item.Active;
+        }
+    }
+
+    private void OpenCategoriesModal()
+    {
+        currentCategory = new CategoryDto { Active = true, CompanyId = 1 };
+        isCategoriesModalOpen = true;
+    }
+
+    private void EditCategory(CategoryDto cat)
+    {
+        currentCategory = new CategoryDto
+        {
+            Id = cat.Id,
+            CompanyId = cat.CompanyId,
+            CategoryCode = cat.CategoryCode,
+            CategoryName = cat.CategoryName,
+            ItemType = cat.ItemType,
+            Description = cat.Description,
+            Active = cat.Active
+        };
+    }
+
+    private async Task SaveCategoryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentCategory.CategoryName) || string.IsNullOrWhiteSpace(currentCategory.CategoryCode))
+        {
+            errorMessage = "يرجى كتابة كود واسم التصنيف.";
+            return;
+        }
+
+        isSavingCategory = true;
+        try
+        {
+            HttpResponseMessage res;
+            if (currentCategory.Id > 0)
+            {
+                res = await Http.PutAsJsonAsync($"api/itemcategories/{currentCategory.Id}", currentCategory);
+            }
+            else
+            {
+                res = await Http.PostAsJsonAsync("api/itemcategories", currentCategory);
+            }
+
+            if (res.IsSuccessStatusCode)
+            {
+                successMessage = "تم حفظ التصنيف بنجاح.";
+                currentCategory = new CategoryDto { Active = true, CompanyId = 1 };
+                categories = await Http.GetFromJsonAsync<List<CategoryDto>>("api/itemcategories") ?? new();
+            }
+            else
+            {
+                errorMessage = "فشل حفظ التصنيف.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ: {ex.Message}";
+        }
+        finally
+        {
+            isSavingCategory = false;
+        }
+    }
+
+    private string NormalizeArabic(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        return text.Trim()
+            .Replace("أ", "ا")
+            .Replace("إ", "ا")
+            .Replace("آ", "ا")
+            .Replace("ة", "ه")
+            .Replace("ى", "ي")
+            .Replace("ـ", "")
+            .ToLower();
+    }
+
+    private DepartmentItemDto? MatchDepartment(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || !departments.Any()) return null;
+        var norm = NormalizeArabic(text);
+
+        var byCode = departments.FirstOrDefault(d => d.DepartmentCode.Trim() == text.Trim() || d.Id.ToString() == text.Trim());
+        if (byCode != null) return byCode;
+
+        var exact = departments.FirstOrDefault(d => NormalizeArabic(d.DepartmentName) == norm);
+        if (exact != null) return exact;
+
+        return departments.FirstOrDefault(d => NormalizeArabic(d.DepartmentName).Contains(norm) || norm.Contains(NormalizeArabic(d.DepartmentName)));
+    }
+
+    private async Task ExportToExcelAsync()
+    {
+        var list = FilteredItems.ToList();
+        if (!list.Any())
+        {
+            errorMessage = "لا توجد أصناف لتصديرها.";
+            return;
+        }
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_الصنف,اسم_الصنف,النوع,القسم,الوحدة,سعر_البيع,الحالة");
+
+            foreach (var i in list)
+            {
+                var deptName = GetDisplayDeptName(i);
+                var status = i.Active ? "مفعل" : "معطل";
+                var price = i.SalePrice > 0 ? i.SalePrice : i.BasePrice;
+                sb.AppendLine($"{EscapeCsv(i.ItemCode)},{EscapeCsv(i.ItemName)},{EscapeCsv(i.ItemType)},{EscapeCsv(deptName)},{EscapeCsv(i.Unit)},{price},{status}");
+            }
+
+            var fileName = $"دليل_الأصناف_أبو_عادل_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await TriggerBrowserDownload(fileName, sb.ToString());
+            successMessage = $"تم تصدير ({list.Count}) صنفاً إلى إكسيل بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل التصدير: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadTemplateAsync()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_الصنف,اسم_الصنف,النوع,القسم,الوحدة,سعر_البيع,الحالة");
+            sb.AppendLine("301001,بسبوسة سادة,منتج تام,قسم الشرقي,كجم,120,1");
+            sb.AppendLine("302001,جاتوه اسبيشيال,منتج تام,قسم الجاتوه الاسبيشيال,قطعة,25,1");
+            sb.AppendLine("101001,سكر أبيض ناعم,خامات,إدارة المخازن,كجم,0,1");
+
+            var fileName = "قالب_استيراد_الأصناف_أبو_عادل.csv";
+            await TriggerBrowserDownload(fileName, sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تحميل القالب: {ex.Message}";
+        }
+    }
+
+    private async Task TriggerBrowserDownload(string fileName, string content)
+    {
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+        var jsCommand = $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);";
+        await JS.InvokeVoidAsync("eval", jsCommand);
+    }
+
+    private string EscapeCsv(string val)
+    {
+        if (string.IsNullOrEmpty(val)) return "";
+        if (val.Contains(",") || val.Contains("\"") || val.Contains("\n") || val.Contains("\r"))
+        {
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        }
+        return val;
+    }
+
+    private void OpenImportModal()
+    {
+        importedPreviewList.Clear();
+        errorMessage = null;
+        isImportModalOpen = true;
+    }
+
+    private void CloseImportModal()
+    {
+        isImportModalOpen = false;
+        importedPreviewList.Clear();
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        importedPreviewList.Clear();
+        errorMessage = null;
+
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024), Encoding.UTF8);
+            var content = await reader.ReadToEndAsync();
+            var lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (lines.Length <= 1)
+            {
+                errorMessage = "الملف فارغ أو لا يحتوي على صفوف بيانات.";
+                return;
+            }
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                var cols = ParseCsvLine(line);
+                if (cols.Count >= 2)
+                {
+                    string itemCode = cols[0].Trim();
+                    string itemName = cols[1].Trim();
+                    string itemType = cols.Count > 2 ? cols[2].Trim() : "منتج تام";
+                    string deptText = cols.Count > 3 ? cols[3].Trim() : "";
+                    string unit = cols.Count > 4 ? cols[4].Trim() : "كجم";
+                    
+                    decimal.TryParse(cols.Count > 5 ? cols[5].Trim() : "0", out var price);
+
+                    importedPreviewList.Add(new ItemImportRowDto
+                    {
+                        ItemCode = itemCode,
+                        ItemName = itemName,
+                        ItemType = itemType,
+                        DepartmentNameOrCode = deptText,
+                        Unit = unit,
+                        SalePrice = price,
+                        Active = true
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل قراءة الملف: {ex.Message}";
+        }
+    }
+
+    private List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        bool inQuotes = false;
+        var curVal = new StringBuilder();
+
+        foreach (char c in line)
+        {
+            if (c == '\"') inQuotes = !inQuotes;
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(curVal.ToString());
+                curVal.Clear();
+            }
+            else curVal.Append(c);
+        }
+        result.Add(curVal.ToString());
+        return result;
+    }
+
+    private async Task ProcessAndSaveImportAsync()
+    {
+        if (!importedPreviewList.Any()) return;
+
+        isSavingImport = true;
+        errorMessage = null;
+
+        try
+        {
+            int count = 0;
+            foreach (var row in importedPreviewList)
+            {
+                var existing = items.FirstOrDefault(i => i.ItemCode.Equals(row.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var matchedDept = MatchDepartment(row.DepartmentNameOrCode);
+
+                var payload = new
+                {
+                    Id = existing?.Id ?? 0,
+                    CompanyId = 1,
+                    ItemCode = row.ItemCode.Trim(),
+                    ItemName = row.ItemName.Trim(),
+                    ItemType = row.ItemType,
+                    DepartmentId = matchedDept?.Id ?? existing?.DepartmentId,
+                    DepartmentName = matchedDept?.DepartmentName ?? row.DepartmentNameOrCode,
+                    Unit = row.Unit,
+                    SalePrice = row.SalePrice,
+                    BasePrice = row.SalePrice,
+                    Active = true
+                };
+
+                HttpResponseMessage res;
+                if (existing != null)
+                {
+                    res = await Http.PutAsJsonAsync($"api/items/{existing.Id}", payload);
+                }
+                else
+                {
+                    res = await Http.PostAsJsonAsync("api/items", payload);
+                }
+
+                if (res.IsSuccessStatusCode) count++;
+            }
+
+            successMessage = $"تم استيراد ومعالجة ({count}) صنفاً بنجاح مع ربط الصالات والحالة المفعلة.";
+            CloseImportModal();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ أثناء حفظ الأصناف: {ex.Message}";
+        }
+        finally
+        {
+            isSavingImport = false;
+        }
+    }
+}

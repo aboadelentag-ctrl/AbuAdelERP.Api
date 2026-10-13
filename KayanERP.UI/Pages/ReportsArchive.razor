@@ -1,0 +1,253 @@
+﻿@page "/reports-archive"
+@layout KayanERP.UI.Pages.EmptyLayout
+@inject HttpClient Http
+@using System.Net.Http.Json
+
+<div class="container-fluid mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h3 class="text-primary m-0 mb-1">📊 أرشيف التقارير وكفاءة الأقسام</h3>
+            <span class="text-muted">متابعة الأداء، تحليل الانحرافات بين المخطط والفعلي، ونسب الهالك</span>
+        </div>
+        <button class="btn btn-outline-primary fw-bold shadow-sm" @onclick="LoadReportData">
+            🔄 تحديث التقارير
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger fw-bold shadow-sm mb-3">❌ @errorMessage</div>
+    }
+
+    <!-- 1. فلاتر البحث -->
+    <div class="card shadow-sm border-0 mb-4 bg-light">
+        <div class="card-body p-3">
+            <div class="row align-items-end">
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <label class="form-label fw-bold small text-secondary">من تاريخ</label>
+                    <input type="date" class="form-control border-primary" @bind="startDate" />
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <label class="form-label fw-bold small text-secondary">إلى تاريخ</label>
+                    <input type="date" class="form-control border-primary" @bind="endDate" />
+                </div>
+                <div class="col-md-4 mb-2 mb-md-0">
+                    <label class="form-label fw-bold small text-secondary">القسم / الإدارة</label>
+                    <select class="form-select border-primary" @bind="selectedDepartmentId">
+                        <option value="0">-- جميع الأقسام --</option>
+                        @foreach (var dept in departmentsList)
+                        {
+                            <option value="@dept.Id">@dept.DepartmentName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary fw-bold w-100 shadow" @onclick="LoadReportData">🔍 عرض التقرير</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="p-5 text-center text-primary fw-bold">
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            ⏳ جاري تجميع وتحليل البيانات...
+        </div>
+    }
+    else
+    {
+        <!-- 2. مؤشرات الأداء الرئيسية (KPIs) -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm border-end border-primary border-4 h-100">
+                    <div class="card-body">
+                        <h6 class="text-muted fw-bold mb-2">أوامر التشغيل المنجزة</h6>
+                        <h3 class="text-primary m-0 fw-bold">@summaryKpi.TotalCompletedOrders <span class="fs-6 text-muted">أمر</span></h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm border-end border-success border-4 h-100">
+                    <div class="card-body">
+                        <h6 class="text-muted fw-bold mb-2">متوسط كفاءة الإنتاج</h6>
+                        <h3 class="text-success m-0 fw-bold">@summaryKpi.AverageEfficiency %</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm border-end border-danger border-4 h-100">
+                    <div class="card-body">
+                        <h6 class="text-muted fw-bold mb-2">إجمالي الهالك (انحراف)</h6>
+                        <h3 class="text-danger m-0 fw-bold">@summaryKpi.TotalWaste <span class="fs-6 text-muted">كجم</span></h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm border-end border-warning border-4 h-100">
+                    <div class="card-body">
+                        <h6 class="text-muted fw-bold mb-2">إجمالي ساعات العمل</h6>
+                        <h3 class="text-warning m-0 fw-bold text-dark">@summaryKpi.TotalWorkingHours <span class="fs-6 text-muted">ساعة</span></h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. جدول تحليل كفاءة الأقسام -->
+        <div class="card shadow-sm border-0 border-top border-dark border-4 mb-4">
+            <div class="card-header bg-white py-3">
+                <h6 class="text-dark m-0 fw-bold">📈 تحليل الأداء وكفاءة الإنتاج حسب القسم</h6>
+            </div>
+            <div class="card-body p-0 table-responsive">
+                @if (!departmentEfficiencies.Any())
+                {
+                    <div class="p-4 text-center text-muted fw-bold">لا توجد بيانات إنتاج في هذه الفترة بناءً على الفلتر الحالي.</div>
+                }
+                else
+                {
+                    <table class="table table-hover mb-0 text-center align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>القسم المنفذ</th>
+                                <th>إجمالي المخطط</th>
+                                <th>إجمالي المنفذ</th>
+                                <th>نسبة الكفاءة</th>
+                                <th>كمية الهالك</th>
+                                <th>تقييم الأداء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var dept in departmentEfficiencies)
+                            {
+                                <tr>
+                                    <td class="fw-bold text-primary">@dept.DepartmentName</td>
+                                    <td>@dept.TotalPlanned <span class="text-muted small">كجم</span></td>
+                                    <td class="fw-bold text-success">@dept.TotalProduced <span class="text-muted small">كجم</span></td>
+                                    <td>
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar @(dept.EfficiencyPercentage >= 90 ? "bg-success" : (dept.EfficiencyPercentage >= 75 ? "bg-warning text-dark" : "bg-danger"))"
+                                                 role="progressbar"
+                                                 style="width: @(dept.EfficiencyPercentage > 100 ? 100 : dept.EfficiencyPercentage)%;"
+                                                 aria-valuenow="@dept.EfficiencyPercentage" aria-valuemin="0" aria-valuemax="100">
+                                                @dept.EfficiencyPercentage%
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-danger fw-bold">@dept.TotalWaste</td>
+                                    <td>
+                                        @if (dept.EfficiencyPercentage >= 90)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success">ممتاز</span>
+                                        }
+                                        else if (dept.EfficiencyPercentage >= 75)
+                                        {
+                                            <span class="badge bg-warning-subtle text-warning border border-warning">مقبول</span>
+                                        }
+                                        else if (dept.EfficiencyPercentage == 0)
+                                        {
+                                            <span class="badge bg-secondary-subtle text-secondary border border-secondary">لا يوجد إنتاج</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger border border-danger">يحتاج مراجعة</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private string errorMessage = "";
+
+    // التواريخ الافتراضية (من بداية الشهر الحالي إلى اليوم)
+    private DateOnly startDate = new DateOnly(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateOnly endDate = DateOnly.FromDateTime(DateTime.Now);
+    private long selectedDepartmentId = 0;
+
+    private List<DepartmentLookupDto> departmentsList = new();
+    private List<DepartmentEfficiencyDto> departmentEfficiencies = new();
+    private KpiSummaryDto summaryKpi = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDepartments();
+        await LoadReportData();
+    }
+
+    private async Task LoadDepartments()
+    {
+        try
+        {
+            departmentsList = await Http.GetFromJsonAsync<List<DepartmentLookupDto>>("api/Departments") ?? new();
+        }
+        catch
+        {
+            // نتجاهل الخطأ هنا كي لا يوقف تحميل الصفحة الأساسية
+        }
+    }
+
+    private async Task LoadReportData()
+    {
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            // إرسال التواريخ والقسم المختار إلى الـ API الفعلي
+            string url = $"api/Reports/efficiency?startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}&departmentId={selectedDepartmentId}";
+            var result = await Http.GetFromJsonAsync<ReportResultDto>(url);
+
+            if (result != null)
+            {
+                summaryKpi = result.Summary;
+                departmentEfficiencies = result.DepartmentEfficiencies;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "حدث خطأ أثناء الاتصال وتجميع التقارير من قاعدة البيانات.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ==========================================
+    // DTOs
+    // ==========================================
+    public class ReportResultDto
+    {
+        public KpiSummaryDto Summary { get; set; } = new();
+        public List<DepartmentEfficiencyDto> DepartmentEfficiencies { get; set; } = new();
+    }
+
+    public class DepartmentLookupDto
+    {
+        public long Id { get; set; }
+        public string DepartmentName { get; set; } = string.Empty;
+    }
+
+    public class KpiSummaryDto
+    {
+        public int TotalCompletedOrders { get; set; }
+        public decimal AverageEfficiency { get; set; }
+        public decimal TotalWaste { get; set; }
+        public decimal TotalWorkingHours { get; set; }
+    }
+
+    public class DepartmentEfficiencyDto
+    {
+        public string DepartmentName { get; set; } = string.Empty;
+        public decimal TotalPlanned { get; set; }
+        public decimal TotalProduced { get; set; }
+        public decimal EfficiencyPercentage { get; set; }
+        public decimal TotalWaste { get; set; }
+    }
+}

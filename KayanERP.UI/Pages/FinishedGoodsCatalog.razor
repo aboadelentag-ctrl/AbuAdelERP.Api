@@ -1,0 +1,903 @@
+﻿@page "/finished-goods-catalog"
+@page "/finished-goods"
+@layout KayanERP.UI.Pages.EmptyLayout
+@inject HttpClient Http
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.Forms
+
+<PageTitle>كتالوج المنتجات التامة - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid px-4 py-3" dir="rtl">
+    <!-- الشريط العلوي -->
+    <div class="card shadow-sm border-0 mb-3 bg-dark text-white rounded-3">
+        <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h4 class="text-warning fw-bold m-0 mb-1">🍰 كتالوج المنتجات التامة والحلويات</h4>
+                <small class="text-light text-opacity-75">إدارة أصناف الحلويات، الأسعار، شجرة النكهات والتفريعات (Variants)، ومصفوفة التعبئة</small>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-light btn-sm fw-bold px-3 shadow-sm" @onclick="OpenBulkModal">
+                    📋 استيراد سريع (Bulk)
+                </button>
+                <button class="btn btn-warning text-dark btn-sm fw-bold px-3 shadow" @onclick="OpenNewItemModal">
+                    ➕ إضافة منتج تام جديد
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- رسائل التنبيه العلوية -->
+    @if (!string.IsNullOrEmpty(pageMessage))
+    {
+        <div class="alert @(isPageError ? "alert-danger" : "alert-success") alert-dismissible fade show fw-bold shadow-sm py-2 mb-3" role="alert">
+            @pageMessage
+            <button type="button" class="btn-close py-2" @onclick="() => pageMessage = string.Empty"></button>
+        </div>
+    }
+
+    <!-- شريط البحث والفلترة -->
+    <div class="card shadow-sm border-0 mb-3 bg-light">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-primary text-primary">🔍</span>
+                        <input type="text" class="form-control border-primary" placeholder="بحث بالاسم أو الكود أو الباركود..." @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <select class="form-select form-select-sm border-primary fw-bold" @bind="selectedDepartmentFilter">
+                        <option value="">-- كل الصالات والأقسام الإنتاجية --</option>
+                        @foreach (var dept in departmentsList)
+                        {
+                            <option value="@dept.DisplayName">@dept.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3 text-start">
+                    <span class="badge bg-primary fs-6 p-2">إجمالي المنتجات: @FilteredItems.Count()</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول عرض المنتجات التامة -->
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-body p-0 table-responsive">
+            @if (isLoading)
+            {
+                <div class="p-5 text-center text-primary fw-bold">
+                    <div class="spinner-border spinner-border-sm me-2"></div> جاري تحميل كتالوج المنتجات التامة...
+                </div>
+            }
+            else if (!FilteredItems.Any())
+            {
+                <div class="p-5 text-center text-muted fw-bold">⚠️ لا توجد منتجات تامة مسجلة مطابقة للبحث.</div>
+            }
+            else
+            {
+                <table class="table table-hover table-bordered mb-0 text-center align-middle small">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 110px;">كود الصنف</th>
+                            <th class="text-start ps-3">اسم المنتج التام</th>
+                            <th>القسم / الصالة</th>
+                            <th>سعر البيع الأساسي</th>
+                            <th>الوحدة</th>
+                            <th>شجرة النكهات (Variants)</th>
+                            <th>معامل التعبئة</th>
+                            <th>الحالة</th>
+                            <th style="width: 130px;">إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in FilteredItems)
+                        {
+                            var itemVarCount = allVariants.Count(v => v.ParentItemId == item.Id || (!string.IsNullOrEmpty(item.ItemCode) && v.ItemCode.StartsWith(item.ItemCode + "-")));
+                            var itemConv = allConversions.FirstOrDefault(c => c.ItemId == item.Id);
+
+                            <tr class="@(item.Active ? "" : "bg-light text-muted")">
+                                <td class="fw-bold font-monospace">@item.ItemCode</td>
+                                <td class="text-primary fw-bold text-start ps-3">
+                                    @item.ItemName
+                                    @if (item.IsMerged) { <span class="badge bg-info text-dark ms-1">مدمج</span> }
+                                    @if (item.IsContainer) { <span class="badge bg-warning text-dark ms-1">حاوية</span> }
+                                    @if (item.MultiUom) { <span class="badge bg-secondary ms-1">متعدد وحدات</span> }
+                                </td>
+                                <td><span class="badge bg-light text-dark border">@(string.IsNullOrEmpty(item.DepartmentName) ? "غير محدد" : item.DepartmentName)</span></td>
+                                <td class="fw-bold text-success font-monospace">@(item.BasePrice > 0 ? $"{item.BasePrice:N2} ج.م" : "-")</td>
+                                <td>@item.Unit</td>
+                                <td>
+                                    @if (itemVarCount > 0)
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold" @onclick="() => OpenItemWorkstation(item, 2)">
+                                            🍰 @itemVarCount نكهات / تفريعات
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-light border py-0 px-2 text-muted" @onclick="() => OpenItemWorkstation(item, 2)">
+                                            ➕ إضافة نكهات
+                                        </button>
+                                    }
+                                </td>
+                                <td>
+                                    @if (itemConv != null)
+                                    {
+                                        <span class="badge bg-light text-dark border font-monospace">1 @itemConv.FromUnit = @itemConv.ConversionFactor.ToString("G29") @itemConv.ToUnit</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">-</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (item.Active)
+                                    {
+                                        <span class="badge bg-success">مفعل</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">موقوف</span>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary py-1 px-2 fw-bold shadow-sm" @onclick="() => OpenItemWorkstation(item, 1)">
+                                        ⚙️ إدارة الصنف
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- نافذة بطاقة الصنف الشاملة (Item Workstation Modal) -->
+@if (showWorkstationModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65); z-index: 1050;" dir="rtl">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-primary text-white d-flex justify-content-between align-items-center py-2 px-3">
+                    <h5 class="modal-title fw-bold m-0 fs-6">
+                        @(isNewItemMode ? "➕ إضافة منتج تام جديد" : $"⚙️ بطاقة المنتج: {activeItem.ItemName} ({activeItem.ItemCode})")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseWorkstation"></button>
+                </div>
+
+                <div class="bg-light border-bottom px-3 pt-2">
+                    <ul class="nav nav-tabs border-0">
+                        <li class="nav-item">
+                            <button class="nav-link fw-bold @(activeTabModal == 1 ? "active text-primary border-primary border-bottom-0" : "text-secondary")" @onclick="() => activeTabModal = 1">
+                                📋 1. البيانات الأساسية والأسعار
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link fw-bold @(activeTabModal == 2 ? "active text-primary border-primary border-bottom-0" : "text-secondary")" @onclick="() => activeTabModal = 2" disabled="@isNewItemMode">
+                                🍰 2. شجرة النكهات والتفريعات (Variants)
+                                @if (!isNewItemMode)
+                                {
+                                    <span class="badge bg-primary ms-1">@currentItemVariants.Count</span>
+                                }
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link fw-bold @(activeTabModal == 3 ? "active text-primary border-primary border-bottom-0" : "text-secondary")" @onclick="() => activeTabModal = 3" disabled="@isNewItemMode">
+                                ⚖️ 3. مصفوفة التحويل والتعبئة (UoM)
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="modal-body bg-white p-4">
+                    @if (!string.IsNullOrEmpty(modalMessage))
+                    {
+                        <div class="alert @(isModalError ? "alert-danger" : "alert-success") fw-bold py-2 shadow-sm mb-3">
+                            @modalMessage
+                        </div>
+                    }
+
+                    @if (activeTabModal == 1)
+                    {
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-secondary small">كود الصنف الأساسي *</label>
+                                <input type="text" class="form-control font-monospace border-primary fw-bold" @bind="activeItem.ItemCode" placeholder="مثال: 302021" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-secondary small">اسم المنتج التام *</label>
+                                <input type="text" class="form-control border-primary fw-bold" @bind="activeItem.ItemName" placeholder="مثال: 30 * 30 تورتة" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-secondary small">القسم الإنتاجي / الصالة *</label>
+                                <input type="text" class="form-control border-primary" list="deptOptions" @bind="activeItem.DepartmentName" placeholder="اختر أو اكتب القسم" />
+                                <datalist id="deptOptions">
+                                    @foreach (var d in departmentsList)
+                                    {
+                                        <option value="@d.DisplayName" />
+                                    }
+                                </datalist>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-secondary small">سعر البيع الأساسي (ج.م) *</label>
+                                <input type="number" step="0.01" class="form-control border-success fw-bold text-success font-monospace" @bind="activeItem.BasePrice" placeholder="0.00" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-secondary small">وحدة الصنف الأساسية *</label>
+                                <select class="form-select border-primary fw-bold" @bind="activeItem.Unit">
+                                    <option value="قطعة">قطعة</option>
+                                    <option value="علبة">علبة</option>
+                                    <option value="بلكة">بلكة</option>
+                                    <option value="صاج">صاج</option>
+                                    <option value="كجم">كجم</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-secondary small">الباركود</label>
+                                <input type="text" class="form-control border-primary font-monospace" @bind="activeItem.Barcode" placeholder="باركود الصنف إن وجد" />
+                            </div>
+
+                            <div class="col-12 mt-3">
+                                <div class="p-3 bg-light rounded border">
+                                    <h6 class="fw-bold text-primary m-0 mb-2">⚙️ خصائص التشغيل والمطابقة</h6>
+                                    <div class="row g-2">
+                                        <div class="col-md-4 form-check">
+                                            <input class="form-check-input" type="checkbox" id="fgIsVariant" @bind="activeItem.IsVariant" />
+                                            <label class="form-check-label small fw-bold" for="fgIsVariant">صنف متنوع (له نكهات وتفريعات متعددة)</label>
+                                        </div>
+                                        <div class="col-md-4 form-check">
+                                            <input class="form-check-input" type="checkbox" id="fgIsMerged" @bind="activeItem.IsMerged" />
+                                            <label class="form-check-label small fw-bold" for="fgIsMerged">مدمج (صاجات مشكلة / أطباق مشكلة)</label>
+                                        </div>
+                                        <div class="col-md-4 form-check">
+                                            <input class="form-check-input" type="checkbox" id="fgMultiUom" @bind="activeItem.MultiUom" />
+                                            <label class="form-check-label small fw-bold" for="fgMultiUom">متعدد الوحدات (يباع بالقطعة وبالبلكة/الوزن)</label>
+                                        </div>
+                                        <div class="col-md-4 form-check">
+                                            <input class="form-check-input" type="checkbox" id="fgIsContainer" @bind="activeItem.IsContainer" />
+                                            <label class="form-check-label small fw-bold" for="fgIsContainer">صنف حاوية / وعاء نقل (سبت / صينية)</label>
+                                        </div>
+                                        <div class="col-md-4 form-check">
+                                            <input class="form-check-input" type="checkbox" id="fgHideDetail" @bind="activeItem.HideDetailPrint" />
+                                            <label class="form-check-label small fw-bold" for="fgHideDetail">بدون طباعة تفاصيل بالفاتورة المجمعة</label>
+                                        </div>
+                                        <div class="col-md-4 form-check">
+                                            <input class="form-check-input" type="checkbox" id="fgActive" @bind="activeItem.Active" />
+                                            <label class="form-check-label small fw-bold text-success" for="fgActive">الصنف مفعّل وجاهز للتشغيل والبيع</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (activeTabModal == 2)
+                    {
+                        <div class="row">
+                            <div class="col-md-4 border-start">
+                                <div class="p-3 bg-light rounded border">
+                                    <h6 class="fw-bold text-primary mb-3">➕ إضافة نكهة / تفرع جديد</h6>
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold">اسم النكهة / التفرع *</label>
+                                        <input type="text" class="form-control form-control-sm border-primary" placeholder="مثلاً: شيكولاتة، نصفين، كريمة" @bind="newVariantName" />
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold">كود التفرع الفريد</label>
+                                        <input type="text" class="form-control form-control-sm border-primary font-monospace" placeholder="@($"{activeItem.ItemCode}-1")" @bind="newVariantCode" />
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold">سعر البيع للتفرع (ج.م)</label>
+                                        <input type="number" step="0.01" class="form-control form-control-sm border-success font-monospace" @bind="newVariantPrice" />
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">الباركود الخاص بالنكهة</label>
+                                        <input type="text" class="form-control form-control-sm border-primary font-monospace" @bind="newVariantBarcode" />
+                                    </div>
+                                    <button class="btn btn-primary btn-sm w-100 fw-bold shadow-sm" @onclick="AddVariantToItem" disabled="@(string.IsNullOrWhiteSpace(newVariantName) || isSavingVariant)">
+                                        @(isSavingVariant ? "⏳ جاري الحفظ..." : "💾 حفظ النكهة للصنف")
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="col-md-8">
+                                <h6 class="fw-bold text-dark mb-2">🍰 قائمة نكهات وتفريعات الصنف المسجلة:</h6>
+                                @if (!currentItemVariants.Any())
+                                {
+                                    <div class="alert alert-info py-4 text-center small">
+                                        لم يتم تسجيل تفريعات لهذا الصنف حتى الآن. استخدم النموذج الجانبي لإضافة نكهات (مثل: نصفين، شيكولاتة، كريمة).
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive border rounded">
+                                        <table class="table table-sm table-hover mb-0 text-center align-middle small">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>كود التفرع</th>
+                                                    <th class="text-start ps-2">اسم النكهة</th>
+                                                    <th>السعر</th>
+                                                    <th>الباركود</th>
+                                                    <th>الحالة</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var v in currentItemVariants)
+                                                {
+                                                    <tr>
+                                                        <td class="fw-bold text-secondary font-monospace">@v.ItemCode</td>
+                                                        <td class="text-primary fw-bold text-start ps-2">@v.ItemName</td>
+                                                        <td class="text-success fw-bold font-monospace">@(v.Price > 0 ? $"{v.Price:N2} ج.م" : $"{activeItem.BasePrice:N2} ج.م")</td>
+                                                        <td class="font-monospace">@(string.IsNullOrEmpty(v.Barcode) ? "-" : v.Barcode)</td>
+                                                        <td><span class="badge bg-success">مفعل</span></td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (activeTabModal == 3)
+                    {
+                        <div class="row">
+                            <div class="col-md-5 border-start">
+                                <div class="p-3 bg-light rounded border">
+                                    <h6 class="fw-bold text-primary mb-3">⚖️ ضبط معامل تعبئة جديد لهذا الصنف</h6>
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold">الوحدة الكبرى (وحدة التعبئة) *</label>
+                                        <input type="text" class="form-control form-control-sm border-primary" placeholder="مثلاً: بلكة، صاج، كرتونة" @bind="newConvToUnit" />
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small fw-bold">تحتوي على عدد من (@activeItem.Unit) *</label>
+                                        <input type="number" step="1" class="form-control form-control-sm border-primary fw-bold font-monospace" @bind="newConvFactor" />
+                                        <small class="text-muted">مثال: 48 (أي أن 1 بلكة = 48 قطعة)</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">ملاحظات التعبئة</label>
+                                        <input type="text" class="form-control form-control-sm" placeholder="مثال: تعبئة صالة الجاتوه القياسية" @bind="newConvNotes" />
+                                    </div>
+                                    <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" @onclick="AddConversionToItem" disabled="@(string.IsNullOrWhiteSpace(newConvToUnit) || newConvFactor <= 0 || isSavingConv)">
+                                        @(isSavingConv ? "⏳ جاري الحفظ..." : "💾 اعتماد معامل التحويل")
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="col-md-7">
+                                <h6 class="fw-bold text-dark mb-2">مصفوفة وحدات التعبئة المعتمدة للصنف:</h6>
+                                @if (!currentItemConversions.Any())
+                                {
+                                    <div class="alert alert-warning py-4 text-center small">
+                                        لا توجد معاملات تحويل خاصة بهذا الصنف. الصنف يتعامل حالياً بوحدته الأساسية: <strong>(@activeItem.Unit)</strong> فقط.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive border rounded">
+                                        <table class="table table-sm table-hover mb-0 text-center align-middle small">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>معادلة التحويل</th>
+                                                    <th>المعامل الرياضي</th>
+                                                    <th>ملاحظات</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var c in currentItemConversions)
+                                                {
+                                                    <tr>
+                                                        <td class="fw-bold text-primary font-monospace">1 @c.FromUnit = @c.ConversionFactor.ToString("G29") @c.ToUnit</td>
+                                                        <td class="fw-bold font-monospace">@c.ConversionFactor</td>
+                                                        <td class="text-muted small">@c.Notes</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm px-4 fw-bold" @onclick="CloseWorkstation">إغلاق</button>
+                    @if (activeTabModal == 1)
+                    {
+                        <button class="btn btn-primary btn-sm px-4 fw-bold shadow" @onclick="SaveActiveItem" disabled="@isSavingMaster">
+                            @(isSavingMaster ? "⏳ جاري الحفظ..." : "💾 حفظ بيانات الصنف")
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- نافذة الإضافة السريعة (Bulk Import Modal) -->
+@if (showBulkModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.65); z-index: 1060;" dir="rtl">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-primary text-white d-flex justify-content-between align-items-center py-2 px-3">
+                    <h5 class="modal-title fw-bold m-0 fs-6">📋 استيراد دفعات المنتجات التامة</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showBulkModal = false"></button>
+                </div>
+                <div class="modal-body bg-light">
+                    <div class="alert alert-info py-2 small mb-3">
+                        <strong>ترتيب الأعمدة المطلوب:</strong><br />
+                        اسم الصنف | كود الصنف | القسم الإنتاجي | النكهة/التفرع | الوحدة | معامل التحويل | السعر | الباركود
+                    </div>
+                    <textarea class="form-control font-monospace border-primary" rows="8" placeholder="الصق البيانات هنا..." @bind="bulkRawData"></textarea>
+
+                    @if (!string.IsNullOrEmpty(bulkStatusMessage))
+                    {
+                        <div class="alert alert-success mt-2 fw-bold py-2 small">@bulkStatusMessage</div>
+                    }
+                    @if (!string.IsNullOrEmpty(bulkErrorMessage))
+                    {
+                        <div class="alert alert-danger mt-2 fw-bold py-2 small">@bulkErrorMessage</div>
+                    }
+                </div>
+                <div class="modal-footer bg-white py-2 d-flex justify-content-between">
+                    <button class="btn btn-secondary btn-sm fw-bold px-3" @onclick="() => showBulkModal = false">إلغاء</button>
+                    <button class="btn btn-success btn-sm fw-bold px-4 shadow-sm" @onclick="ExecuteBulkImport" disabled="@(string.IsNullOrWhiteSpace(bulkRawData) || isBulkProcessing)">
+                        @(isBulkProcessing ? "⏳ جاري المعالجة والحفظ..." : "💾 تحليل وحفظ الكل")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ItemDto> items = new();
+    private List<ItemVariantDto> allVariants = new();
+    private List<UomConversionDto> allConversions = new();
+    private List<DepartmentLookupDto> departmentsList = new();
+
+    private string searchTerm = "";
+    private string selectedDepartmentFilter = "";
+    private bool isLoading = true;
+
+    private string pageMessage = "";
+    private bool isPageError = false;
+
+    private bool showWorkstationModal = false;
+    private bool isNewItemMode = false;
+    private int activeTabModal = 1;
+    private ItemDto activeItem = new();
+    private List<ItemVariantDto> currentItemVariants = new();
+    private List<UomConversionDto> currentItemConversions = new();
+
+    private string modalMessage = "";
+    private bool isModalError = false;
+    private bool isSavingMaster = false;
+
+    private string newVariantName = "";
+    private string newVariantCode = "";
+    private decimal newVariantPrice = 0;
+    private string newVariantBarcode = "";
+    private bool isSavingVariant = false;
+
+    private string newConvToUnit = "بلكة";
+    private decimal newConvFactor = 48;
+    private string newConvNotes = "";
+    private bool isSavingConv = false;
+
+    private bool showBulkModal = false;
+    private string bulkRawData = "";
+    private string bulkStatusMessage = "";
+    private string bulkErrorMessage = "";
+    private bool isBulkProcessing = false;
+
+    private IEnumerable<ItemDto> FilteredItems =>
+        items.Where(i =>
+            (string.IsNullOrWhiteSpace(searchTerm) ||
+             (!string.IsNullOrEmpty(i.ItemName) && i.ItemName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+             (!string.IsNullOrEmpty(i.ItemCode) && i.ItemCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) ||
+             (!string.IsNullOrEmpty(i.Barcode) && i.Barcode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))) &&
+            (string.IsNullOrWhiteSpace(selectedDepartmentFilter) || i.DepartmentName == selectedDepartmentFilter)
+        );
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            var itemsTask = Http.GetFromJsonAsync<List<ItemDto>>($"api/Items?itemType={Uri.EscapeDataString("منتج تام")}");
+            var variantsTask = Http.GetFromJsonAsync<List<ItemVariantDto>>("api/ItemHierarchy/variants");
+            var convTask = Http.GetFromJsonAsync<List<UomConversionDto>>("api/ItemHierarchy/conversions");
+            var deptsTask = Http.GetFromJsonAsync<List<DepartmentLookupDto>>("api/Departments");
+
+            await Task.WhenAll(itemsTask, variantsTask, convTask, deptsTask);
+
+            items = await itemsTask ?? new();
+            allVariants = await variantsTask ?? new();
+            allConversions = await convTask ?? new();
+            departmentsList = await deptsTask ?? new();
+        }
+        catch (Exception ex)
+        {
+            pageMessage = "خطأ في تحميل البيانات: " + ex.Message;
+            isPageError = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenNewItemModal()
+    {
+        isNewItemMode = true;
+        activeTabModal = 1;
+        modalMessage = "";
+        activeItem = new ItemDto
+        {
+            ItemType = "منتج تام",
+            Unit = "قطعة",
+            Active = true,
+            HasExpiryDate = true,
+            ShelfLifeDays = 4,
+            IsVariant = true,
+            CompanyId = 1,
+            CategoryId = 1
+        };
+        currentItemVariants.Clear();
+        currentItemConversions.Clear();
+        showWorkstationModal = true;
+    }
+
+    private void OpenItemWorkstation(ItemDto item, int targetTab)
+    {
+        isNewItemMode = false;
+        activeTabModal = targetTab;
+        modalMessage = "";
+
+        activeItem = new ItemDto
+        {
+            Id = item.Id,
+            CompanyId = item.CompanyId,
+            CategoryId = item.CategoryId,
+            DepartmentId = item.DepartmentId,
+            DepartmentName = item.DepartmentName,
+            ItemCode = item.ItemCode,
+            ItemName = item.ItemName,
+            ItemType = item.ItemType,
+            Unit = item.Unit,
+            Active = item.Active,
+            HasExpiryDate = item.HasExpiryDate,
+            ShelfLifeDays = item.ShelfLifeDays,
+            ReorderLevel = item.ReorderLevel,
+            SafetyStock = item.SafetyStock,
+            MaxStock = item.MaxStock,
+            BasePrice = item.BasePrice,
+            Barcode = item.Barcode,
+            IsVariant = item.IsVariant,
+            IsMerged = item.IsMerged,
+            IsContainer = item.IsContainer,
+            MultiUom = item.MultiUom,
+            HideDetailPrint = item.HideDetailPrint,
+            ParentItemId = item.ParentItemId
+        };
+
+        currentItemVariants = allVariants
+            .Where(v => v.ParentItemId == item.Id || (!string.IsNullOrEmpty(item.ItemCode) && v.ItemCode.StartsWith(item.ItemCode + "-")))
+            .ToList();
+
+        currentItemConversions = allConversions
+            .Where(c => c.ItemId == item.Id)
+            .ToList();
+
+        newVariantName = "";
+        newVariantCode = $"{item.ItemCode}-{currentItemVariants.Count + 1}";
+        newVariantPrice = item.BasePrice;
+        newVariantBarcode = "";
+
+        showWorkstationModal = true;
+    }
+
+    private void CloseWorkstation()
+    {
+        showWorkstationModal = false;
+        modalMessage = "";
+    }
+
+    private async Task SaveActiveItem()
+    {
+        if (string.IsNullOrWhiteSpace(activeItem.ItemCode) || string.IsNullOrWhiteSpace(activeItem.ItemName))
+        {
+            modalMessage = "يرجى كتابة كود واسم المنتج التام.";
+            isModalError = true;
+            return;
+        }
+
+        isSavingMaster = true;
+        modalMessage = "";
+
+        try
+        {
+            HttpResponseMessage response;
+            if (isNewItemMode)
+            {
+                response = await Http.PostAsJsonAsync("api/Items", activeItem);
+            }
+            else
+            {
+                response = await Http.PutAsJsonAsync($"api/Items/{activeItem.Id}", activeItem);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                modalMessage = "✅ تم حفظ بيانات المنتج بنجاح!";
+                isModalError = false;
+                await LoadData();
+
+                if (isNewItemMode)
+                {
+                    var created = items.FirstOrDefault(i => i.ItemCode == activeItem.ItemCode);
+                    if (created != null)
+                    {
+                        OpenItemWorkstation(created, 1);
+                    }
+                }
+            }
+            else
+            {
+                modalMessage = "خطأ أثناء الحفظ: " + await response.Content.ReadAsStringAsync();
+                isModalError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            modalMessage = "خطأ في الاتصال: " + ex.Message;
+            isModalError = true;
+        }
+        finally
+        {
+            isSavingMaster = false;
+        }
+    }
+
+    private async Task AddVariantToItem()
+    {
+        if (string.IsNullOrWhiteSpace(newVariantName)) return;
+
+        isSavingVariant = true;
+        modalMessage = "";
+
+        try
+        {
+            var dto = new ItemVariantCreateDto
+            {
+                ParentItemId = activeItem.Id,
+                VariantCode = string.IsNullOrWhiteSpace(newVariantCode) ? $"{activeItem.ItemCode}-{currentItemVariants.Count + 1}" : newVariantCode,
+                VariantName = newVariantName,
+                Price = newVariantPrice > 0 ? newVariantPrice : activeItem.BasePrice,
+                Barcode = newVariantBarcode,
+                Unit = activeItem.Unit
+            };
+
+            var response = await Http.PostAsJsonAsync("api/ItemHierarchy/variants", dto);
+            if (response.IsSuccessStatusCode)
+            {
+                modalMessage = "✅ تم إضافة النكهة بنجاح!";
+                isModalError = false;
+
+                allVariants = await Http.GetFromJsonAsync<List<ItemVariantDto>>("api/ItemHierarchy/variants") ?? new();
+                currentItemVariants = allVariants.Where(v => v.ParentItemId == activeItem.Id || (!string.IsNullOrEmpty(activeItem.ItemCode) && v.ItemCode.StartsWith(activeItem.ItemCode + "-"))).ToList();
+
+                newVariantName = "";
+                newVariantCode = $"{activeItem.ItemCode}-{currentItemVariants.Count + 1}";
+                newVariantBarcode = "";
+            }
+            else
+            {
+                modalMessage = "خطأ أثناء حفظ النكهة: " + await response.Content.ReadAsStringAsync();
+                isModalError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            modalMessage = "خطأ: " + ex.Message;
+            isModalError = true;
+        }
+        finally
+        {
+            isSavingVariant = false;
+        }
+    }
+
+    private async Task AddConversionToItem()
+    {
+        if (string.IsNullOrWhiteSpace(newConvToUnit) || newConvFactor <= 0) return;
+
+        isSavingConv = true;
+        modalMessage = "";
+
+        try
+        {
+            // تصحيح: FromUnit هي الوحدة الكبرى للتعبئة وToUnit هي الوحدة الأساسية للصنف
+            var dto = new UomConversionCreateDto
+            {
+                ItemId = activeItem.Id,
+                FromUnit = newConvToUnit.Trim(),
+                ToUnit = activeItem.Unit.Trim(),
+                ConversionFactor = newConvFactor,
+                Notes = string.IsNullOrWhiteSpace(newConvNotes) ? $"معامل تعبئة {activeItem.ItemName}" : newConvNotes.Trim()
+            };
+
+            var response = await Http.PostAsJsonAsync("api/ItemHierarchy/conversions", dto);
+            if (response.IsSuccessStatusCode)
+            {
+                modalMessage = "✅ تم حفظ معامل التحويل بنجاح!";
+                isModalError = false;
+
+                allConversions = await Http.GetFromJsonAsync<List<UomConversionDto>>("api/ItemHierarchy/conversions") ?? new();
+                currentItemConversions = allConversions.Where(c => c.ItemId == activeItem.Id).ToList();
+
+                newConvNotes = "";
+            }
+            else
+            {
+                modalMessage = "خطأ أثناء حفظ معامل التحويل: " + await response.Content.ReadAsStringAsync();
+                isModalError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            modalMessage = "خطأ: " + ex.Message;
+            isModalError = true;
+        }
+        finally
+        {
+            isSavingConv = false;
+        }
+    }
+
+    private void OpenBulkModal()
+    {
+        showBulkModal = true;
+        bulkErrorMessage = string.Empty;
+        bulkStatusMessage = string.Empty;
+    }
+
+    private async Task ExecuteBulkImport()
+    {
+        if (string.IsNullOrWhiteSpace(bulkRawData)) return;
+
+        isBulkProcessing = true;
+        bulkStatusMessage = "";
+        bulkErrorMessage = "";
+
+        try
+        {
+            var request = new
+            {
+                RawData = bulkRawData,
+                CompanyId = 1,
+                DefaultCategoryId = 1
+            };
+
+            var response = await Http.PostAsJsonAsync("api/Items/bulk-quick-import", request);
+            if (response.IsSuccessStatusCode)
+            {
+                var res = await response.Content.ReadFromJsonAsync<BulkResponseDto>();
+                bulkStatusMessage = res?.Message ?? "✅ تم تحليل واستيراد الأصناف بنجاح!";
+                bulkRawData = "";
+                await LoadData();
+            }
+            else
+            {
+                bulkErrorMessage = "❌ فشلت المعالجة: " + await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            bulkErrorMessage = "خطأ: " + ex.Message;
+        }
+        finally
+        {
+            isBulkProcessing = false;
+        }
+    }
+
+    public class ItemDto
+    {
+        public long Id { get; set; }
+        public long CompanyId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = "منتج تام";
+        public long CategoryId { get; set; }
+        public long? DepartmentId { get; set; }
+        public string? DepartmentName { get; set; }
+        public string Unit { get; set; } = "قطعة";
+        public bool Active { get; set; } = true;
+        public bool HasExpiryDate { get; set; } = true;
+        public int? ShelfLifeDays { get; set; } = 4;
+        public decimal ReorderLevel { get; set; } = 0;
+        public decimal SafetyStock { get; set; } = 0;
+        public decimal MaxStock { get; set; } = 0;
+        public decimal BasePrice { get; set; } = 0;
+        public string? Barcode { get; set; }
+        public bool IsVariant { get; set; } = false;
+        public bool IsMerged { get; set; } = false;
+        public bool IsContainer { get; set; } = false;
+        public bool MultiUom { get; set; } = false;
+        public bool HideDetailPrint { get; set; } = false;
+        public long? ParentItemId { get; set; }
+    }
+
+    public class ItemVariantDto
+    {
+        public long Id { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemType { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public long? ParentItemId { get; set; }
+        public string ParentItemName { get; set; } = string.Empty;
+        public decimal Price { get; set; } = 0;
+        public string? Barcode { get; set; }
+        public bool Active { get; set; }
+    }
+
+    public class ItemVariantCreateDto
+    {
+        public long ParentItemId { get; set; }
+        public string VariantCode { get; set; } = string.Empty;
+        public string VariantName { get; set; } = string.Empty;
+        public string Unit { get; set; } = "قطعة";
+        public decimal PackingFactor { get; set; } = 1;
+        public string PackingUnit { get; set; } = "قطعة";
+        public decimal Price { get; set; } = 0;
+        public string? Barcode { get; set; }
+    }
+
+    public class UomConversionDto
+    {
+        public long Id { get; set; }
+        public long? ItemId { get; set; }
+        public string ItemName { get; set; } = string.Empty;
+        public string FromUnit { get; set; } = string.Empty;
+        public string ToUnit { get; set; } = string.Empty;
+        public decimal ConversionFactor { get; set; }
+        public string Notes { get; set; } = string.Empty;
+    }
+
+    public class UomConversionCreateDto
+    {
+        public long? ItemId { get; set; }
+        public string FromUnit { get; set; } = string.Empty;
+        public string ToUnit { get; set; } = string.Empty;
+        public decimal ConversionFactor { get; set; }
+        public string Notes { get; set; } = string.Empty;
+    }
+
+    public class DepartmentLookupDto
+    {
+        public long Id { get; set; }
+        public string? Name { get; set; }
+        public string? DepartmentName { get; set; }
+        public string DisplayName => !string.IsNullOrWhiteSpace(DepartmentName) ? DepartmentName : (!string.IsNullOrWhiteSpace(Name) ? Name : "قسم");
+    }
+
+    public class BulkResponseDto
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,452 @@
+﻿@page "/warehouses"
+@layout KayanERP.UI.Pages.EmptyLayout
+@using System.Net.Http.Json
+@using System.Text
+@using KayanERP.UI.DTOs
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>إدارة المستودعات ومراكز التخزين - حلواني أبو عادل</PageTitle>
+
+<div class="container-fluid py-4" dir="rtl">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-2">
+        <div>
+            <h3 class="fw-bold text-primary mb-1">
+                <i class="bi bi-house-door me-2"></i>إدارة المستودعات ومراكز التخزين
+            </h3>
+            <p class="text-muted small mb-0">هيكلة المستودعات والشجرة الهرمية وربطها بالفروع ومنافذ الإنتاج</p>
+        </div>
+        <div class="d-flex gap-2">
+            @if (warehouses.Any())
+            {
+                <button class="btn btn-outline-success px-3 shadow-sm btn-sm fw-bold" @onclick="ExportToCsv">
+                    <i class="bi bi-file-earmark-excel me-1"></i> تصدير (Excel)
+                </button>
+            }
+            <button class="btn btn-primary px-3 shadow-sm btn-sm fw-bold" @onclick="OpenCreateModal">
+                <i class="bi bi-plus-circle me-1"></i> إضافة مستودع جديد
+            </button>
+        </div>
+    </div>
+
+    <!-- رسائل التنبيه -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i>@statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <!-- فلاتر العرض -->
+    <div class="card shadow-sm border-0 rounded-3 mb-4">
+        <div class="card-body p-3">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-muted mb-1">فلترة حسب الفرع:</label>
+                    <select class="form-select form-select-sm fw-bold border-primary" @bind="selectedBranchId" @bind:after="LoadWarehouses">
+                        <option value="0">كافة الفروع والمراكز الرئيسية</option>
+                        @foreach (var b in branches)
+                        {
+                            <option value="@b.Id">@b.BranchName (@b.BranchCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label small fw-bold text-muted mb-1">بحث سريع:</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="ابحث بكود أو اسم المستودع..."
+                           @bind="searchTerm" @bind:event="oninput" />
+                </div>
+                <div class="col-md-3 text-end pt-3">
+                    <button class="btn btn-sm btn-outline-secondary px-3" @onclick="LoadWarehouses" disabled="@isLoading">
+                        <i class="bi bi-arrow-clockwise me-1"></i> تحديث
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول المستودعات -->
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-body p-0">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="text-muted mt-2 mb-0">جاري تحميل شجرة المستودعات...</p>
+                </div>
+            }
+            else if (!FilteredWarehouses.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-boxes fs-1 d-block mb-2"></i>
+                    لا توجد مستودعات مطابقة للبحث المحدد.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center small">
+                        <thead class="table-light text-secondary">
+                            <tr>
+                                <th>كود المستودع</th>
+                                <th class="text-start ps-3">اسم المستودع</th>
+                                <th>الفرع التابع له</th>
+                                <th>نوع المستودع</th>
+                                <th>المستودع الرئيسي (الأب)</th>
+                                <th>الوصف</th>
+                                <th>الحالة</th>
+                                <th>الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var w in FilteredWarehouses)
+                            {
+                                <tr>
+                                    <td class="fw-bold text-muted font-monospace">@w.WarehouseCode</td>
+                                    <td class="text-start ps-3 fw-bold text-dark">
+                                        @w.WarehouseName
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border">
+                                            <i class="bi bi-geo-alt me-1 text-primary"></i>@(w.BranchName ?? "الفرع الرئيسي")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetTypeBadgeClass(w.WarehouseType)">
+                                            @w.WarehouseType
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(w.ParentWarehouseName))
+                                        {
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border">
+                                                <i class="bi bi-diagram-2 me-1"></i>@w.ParentWarehouseName
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">مستودع رئيسي</span>
+                                        }
+                                    </td>
+                                    <td class="small text-muted text-truncate" style="max-width: 180px;">
+                                        @(string.IsNullOrWhiteSpace(w.Description) ? "---" : w.Description)
+                                    </td>
+                                    <td>
+                                        <span class="badge @(w.Active ? "bg-success" : "bg-danger")">
+                                            @(w.Active ? "نشط" : "معطل")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary me-1 py-0 px-2 fw-bold" @onclick="() => OpenEditModal(w)" title="تعديل">
+                                            <i class="bi bi-pencil-square"></i> تعديل
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" @onclick="() => DeleteWarehouse(w)" title="حذف">
+                                            <i class="bi bi-trash"></i> حذف
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal: إضافة / تعديل مستودع -->
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered" dir="rtl">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold fs-6">
+                        <i class="bi @(currentWarehouse.Id > 0 ? "bi-pencil-square" : "bi-plus-circle") me-2"></i>
+                        @(currentWarehouse.Id > 0 ? "تعديل بيانات المستودع" : "تسجيل مستودع جديد")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white ms-0 me-auto" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(modalError))
+                    {
+                        <div class="alert alert-danger py-2 small mb-3">@modalError</div>
+                    }
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-dark">الفرع التابع له <span class="text-danger">*</span></label>
+                            <select class="form-select form-select-sm fw-bold border-primary" @bind="currentWarehouse.BranchId">
+                                @foreach (var b in branches)
+                                {
+                                    <option value="@b.Id">@b.BranchName (@b.BranchCode)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-dark">كود المستودع <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm font-monospace fw-bold border-primary" placeholder="مثال: WH-RAW-01" @bind="currentWarehouse.WarehouseCode" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-dark">اسم المستودع <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm fw-bold border-primary" placeholder="مثال: مستودع خامات المعمل الرئيسي" @bind="currentWarehouse.WarehouseName" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-dark">نوع المستودع</label>
+                            <select class="form-select form-select-sm" @bind="currentWarehouse.WarehouseType">
+                                <option value="خامات">مستودع خامات وتعبئة</option>
+                                <option value="منتج تام">مستودع منتج تام (حلويات/مخبوزات)</option>
+                                <option value="معرض">مستودع بيع ومعارض</option>
+                                <option value="صالة تشغيل">مستودع صالة إنتاج (وسيط)</option>
+                                <option value="تالف وهوالك">مستودع تالف ومردودات</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-dark">المستودع الأب (الشجرة الهرمية)</label>
+                            <select class="form-select form-select-sm" @bind="currentWarehouse.ParentWarehouseId">
+                                <option value="">-- مستودع رئيسي مستقل (بدون أب) --</option>
+                                @foreach (var p in warehouses.Where(w => w.Id != currentWarehouse.Id))
+                                {
+                                    <option value="@p.Id">@p.WarehouseName (@p.WarehouseCode)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center pt-3">
+                            <div class="form-check form-switch fs-6">
+                                <input class="form-check-input" type="checkbox" id="activeSwitch" @bind="currentWarehouse.Active" />
+                                <label class="form-check-label small fw-bold ms-2" for="activeSwitch">المستودع نشط ويعمل</label>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-bold small text-dark">الوصف والموقع الجغرافي</label>
+                            <textarea class="form-control form-control-sm" rows="2" placeholder="الموقع داخل المصنع أو الفرع، وأي تفاصيل تشغيلية..." @bind="currentWarehouse.Description"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="CloseModal">إلغاء</button>
+                    <button type="button" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm" @onclick="SaveWarehouse" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>جاري الحفظ...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-save me-1"></i>
+                            <span>حفظ المستودع</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<WarehouseDto> warehouses = new();
+    private List<BranchLookupDto> branches = new();
+    private WarehouseDto currentWarehouse = new();
+    private long selectedBranchId = 0;
+    private string searchTerm = string.Empty;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool showModal = false;
+    private string? statusMessage;
+    private string? errorMessage;
+    private string? modalError;
+
+    private IEnumerable<WarehouseDto> FilteredWarehouses =>
+        string.IsNullOrWhiteSpace(searchTerm)
+            ? warehouses
+            : warehouses.Where(w => (w.WarehouseName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                 || (w.WarehouseCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                                 || (w.BranchName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBranches();
+        await LoadWarehouses();
+    }
+
+    private async Task LoadBranches()
+    {
+        try
+        {
+            branches = await Http.GetFromJsonAsync<List<BranchLookupDto>>("api/warehouses/branches") ?? new();
+        }
+        catch
+        {
+            branches = new() { new BranchLookupDto { Id = 1, BranchCode = "MAIN", BranchName = "الفرع الرئيسي - المصنع" } };
+        }
+    }
+
+    private async Task LoadWarehouses()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            string url = selectedBranchId > 0 ? $"api/warehouses?branchId={selectedBranchId}" : "api/warehouses";
+            warehouses = await Http.GetFromJsonAsync<List<WarehouseDto>>(url) ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"تعذر جلب المستودعات: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        currentWarehouse = new WarehouseDto
+        {
+            BranchId = branches.FirstOrDefault()?.Id ?? 1,
+            Active = true,
+            WarehouseType = "خامات"
+        };
+        modalError = null;
+        showModal = true;
+    }
+
+    private void OpenEditModal(WarehouseDto item)
+    {
+        currentWarehouse = new WarehouseDto
+        {
+            Id = item.Id,
+            BranchId = item.BranchId ?? 1,
+            BranchName = item.BranchName,
+            WarehouseCode = item.WarehouseCode,
+            WarehouseName = item.WarehouseName,
+            WarehouseType = item.WarehouseType,
+            ParentWarehouseId = item.ParentWarehouseId,
+            ParentWarehouseName = item.ParentWarehouseName,
+            Description = item.Description,
+            Active = item.Active
+        };
+        modalError = null;
+        showModal = true;
+    }
+
+    private void CloseModal() => showModal = false;
+
+    private async Task SaveWarehouse()
+    {
+        if (string.IsNullOrWhiteSpace(currentWarehouse.WarehouseCode))
+        {
+            modalError = "كود المستودع مطلوب.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(currentWarehouse.WarehouseName))
+        {
+            modalError = "اسم المستودع مطلوب.";
+            return;
+        }
+
+        isSaving = true;
+        modalError = null;
+        try
+        {
+            HttpResponseMessage response;
+            if (currentWarehouse.Id > 0)
+                response = await Http.PutAsJsonAsync($"api/warehouses/{currentWarehouse.Id}", currentWarehouse);
+            else
+                response = await Http.PostAsJsonAsync("api/warehouses", currentWarehouse);
+
+            if (response.IsSuccessStatusCode)
+            {
+                statusMessage = currentWarehouse.Id > 0 ? "تم تحديث المستودع بنجاح." : "تم تسجيل المستودع بنجاح.";
+                CloseModal();
+                await LoadWarehouses();
+            }
+            else
+            {
+                modalError = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            modalError = $"خطأ في الاتصال: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteWarehouse(WarehouseDto w)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"هل أنت متأكد من حذف المستودع [{w.WarehouseName}]؟");
+        if (!confirmed) return;
+
+        errorMessage = null;
+        try
+        {
+            var response = await Http.DeleteAsync($"api/warehouses/{w.Id}");
+            if (response.IsSuccessStatusCode)
+            {
+                statusMessage = "تمت معالجة حذف المستودع بنجاح.";
+                await LoadWarehouses();
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل الحذف: {ex.Message}";
+        }
+    }
+
+    private async Task ExportToCsv()
+    {
+        var list = FilteredWarehouses.ToList();
+        if (!list.Any()) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("كود_المستودع,اسم_المستودع,الفرع,نوع_المستودع,المستودع_الأب,الوصف,الحالة");
+
+            foreach (var w in list)
+            {
+                sb.AppendLine($"\"{w.WarehouseCode}\",\"{w.WarehouseName}\",\"{w.BranchName}\",\"{w.WarehouseType}\",\"{w.ParentWarehouseName}\",\"{w.Description}\",\"{(w.Active ? "نشط" : "معطل")}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"دليل_المستودعات_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تصدير البيانات: {ex.Message}";
+        }
+    }
+
+    private string GetTypeBadgeClass(string type) => type switch
+    {
+        "خامات" => "bg-primary text-white",
+        "منتج تام" => "bg-success text-white",
+        "معرض" => "bg-warning text-dark",
+        "صالة تشغيل" => "bg-info text-dark",
+        "تالف وهوالك" => "bg-danger text-white",
+        _ => "bg-secondary text-white"
+    };
+}
