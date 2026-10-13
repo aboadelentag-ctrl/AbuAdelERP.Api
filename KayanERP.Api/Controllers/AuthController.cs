@@ -2,37 +2,45 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using KayanERP.Api.Models;
+using KayanERP.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using KayanERP.Api.Models;
 
 namespace KayanERP.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [AllowAnonymous] // ⚠️ مهم — AuthController يجب أن يكون مفتوح بدون توكن
     public class AuthController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IJwtService _jwtService;
 
-        public AuthController(AppDbContext context)
+        public AuthController(AppDbContext context, IJwtService jwtService)
         {
             _context = context;
+            _jwtService = jwtService;
         }
 
         // ==========================================================
-        // 1. المرحلة الأولى: التحقق من ترخيص وبيانات الشركة المستأجرة
+        // 1. المرحلة الأولى: التحقق من ترشيح الشركة المستأجرة
         // ==========================================================
         [HttpPost("verify-tenant")]
         public async Task<IActionResult> VerifyTenant([FromBody] TenantVerifyRequest dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.TenantCode) || string.IsNullOrWhiteSpace(dto.TenantKey))
+            if (string.IsNullOrWhiteSpace(dto.TenantCode) ||
+                string.IsNullOrWhiteSpace(dto.TenantKey))
                 return BadRequest("يرجى إدخال كود المنشأة ومفتاح الدخول الخاص بها.");
+
+            var tenantCodeNormalized = dto.TenantCode.Trim().ToLower();
 
             var company = await _context.Companies
                 .AsNoTracking()
                 .FirstOrDefaultAsync(c =>
-                    (c.TenantCode != null && c.TenantCode.ToLower() == dto.TenantCode.Trim().ToLower()) ||
-                    c.CompanyName.ToLower() == dto.TenantCode.Trim().ToLower());
+                    (c.TenantCode != null && c.TenantCode.ToLower() == tenantCodeNormalized) ||
+                    c.CompanyName.ToLower() == tenantCodeNormalized);
 
             if (company == null)
                 return NotFound("المنشأة المستأجرة غير مسجلة بالنظام السحابي.");
@@ -54,32 +62,44 @@ namespace KayanERP.Api.Controllers
         }
 
         // ==========================================================
-        // 2. المرحلة الثانية: دخول المستخدم التابع للمنشأة المستأجرة
+        // 2. المرحلة الثانية: دخول المستخدم + إصدار JWT Token
         // ==========================================================
         [HttpPost("login-user")]
         public async Task<IActionResult> LoginUser([FromBody] UserTenantLoginRequest dto)
         {
-            if (dto.CompanyId <= 0 || string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
+            // ===== 1. التحقق من المدخلات =====
+            if (dto.CompanyId <= 0 ||
+                string.IsNullOrWhiteSpace(dto.Username) ||
+                string.IsNullOrWhiteSpace(dto.Password))
                 return BadRequest("بيانات تسجيل الدخول غير مكتملة.");
 
-            // 1. البحث عن المستخدم داخل نطاق الشركة المعتمدة
-            var user = await _context.Users
-                .FirstOrDefaultAsync(u => u.CompanyId == dto.CompanyId && u.Username.ToLower() == dto.Username.Trim().ToLower());
+            var usernameNormalized = dto.Username.Trim().ToLower();
 
-            if (user == null || user.PasswordHash != dto.Password.Trim())
+            // ===== 2. البحث عن المستخدم =====
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u =>
+                    u.CompanyId == dto.CompanyId &&
+                    u.Username.ToLower() == usernameNormalized);
+
+            if (user == null)
+                return Unauthorized("اسم المستخدم أو كلمة المرور غير صحيحة لهذه المنشأة.");
+
+            // ⚠️ مؤقتًا: مقارنة نص صريح — هيتغير لـ BCrypt في الخطوة 8
+            if (user.PasswordHash != dto.Password.Trim())
                 return Unauthorized("اسم المستخدم أو كلمة المرور غير صحيحة لهذه المنشأة.");
 
             if (!user.IsActive)
                 return Unauthorized("حساب هذا المستخدم معطل حالياً من قبل مدير المنشأة.");
 
-            // 2. البحث عن بيانات وصلاحيات الدور من جدول الأدوار (Roles)
+            // ===== 3. جلب صلاحيات الدور =====
             var roleEntity = await _context.Roles
                 .AsNoTracking()
-                .FirstOrDefaultAsync(r => r.Name == user.Role || r.DisplayName == user.Role);
+                .FirstOrDefaultAsync(r =>
+                    r.Name == user.Role ||
+                    r.DisplayName == user.Role);
 
             var permissions = new List<string>();
 
-            // استخراج الصلاحيات المسندة للدور
             if (roleEntity != null && !string.IsNullOrWhiteSpace(roleEntity.Permissions))
             {
                 permissions.AddRange(roleEntity.Permissions
@@ -87,7 +107,6 @@ namespace KayanERP.Api.Controllers
                     .Select(p => p.Trim()));
             }
 
-            // استخراج أي صلاحيات فردية خاصة مسندة للمستخدم مباشرة (CustomPermissions)
             if (!string.IsNullOrWhiteSpace(user.CustomPermissions))
             {
                 permissions.AddRange(user.CustomPermissions
@@ -95,10 +114,13 @@ namespace KayanERP.Api.Controllers
                     .Select(p => p.Trim()));
             }
 
-            permissions = permissions.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            permissions = permissions
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            // التحقق من صلاحيات المدير الشاملة
+            // ===== 4. التحقق من صلاحيات المدير =====
             string userRoleName = roleEntity?.DisplayName ?? user.Role ?? "مستخدم";
+
             if (userRoleName.Contains("مدير") ||
                 userRoleName.Equals("Admin", StringComparison.OrdinalIgnoreCase) ||
                 userRoleName.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase))
@@ -106,24 +128,42 @@ namespace KayanERP.Api.Controllers
                 permissions.Add("*");
             }
 
-            var company = await _context.Companies.FindAsync(dto.CompanyId);
+            // ===== 5. بيانات الشركة =====
+            var company = await _context.Companies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == dto.CompanyId);
 
+            var companyIdValue = user.CompanyId ?? dto.CompanyId;
+
+            // ===== 6. إصدار الـ JWT Token =====
+            var token = _jwtService.GenerateAccessToken(
+                userId: user.Id,
+                username: user.Username,
+                companyId: companyIdValue,
+                role: userRoleName,
+                permissions: permissions,
+                branchId: null); // TODO: فعّلها لما نضيف BranchId للمستخدمين
+
+            // ===== 7. الرجوع بالنتيجة =====
             return Ok(new
             {
                 success = true,
+                token = token,              // ✅ التوكن الفعلي
+                tokenType = "Bearer",
                 userId = user.Id,
                 username = user.Username,
                 fullName = user.FullName ?? user.Username,
-                companyId = user.CompanyId ?? dto.CompanyId,
+                companyId = companyIdValue,
                 companyName = company?.CompanyName ?? "المنشأة المستأجرة",
                 role = userRoleName,
-                employeeCode = "",
+                employeeCode = user.EmployeeCode ?? "",
                 departmentName = user.DepartmentName ?? "الإدارة العامة",
                 permissions = permissions
             });
         }
     }
 
+    // ===== DTOs =====
     public class TenantVerifyRequest
     {
         public string TenantCode { get; set; } = string.Empty;
