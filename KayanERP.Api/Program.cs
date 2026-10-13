@@ -72,6 +72,7 @@ builder.Services.AddAuthentication(options =>
 
 // تسجيل خدمة إصدار التوكنات
 builder.Services.AddScoped<IJwtService, JwtService>();
+builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
 
 // ==============================================================
 // 5. Controllers + Authorize افتراضي

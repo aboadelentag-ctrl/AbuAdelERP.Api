@@ -12,20 +12,25 @@ namespace KayanERP.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous] // ⚠️ مهم — AuthController يجب أن يكون مفتوح بدون توكن
+    [AllowAnonymous]
     public class AuthController : ControllerBase
     {
         private readonly AppDbContext _context;
         private readonly IJwtService _jwtService;
+        private readonly IPasswordHasher _passwordHasher;
 
-        public AuthController(AppDbContext context, IJwtService jwtService)
+        public AuthController(
+            AppDbContext context,
+            IJwtService jwtService,
+            IPasswordHasher passwordHasher)
         {
             _context = context;
             _jwtService = jwtService;
+            _passwordHasher = passwordHasher;
         }
 
         // ==========================================================
-        // 1. المرحلة الأولى: التحقق من ترشيح الشركة المستأجرة
+        // 1. التحقق من ترخيص الشركة المستأجرة
         // ==========================================================
         [HttpPost("verify-tenant")]
         public async Task<IActionResult> VerifyTenant([FromBody] TenantVerifyRequest dto)
@@ -62,7 +67,7 @@ namespace KayanERP.Api.Controllers
         }
 
         // ==========================================================
-        // 2. المرحلة الثانية: دخول المستخدم + إصدار JWT Token
+        // 2. دخول المستخدم + إصدار JWT Token
         // ==========================================================
         [HttpPost("login-user")]
         public async Task<IActionResult> LoginUser([FromBody] UserTenantLoginRequest dto)
@@ -84,14 +89,39 @@ namespace KayanERP.Api.Controllers
             if (user == null)
                 return Unauthorized("اسم المستخدم أو كلمة المرور غير صحيحة لهذه المنشأة.");
 
-            // ⚠️ مؤقتًا: مقارنة نص صريح — هيتغير لـ BCrypt في الخطوة 8
-            if (user.PasswordHash != dto.Password.Trim())
+            // ===== 3. التحقق من الباسورد (مع Auto-migration) =====
+            bool passwordValid = false;
+            bool needsMigration = false;
+
+            // هل الـ hash مخزن كـ BCrypt (يبدأ بـ $2a$ / $2b$ / $2y$)?
+            bool isBcryptHash = user.PasswordHash.StartsWith("$2");
+
+            if (isBcryptHash)
+            {
+                // ✅ الحالة الطبيعية — مقارنة BCrypt
+                passwordValid = _passwordHasher.Verify(dto.Password.Trim(), user.PasswordHash);
+                needsMigration = _passwordHasher.NeedsRehash(user.PasswordHash);
+            }
+            else
+            {
+                // ⚠️ باسورد قديم مخزن نص صريح — نقارن مباشر
+                passwordValid = user.PasswordHash == dto.Password.Trim();
+
+                // لو صح، نعمل Migration تلقائي لباسورد مشفّر
+                if (passwordValid)
+                {
+                    user.PasswordHash = _passwordHasher.Hash(dto.Password.Trim());
+                    needsMigration = false; // عملنا الـ migration دلوقتي
+                }
+            }
+
+            if (!passwordValid)
                 return Unauthorized("اسم المستخدم أو كلمة المرور غير صحيحة لهذه المنشأة.");
 
             if (!user.IsActive)
                 return Unauthorized("حساب هذا المستخدم معطل حالياً من قبل مدير المنشأة.");
 
-            // ===== 3. جلب صلاحيات الدور =====
+            // ===== 4. جلب صلاحيات الدور =====
             var roleEntity = await _context.Roles
                 .AsNoTracking()
                 .FirstOrDefaultAsync(r =>
@@ -118,7 +148,7 @@ namespace KayanERP.Api.Controllers
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // ===== 4. التحقق من صلاحيات المدير =====
+            // ===== 5. التحقق من صلاحيات المدير =====
             string userRoleName = roleEntity?.DisplayName ?? user.Role ?? "مستخدم";
 
             if (userRoleName.Contains("مدير") ||
@@ -128,27 +158,33 @@ namespace KayanERP.Api.Controllers
                 permissions.Add("*");
             }
 
-            // ===== 5. بيانات الشركة =====
+            // ===== 6. حفظ أي تغييرات (مثل migration الباسورد) =====
+            if (needsMigration || _context.ChangeTracker.HasChanges())
+            {
+                await _context.SaveChangesAsync();
+            }
+
+            // ===== 7. بيانات الشركة =====
             var company = await _context.Companies
                 .AsNoTracking()
                 .FirstOrDefaultAsync(c => c.Id == dto.CompanyId);
 
             var companyIdValue = user.CompanyId ?? dto.CompanyId;
 
-            // ===== 6. إصدار الـ JWT Token =====
+            // ===== 8. إصدار الـ JWT Token =====
             var token = _jwtService.GenerateAccessToken(
                 userId: user.Id,
                 username: user.Username,
                 companyId: companyIdValue,
                 role: userRoleName,
                 permissions: permissions,
-                branchId: null); // TODO: فعّلها لما نضيف BranchId للمستخدمين
+                branchId: null);
 
-            // ===== 7. الرجوع بالنتيجة =====
+            // ===== 9. الرجوع بالنتيجة =====
             return Ok(new
             {
                 success = true,
-                token = token,              // ✅ التوكن الفعلي
+                token = token,
                 tokenType = "Bearer",
                 userId = user.Id,
                 username = user.Username,
