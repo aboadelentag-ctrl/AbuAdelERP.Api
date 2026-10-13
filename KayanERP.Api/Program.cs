@@ -96,7 +96,7 @@ builder.Services.AddControllers(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.CustomSchemaIds(type => type.FullName);
+    c.CustomSchemaIds(type => type.FullName?.Replace("+", ".").Replace("`", ""));
 
     // تعريف Bearer Auth
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
