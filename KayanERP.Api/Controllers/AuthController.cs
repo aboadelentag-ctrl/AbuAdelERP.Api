@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using KayanERP.Api.Models;
 using KayanERP.Api.Services;
@@ -18,15 +19,18 @@ namespace KayanERP.Api.Controllers
         private readonly AppDbContext _context;
         private readonly IJwtService _jwtService;
         private readonly IPasswordHasher _passwordHasher;
+        private readonly IRefreshTokenService _refreshTokenService;
 
         public AuthController(
             AppDbContext context,
             IJwtService jwtService,
-            IPasswordHasher passwordHasher)
+            IPasswordHasher passwordHasher,
+            IRefreshTokenService refreshTokenService)
         {
             _context = context;
             _jwtService = jwtService;
             _passwordHasher = passwordHasher;
+            _refreshTokenService = refreshTokenService;
         }
 
         // ==========================================================
@@ -67,12 +71,11 @@ namespace KayanERP.Api.Controllers
         }
 
         // ==========================================================
-        // 2. دخول المستخدم + إصدار JWT Token
+        // 2. دخول المستخدم + إصدار Access + Refresh Tokens
         // ==========================================================
         [HttpPost("login-user")]
         public async Task<IActionResult> LoginUser([FromBody] UserTenantLoginRequest dto)
         {
-            // ===== 1. التحقق من المدخلات =====
             if (dto.CompanyId <= 0 ||
                 string.IsNullOrWhiteSpace(dto.Username) ||
                 string.IsNullOrWhiteSpace(dto.Password))
@@ -80,7 +83,6 @@ namespace KayanERP.Api.Controllers
 
             var usernameNormalized = dto.Username.Trim().ToLower();
 
-            // ===== 2. البحث عن المستخدم =====
             var user = await _context.Users
                 .FirstOrDefaultAsync(u =>
                     u.CompanyId == dto.CompanyId &&
@@ -89,29 +91,24 @@ namespace KayanERP.Api.Controllers
             if (user == null)
                 return Unauthorized("اسم المستخدم أو كلمة المرور غير صحيحة لهذه المنشأة.");
 
-            // ===== 3. التحقق من الباسورد (مع Auto-migration) =====
+            // ===== التحقق من الباسورد (مع Auto-migration) =====
             bool passwordValid = false;
             bool needsMigration = false;
 
-            // هل الـ hash مخزن كـ BCrypt (يبدأ بـ $2a$ / $2b$ / $2y$)?
             bool isBcryptHash = user.PasswordHash.StartsWith("$2");
 
             if (isBcryptHash)
             {
-                // ✅ الحالة الطبيعية — مقارنة BCrypt
                 passwordValid = _passwordHasher.Verify(dto.Password.Trim(), user.PasswordHash);
                 needsMigration = _passwordHasher.NeedsRehash(user.PasswordHash);
             }
             else
             {
-                // ⚠️ باسورد قديم مخزن نص صريح — نقارن مباشر
                 passwordValid = user.PasswordHash == dto.Password.Trim();
-
-                // لو صح، نعمل Migration تلقائي لباسورد مشفّر
                 if (passwordValid)
                 {
                     user.PasswordHash = _passwordHasher.Hash(dto.Password.Trim());
-                    needsMigration = false; // عملنا الـ migration دلوقتي
+                    needsMigration = false;
                 }
             }
 
@@ -121,7 +118,7 @@ namespace KayanERP.Api.Controllers
             if (!user.IsActive)
                 return Unauthorized("حساب هذا المستخدم معطل حالياً من قبل مدير المنشأة.");
 
-            // ===== 4. جلب صلاحيات الدور =====
+            // ===== جلب الصلاحيات =====
             var roleEntity = await _context.Roles
                 .AsNoTracking()
                 .FirstOrDefaultAsync(r =>
@@ -148,7 +145,6 @@ namespace KayanERP.Api.Controllers
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // ===== 5. التحقق من صلاحيات المدير =====
             string userRoleName = roleEntity?.DisplayName ?? user.Role ?? "مستخدم";
 
             if (userRoleName.Contains("مدير") ||
@@ -158,21 +154,21 @@ namespace KayanERP.Api.Controllers
                 permissions.Add("*");
             }
 
-            // ===== 6. حفظ أي تغييرات (مثل migration الباسورد) =====
+            // ===== حفظ التغييرات (Password Migration) =====
             if (needsMigration || _context.ChangeTracker.HasChanges())
             {
                 await _context.SaveChangesAsync();
             }
 
-            // ===== 7. بيانات الشركة =====
+            // ===== بيانات الشركة =====
             var company = await _context.Companies
                 .AsNoTracking()
                 .FirstOrDefaultAsync(c => c.Id == dto.CompanyId);
 
             var companyIdValue = user.CompanyId ?? dto.CompanyId;
 
-            // ===== 8. إصدار الـ JWT Token =====
-            var token = _jwtService.GenerateAccessToken(
+            // ===== إصدار Access Token =====
+            var accessToken = _jwtService.GenerateAccessToken(
                 userId: user.Id,
                 username: user.Username,
                 companyId: companyIdValue,
@@ -180,12 +176,18 @@ namespace KayanERP.Api.Controllers
                 permissions: permissions,
                 branchId: null);
 
-            // ===== 9. الرجوع بالنتيجة =====
+            // ===== إصدار Refresh Token =====
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+            var refreshToken = await _refreshTokenService.CreateAsync(user.Id, ipAddress);
+
+            // ===== Response =====
             return Ok(new
             {
                 success = true,
-                token = token,
+                token = accessToken,
+                refreshToken = refreshToken.Token,
                 tokenType = "Bearer",
+                expiresIn = 480 * 60, // بالثواني
                 userId = user.Id,
                 username = user.Username,
                 fullName = user.FullName ?? user.Username,
@@ -196,6 +198,130 @@ namespace KayanERP.Api.Controllers
                 departmentName = user.DepartmentName ?? "الإدارة العامة",
                 permissions = permissions
             });
+        }
+
+        // ==========================================================
+        // 3. تجديد Access Token باستخدام Refresh Token
+        // ==========================================================
+        [HttpPost("refresh")]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.RefreshToken))
+                return BadRequest("Refresh token is required.");
+
+            try
+            {
+                // 1. التحقق من الـ Refresh Token
+                var existingToken = await _refreshTokenService.ValidateAsync(dto.RefreshToken);
+
+                // 2. جلب المستخدم
+                var user = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Id == existingToken.UserId);
+
+                if (user == null || !user.IsActive)
+                    return Unauthorized("User account is no longer active.");
+
+                // 3. جلب صلاحيات الدور
+                var roleEntity = await _context.Roles
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(r =>
+                        r.Name == user.Role ||
+                        r.DisplayName == user.Role);
+
+                var permissions = new List<string>();
+
+                if (roleEntity != null && !string.IsNullOrWhiteSpace(roleEntity.Permissions))
+                {
+                    permissions.AddRange(roleEntity.Permissions
+                        .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(p => p.Trim()));
+                }
+
+                if (!string.IsNullOrWhiteSpace(user.CustomPermissions))
+                {
+                    permissions.AddRange(user.CustomPermissions
+                        .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(p => p.Trim()));
+                }
+
+                permissions = permissions
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                string userRoleName = roleEntity?.DisplayName ?? user.Role ?? "مستخدم";
+
+                if (userRoleName.Contains("مدير") ||
+                    userRoleName.Equals("Admin", StringComparison.OrdinalIgnoreCase) ||
+                    userRoleName.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase))
+                {
+                    permissions.Add("*");
+                }
+
+                var companyIdValue = user.CompanyId ?? 1;
+
+                // 4. إصدار Access Token جديد
+                var newAccessToken = _jwtService.GenerateAccessToken(
+                    userId: user.Id,
+                    username: user.Username,
+                    companyId: companyIdValue,
+                    role: userRoleName,
+                    permissions: permissions,
+                    branchId: null);
+
+                // 5. إلغاء الـ Refresh Token القديم
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var newRefreshToken = await _refreshTokenService.CreateAsync(user.Id, ipAddress);
+
+                await _refreshTokenService.RevokeAsync(
+                    existingToken,
+                    reason: "Replaced by new token",
+                    replacedByToken: newRefreshToken.Token);
+
+                // 6. Response
+                return Ok(new
+                {
+                    success = true,
+                    token = newAccessToken,
+                    refreshToken = newRefreshToken.Token,
+                    tokenType = "Bearer",
+                    expiresIn = 480 * 60
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(ex.Message);
+            }
+        }
+
+        // ==========================================================
+        // 4. تسجيل الخروج — إلغاء Refresh Token
+        // ==========================================================
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.RefreshToken))
+                return BadRequest("Refresh token is required.");
+
+            try
+            {
+                var token = await _refreshTokenService.ValidateAsync(dto.RefreshToken);
+                await _refreshTokenService.RevokeAsync(token, reason: "Logout");
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "تم تسجيل الخروج بنجاح."
+                });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // حتى لو التوكن مش صالح، نرجّع success (idempotent)
+                return Ok(new
+                {
+                    success = true,
+                    message = "تم تسجيل الخروج."
+                });
+            }
         }
     }
 
@@ -211,5 +337,10 @@ namespace KayanERP.Api.Controllers
         public long CompanyId { get; set; }
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
+    }
+
+    public class RefreshTokenRequest
+    {
+        public string RefreshToken { get; set; } = string.Empty;
     }
 }
