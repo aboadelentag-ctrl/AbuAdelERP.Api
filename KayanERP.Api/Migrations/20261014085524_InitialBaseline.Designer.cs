@@ -12,20 +12,21 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace KayanERP.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260914145454_AddItemExpiryFieldsFix")]
-    partial class AddItemExpiryFieldsFix
+    [Migration("20261014085524_InitialBaseline")]
+    partial class InitialBaseline
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
+                .HasDefaultSchema("erp")
                 .HasAnnotation("ProductVersion", "10.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.HasSequence("production_order_number_seq", "erp");
+            modelBuilder.HasSequence("production_order_number_seq");
 
             modelBuilder.Entity("KayanERP.Api.Models.Account", b =>
                 {
@@ -70,9 +71,75 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("parent_account_id");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_accounts");
 
-                    b.ToTable("accounts");
+                    b.ToTable("accounts", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.AppRole", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("active");
+
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("company_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("role_name");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("role_code");
+
+                    b.Property<string>("Permissions")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("permissions");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id")
+                        .HasName("roles_pkey");
+
+                    b.HasIndex(new[] { "CompanyId" }, "idx_roles_company")
+                        .HasDatabaseName("ix_roles_company_id");
+
+                    b.HasIndex(new[] { "CompanyId", "Name" }, "roles_company_id_role_code_key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_roles_company_id_role_code");
+
+                    b.ToTable("roles", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.AppUser", b =>
@@ -85,7 +152,36 @@ namespace KayanERP.Api.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
                     b.Property<long?>("CompanyId")
-                        .HasColumnType("bigint");
+                        .HasColumnType("bigint")
+                        .HasColumnName("company_id");
+
+                    b.Property<string>("CustomPermissions")
+                        .HasColumnType("text")
+                        .HasColumnName("custom_permissions");
+
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<string>("DepartmentName")
+                        .HasColumnType("text")
+                        .HasColumnName("department_name");
+
+                    b.Property<string>("EmployeeCode")
+                        .HasColumnType("text")
+                        .HasColumnName("employee_code");
+
+                    b.Property<long?>("EmployeeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("employee_id");
+
+                    b.Property<string>("FullName")
+                        .HasColumnType("text")
+                        .HasColumnName("full_name");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -98,18 +194,22 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("role");
 
                     b.Property<long?>("RoleId")
-                        .HasColumnType("bigint");
+                        .HasColumnType("bigint")
+                        .HasColumnName("role_id");
 
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("username");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_users");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_users_company_id");
 
-                    b.HasIndex("RoleId");
+                    b.HasIndex("RoleId")
+                        .HasDatabaseName("ix_users_role_id");
 
                     b.ToTable("users", "erp");
                 });
@@ -155,12 +255,67 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("asset_balances_pkey");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_asset_balances_item_id");
 
                     b.HasIndex(new[] { "CompanyId", "ItemId", "PartyType", "PartyId" }, "ux_asset_balances_unique")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_balances_company_id_item_id_party_type_party_id");
 
                     b.ToTable("asset_balances", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.AssetHistoryLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CostImpact")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("cost_impact");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("date");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("event_type");
+
+                    b.Property<long>("FixedAssetId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("fixed_asset_id");
+
+                    b.Property<string>("PerformedByCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("performed_by_code");
+
+                    b.Property<string>("PerformedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("performed_by_name");
+
+                    b.HasKey("Id")
+                        .HasName("asset_history_logs_pkey");
+
+                    b.HasIndex("FixedAssetId")
+                        .HasDatabaseName("ix_asset_history_logs_fixed_asset_id");
+
+                    b.ToTable("asset_history_logs", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.AssetMovement", b =>
@@ -230,13 +385,17 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("asset_movements_pkey");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_asset_movements_company_id");
 
-                    b.HasIndex(new[] { "FromPartyType", "FromPartyId" }, "idx_asset_movements_from");
+                    b.HasIndex(new[] { "FromPartyType", "FromPartyId" }, "idx_asset_movements_from")
+                        .HasDatabaseName("ix_asset_movements_from_party_type_from_party_id");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_asset_movements_item");
+                    b.HasIndex(new[] { "ItemId" }, "idx_asset_movements_item")
+                        .HasDatabaseName("ix_asset_movements_item_id");
 
-                    b.HasIndex(new[] { "ToPartyType", "ToPartyId" }, "idx_asset_movements_to");
+                    b.HasIndex(new[] { "ToPartyType", "ToPartyId" }, "idx_asset_movements_to")
+                        .HasDatabaseName("ix_asset_movements_to_party_type_to_party_id");
 
                     b.ToTable("asset_movements", "erp");
                 });
@@ -276,7 +435,7 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("company_id");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime?>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
@@ -287,7 +446,7 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("phone");
 
-                    b.Property<DateTime>("UpdatedAt")
+                    b.Property<DateTime?>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at")
@@ -297,14 +456,216 @@ namespace KayanERP.Api.Migrations
                         .HasName("branches_pkey");
 
                     b.HasIndex(new[] { "CompanyId", "BranchCode" }, "branches_company_id_branch_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_branches_company_id_branch_code");
 
-                    b.HasIndex(new[] { "CompanyId" }, "ix_branches_company_id");
-
-                    b.HasIndex(new[] { "CompanyId", "BranchCode" }, "ux_branches_company_code")
-                        .IsUnique();
+                    b.HasIndex(new[] { "CompanyId" }, "ix_branches_company_id")
+                        .HasDatabaseName("ix_branches_company_id");
 
                     b.ToTable("branches", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.BranchTransfer", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("batch_number");
+
+                    b.Property<long>("CompanyId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("company_id");
+
+                    b.Property<string>("ContainerType")
+                        .HasColumnType("text")
+                        .HasColumnName("container_type");
+
+                    b.Property<int>("CrateCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("crate_count");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("DestinationBranchId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("destination_branch_id");
+
+                    b.Property<long>("DestinationWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("destination_warehouse_id");
+
+                    b.Property<int>("DispatchedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("dispatched_count");
+
+                    b.Property<decimal>("DispatchedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("dispatched_qty");
+
+                    b.Property<string>("DispatcherName")
+                        .HasColumnType("text")
+                        .HasColumnName("dispatcher_name");
+
+                    b.Property<string>("DisputeChargeTo")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_charge_to");
+
+                    b.Property<string>("DisputeNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_notes");
+
+                    b.Property<string>("DisputeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_reason");
+
+                    b.Property<string>("DriverName")
+                        .HasColumnType("text")
+                        .HasColumnName("driver_name");
+
+                    b.Property<int>("InnerCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("inner_count");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<int?>("ReceivedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_count");
+
+                    b.Property<int?>("ReceivedCrateCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_crate_count");
+
+                    b.Property<int?>("ReceivedInnerCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_inner_count");
+
+                    b.Property<decimal?>("ReceivedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("received_qty");
+
+                    b.Property<string>("ReceiverName")
+                        .HasColumnType("text")
+                        .HasColumnName("receiver_name");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("resolved_by");
+
+                    b.Property<long>("SourceWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_warehouse_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<DateOnly>("TransferDate")
+                        .HasColumnType("date")
+                        .HasColumnName("transfer_date");
+
+                    b.Property<string>("TransferNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("transfer_number");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("VehicleNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("vehicle_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_branch_transfers");
+
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_branch_transfers_company_id");
+
+                    b.HasIndex("DestinationBranchId")
+                        .HasDatabaseName("ix_branch_transfers_destination_branch_id");
+
+                    b.HasIndex("DestinationWarehouseId")
+                        .HasDatabaseName("ix_branch_transfers_destination_warehouse_id");
+
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_branch_transfers_item_id");
+
+                    b.HasIndex("SourceWarehouseId")
+                        .HasDatabaseName("ix_branch_transfers_source_warehouse_id");
+
+                    b.ToTable("branch_transfers", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.CirculatingContainer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContainerName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("container_name");
+
+                    b.Property<int>("DamagedQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("damaged_quantity");
+
+                    b.Property<int>("DisputedQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("disputed_quantity");
+
+                    b.Property<int>("InPackagingWarehouseQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("in_packaging_warehouse_quantity");
+
+                    b.Property<int>("InProductionFloorQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("in_production_floor_quantity");
+
+                    b.Property<string>("Specification")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("specification");
+
+                    b.Property<int>("TotalFactoryQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_factory_quantity");
+
+                    b.Property<int>("WithDriversAndBranchesQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("with_drivers_and_branches_quantity");
+
+                    b.HasKey("Id")
+                        .HasName("circulating_containers_pkey");
+
+                    b.HasIndex(new[] { "ContainerName" }, "idx_circulating_containers_name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_circulating_containers_container_name");
+
+                    b.ToTable("circulating_containers", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.Company", b =>
@@ -354,6 +715,14 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("phone");
 
+                    b.Property<string>("TenantCode")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_code");
+
+                    b.Property<string>("TenantKey")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_key");
+
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -364,10 +733,8 @@ namespace KayanERP.Api.Migrations
                         .HasName("companies_pkey");
 
                     b.HasIndex(new[] { "CompanyCode" }, "companies_company_code_key")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "CompanyCode" }, "ux_companies_company_code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_companies_company_code");
 
                     b.ToTable("companies", "erp");
                 });
@@ -390,7 +757,8 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("total_factory_balance");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_crates");
 
                     b.ToTable("crates", "erp");
                 });
@@ -399,52 +767,200 @@ namespace KayanERP.Api.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int>("CrateBalance")
-                        .HasColumnType("integer");
+                        .HasColumnType("integer")
+                        .HasColumnName("crate_balance");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("name");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_crate_clients");
 
-                    b.ToTable("CrateClients");
+                    b.ToTable("crate_clients", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.CrateClientTransaction", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int>("CrateClientId")
-                        .HasColumnType("integer");
+                        .HasColumnType("integer")
+                        .HasColumnName("crate_client_id");
 
                     b.Property<string>("Notes")
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
 
                     b.Property<int>("Quantity")
-                        .HasColumnType("integer");
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
 
                     b.Property<DateTime>("TransactionDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("transaction_date");
 
                     b.Property<string>("TransactionType")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("transaction_type");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_crate_client_transactions");
 
-                    b.HasIndex("CrateClientId");
+                    b.HasIndex("CrateClientId")
+                        .HasDatabaseName("ix_crate_client_transactions_crate_client_id");
 
-                    b.ToTable("CrateClientTransactions");
+                    b.ToTable("crate_client_transactions", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.CrateMovement", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ArbitratedByCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("arbitrated_by_code");
+
+                    b.Property<string>("ArbitratedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("arbitrated_by_name");
+
+                    b.Property<string>("ArbitrationDecision")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("arbitration_decision");
+
+                    b.Property<string>("ArbitrationText")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("arbitration_text");
+
+                    b.Property<string>("ContainerName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("container_name");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("DamagedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("damaged_count");
+
+                    b.Property<string>("DestinationLocation")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("destination_location");
+
+                    b.Property<string>("DispatchedByCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("dispatched_by_code");
+
+                    b.Property<string>("DispatchedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("dispatched_by_name");
+
+                    b.Property<int>("DispatchedQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("dispatched_quantity");
+
+                    b.Property<string>("FinancialPenalty")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("financial_penalty");
+
+                    b.Property<string>("MovementNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("movement_number");
+
+                    b.Property<string>("MovementType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("movement_type");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("ReceiveNotes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("receive_notes");
+
+                    b.Property<DateTime?>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("ReceivedByCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("received_by_code");
+
+                    b.Property<string>("ReceivedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("received_by_name");
+
+                    b.Property<int?>("ReceivedQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_quantity");
+
+                    b.Property<int>("ShortageQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("shortage_quantity");
+
+                    b.Property<string>("SourceLocation")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("source_location");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("crate_movements_pkey");
+
+                    b.HasIndex(new[] { "MovementNumber" }, "idx_crate_movements_number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_crate_movements_movement_number");
+
+                    b.ToTable("crate_movements", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.CrateTransaction", b =>
@@ -486,9 +1002,11 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("transaction_type");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_crate_transactions");
 
-                    b.HasIndex("CrateId");
+                    b.HasIndex("CrateId")
+                        .HasDatabaseName("ix_crate_transactions_crate_id");
 
                     b.ToTable("crate_transactions", "erp");
                 });
@@ -581,12 +1099,11 @@ namespace KayanERP.Api.Migrations
                         .HasName("customers_pkey");
 
                     b.HasIndex(new[] { "CompanyId", "CustomerCode" }, "customers_company_id_customer_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_customers_company_id_customer_code");
 
-                    b.HasIndex(new[] { "CompanyId" }, "ix_customers_company_id");
-
-                    b.HasIndex(new[] { "CompanyId", "CustomerCode" }, "ux_customers_company_code")
-                        .IsUnique();
+                    b.HasIndex(new[] { "CompanyId" }, "ix_customers_company_id")
+                        .HasDatabaseName("ix_customers_company_id");
 
                     b.ToTable("customers", "erp");
                 });
@@ -638,10 +1155,12 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("departments_pkey");
 
-                    b.HasIndex("ParentDepartmentId");
+                    b.HasIndex("ParentDepartmentId")
+                        .HasDatabaseName("ix_departments_parent_department_id");
 
                     b.HasIndex(new[] { "CompanyId", "DepartmentCode" }, "departments_company_id_department_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_departments_company_id_department_code");
 
                     b.ToTable("departments", "erp");
                 });
@@ -692,9 +1211,186 @@ namespace KayanERP.Api.Migrations
                         .HasName("dynamic_forms_pkey");
 
                     b.HasIndex(new[] { "FormCode" }, "dynamic_forms_form_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_dynamic_forms_form_code");
 
                     b.ToTable("dynamic_forms", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.EmergencyTask", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AssetCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("asset_code");
+
+                    b.Property<string>("AssignedTechnicianCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("assigned_technician_code");
+
+                    b.Property<string>("AssignedTechnicianName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("assigned_technician_name");
+
+                    b.Property<string>("AssignmentNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("assignment_notes");
+
+                    b.Property<string>("ClosedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("closed_by");
+
+                    b.Property<string>("ClosedByCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("closed_by_code");
+
+                    b.Property<string>("ClosureNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("closure_notes");
+
+                    b.Property<string>("ClosureProofMediaUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("closure_proof_media_url");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("CostImpact")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("cost_impact");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<int>("DowntimeMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("downtime_minutes");
+
+                    b.Property<string>("MediaFileName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("media_file_name");
+
+                    b.Property<string>("MediaType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("TEXT")
+                        .HasColumnName("media_type");
+
+                    b.Property<string>("MediaUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("media_url");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("NORMAL")
+                        .HasColumnName("priority");
+
+                    b.Property<DateTime?>("RespondedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("responded_at");
+
+                    b.Property<string>("RootCause")
+                        .HasColumnType("text")
+                        .HasColumnName("root_cause");
+
+                    b.Property<string>("SenderDepartment")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("sender_department");
+
+                    b.Property<string>("SenderEmployeeCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("sender_employee_code");
+
+                    b.Property<string>("SenderEmployeeName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("sender_employee_name");
+
+                    b.Property<string>("SparePartsUsed")
+                        .HasColumnType("text")
+                        .HasColumnName("spare_parts_used");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("PENDING")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TargetDepartment")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("target_department");
+
+                    b.Property<string>("TargetEmployeeName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("target_employee_name");
+
+                    b.Property<int>("TargetResolutionMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30)
+                        .HasColumnName("target_resolution_minutes");
+
+                    b.Property<string>("TaskNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("task_number");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("emergency_tasks_pkey");
+
+                    b.HasIndex(new[] { "TaskNumber" }, "idx_emergency_tasks_number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_emergency_tasks_task_number");
+
+                    b.HasIndex(new[] { "Status" }, "idx_emergency_tasks_status")
+                        .HasDatabaseName("ix_emergency_tasks_status");
+
+                    b.ToTable("emergency_tasks", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.Employee", b =>
@@ -749,17 +1445,322 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("employees_pkey");
 
-                    b.HasIndex("BranchId");
+                    b.HasIndex("BranchId")
+                        .HasDatabaseName("ix_employees_branch_id");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_employees_company_id");
 
-                    b.HasIndex("DepartmentId");
+                    b.HasIndex("DepartmentId")
+                        .HasDatabaseName("ix_employees_department_id");
 
-                    b.HasIndex("JobTitleId");
+                    b.HasIndex("JobTitleId")
+                        .HasDatabaseName("ix_employees_job_title_id");
 
-                    b.HasIndex("ManagerId");
+                    b.HasIndex("ManagerId")
+                        .HasDatabaseName("ix_employees_manager_id");
 
                     b.ToTable("employees", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.FinishedGoodsTransfer", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("batch_number");
+
+                    b.Property<string>("ControlDisputeChargeTo")
+                        .HasColumnType("text")
+                        .HasColumnName("control_dispute_charge_to");
+
+                    b.Property<string>("ControlNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("control_notes");
+
+                    b.Property<DateTime?>("ControlReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("control_received_at");
+
+                    b.Property<string>("ControlReceiverName")
+                        .HasColumnType("text")
+                        .HasColumnName("control_receiver_name");
+
+                    b.Property<int?>("CostingActualCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("costing_actual_count");
+
+                    b.Property<decimal?>("CostingActualQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("costing_actual_qty");
+
+                    b.Property<DateTime?>("CostingAuditedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("costing_audited_at");
+
+                    b.Property<string>("CostingAuditor")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_auditor");
+
+                    b.Property<int>("CostingCountDiff")
+                        .HasColumnType("integer")
+                        .HasColumnName("costing_count_diff");
+
+                    b.Property<bool>("CostingDiscrepancyFlag")
+                        .HasColumnType("boolean")
+                        .HasColumnName("costing_discrepancy_flag");
+
+                    b.Property<string>("CostingDisputeChargeTo")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_charge_to");
+
+                    b.Property<string>("CostingDisputeNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_notes");
+
+                    b.Property<string>("CostingDisputeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_reason");
+
+                    b.Property<DateTime?>("CostingDisputeResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("costing_dispute_resolved_at");
+
+                    b.Property<string>("CostingDisputeResolvedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_resolved_by");
+
+                    b.Property<string>("CostingDisputeStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("costing_dispute_status");
+
+                    b.Property<string>("CostingNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("costing_notes");
+
+                    b.Property<decimal>("CostingWeightDiff")
+                        .HasColumnType("numeric")
+                        .HasColumnName("costing_weight_diff");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("DestinationWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("destination_warehouse_id");
+
+                    b.Property<DateTime?>("DisputeOpenedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispute_opened_at");
+
+                    b.Property<string>("DisputeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_reason");
+
+                    b.Property<string>("DisputeResolutionNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_resolution_notes");
+
+                    b.Property<DateTime?>("DisputeResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispute_resolved_at");
+
+                    b.Property<string>("DisputeResolvedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_resolved_by");
+
+                    b.Property<string>("DisputeStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("dispute_status");
+
+                    b.Property<DateOnly?>("ExpiryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("expiry_date");
+
+                    b.Property<bool>("HasDispute")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_dispute");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("item_id");
+
+                    b.Property<int>("ProdDispatchedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("prod_dispatched_count");
+
+                    b.Property<decimal>("ProdDispatchedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("prod_dispatched_qty");
+
+                    b.Property<string>("ProdNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("prod_notes");
+
+                    b.Property<string>("ProdSubmittedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("prod_submitted_by");
+
+                    b.Property<long?>("ProductionOrderId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("production_order_id");
+
+                    b.Property<decimal>("QcApprovedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_approved_qty");
+
+                    b.Property<DateTime?>("QcInspectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("qc_inspected_at");
+
+                    b.Property<string>("QcInspector")
+                        .HasColumnType("text")
+                        .HasColumnName("qc_inspector");
+
+                    b.Property<string>("QcNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("qc_notes");
+
+                    b.Property<decimal>("QcReworkQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_rework_qty");
+
+                    b.Property<decimal>("QcSampleQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_sample_qty");
+
+                    b.Property<decimal>("QcScrapQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("qc_scrap_qty");
+
+                    b.Property<int?>("ReceivedActualCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_actual_count");
+
+                    b.Property<decimal?>("ReceivedActualQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("received_actual_qty");
+
+                    b.Property<long>("SourceWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_warehouse_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<DateOnly>("TransferDate")
+                        .HasColumnType("date")
+                        .HasColumnName("transfer_date");
+
+                    b.Property<string>("TransferNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("transfer_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_finished_goods_transfers");
+
+                    b.HasIndex("DestinationWarehouseId")
+                        .HasDatabaseName("ix_finished_goods_transfers_destination_warehouse_id");
+
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_finished_goods_transfers_item_id");
+
+                    b.HasIndex("SourceWarehouseId")
+                        .HasDatabaseName("ix_finished_goods_transfers_source_warehouse_id");
+
+                    b.ToTable("finished_goods_transfers", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.FixedAsset", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActiveSOSTaskNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("active_sos_task_number");
+
+                    b.Property<string>("AssetCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("asset_code");
+
+                    b.Property<string>("BrandModel")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("brand_model");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("CustodianCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("custodian_code");
+
+                    b.Property<string>("CustodianName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("custodian_name");
+
+                    b.Property<string>("Department")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("department");
+
+                    b.Property<DateTime>("InstallationDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("installation_date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("serial_number");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("fixed_assets_pkey");
+
+                    b.HasIndex(new[] { "AssetCode" }, "idx_fixed_assets_asset_code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fixed_assets_asset_code");
+
+                    b.ToTable("fixed_assets", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.FormSubmission", b =>
@@ -800,7 +1801,8 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("form_submissions_pkey");
 
-                    b.HasIndex("FormId");
+                    b.HasIndex("FormId")
+                        .HasDatabaseName("ix_form_submissions_form_id");
 
                     b.ToTable("form_submissions", "erp");
                 });
@@ -812,11 +1814,23 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
 
                     b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
+                        .HasDefaultValue(true)
                         .HasColumnName("active");
+
+                    b.Property<string>("Barcode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("barcode");
+
+                    b.Property<decimal>("BasePrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("base_price");
 
                     b.Property<long>("CategoryId")
                         .HasColumnType("bigint")
@@ -827,31 +1841,91 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("company_id");
 
                     b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<string>("DepartmentName")
+                        .HasColumnType("text")
+                        .HasColumnName("department_name");
 
                     b.Property<bool>("HasExpiryDate")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
+                        .HasDefaultValue(true)
                         .HasColumnName("has_expiry_date");
+
+                    b.Property<bool>("HideDetailPrint")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("hide_detail_print");
+
+                    b.Property<bool>("IsContainer")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_container");
+
+                    b.Property<bool>("IsMerged")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_merged");
+
+                    b.Property<bool>("IsVariant")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_variant");
 
                     b.Property<string>("ItemCode")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("item_code");
 
                     b.Property<string>("ItemName")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)")
                         .HasColumnName("item_name");
 
                     b.Property<string>("ItemType")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("item_type");
+
+                    b.Property<decimal>("MaxStock")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("max_stock");
+
+                    b.Property<bool>("MultiUom")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("multi_uom");
 
                     b.Property<long?>("ParentItemId")
                         .HasColumnType("bigint")
                         .HasColumnName("parent_item_id");
+
+                    b.Property<decimal>("ReorderLevel")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("reorder_level");
+
+                    b.Property<decimal>("SafetyStock")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("safety_stock");
 
                     b.Property<int?>("ShelfLifeDays")
                         .HasColumnType("integer")
@@ -859,16 +1933,25 @@ namespace KayanERP.Api.Migrations
 
                     b.Property<string>("Unit")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("unit");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("items_pkey");
 
-                    b.HasIndex("CategoryId");
+                    b.HasIndex("ParentItemId")
+                        .HasDatabaseName("ix_items_parent_item_id");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex(new[] { "CategoryId" }, "idx_items_category_id")
+                        .HasDatabaseName("ix_items_category_id");
 
-                    b.HasIndex("ParentItemId");
+                    b.HasIndex(new[] { "DepartmentId" }, "idx_items_department_id")
+                        .HasDatabaseName("ix_items_department_id");
+
+                    b.HasIndex(new[] { "CompanyId", "ItemCode" }, "items_company_id_item_code_key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_items_company_id_item_code");
 
                     b.ToTable("items", "erp");
                 });
@@ -930,12 +2013,11 @@ namespace KayanERP.Api.Migrations
                         .HasName("item_categories_pkey");
 
                     b.HasIndex(new[] { "CompanyId", "CategoryCode" }, "item_categories_company_id_category_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_item_categories_company_id_category_code");
 
-                    b.HasIndex(new[] { "CompanyId" }, "ix_item_categories_company_id");
-
-                    b.HasIndex(new[] { "CompanyId", "CategoryCode" }, "ux_item_categories_company_code")
-                        .IsUnique();
+                    b.HasIndex(new[] { "CompanyId" }, "ix_item_categories_company_id")
+                        .HasDatabaseName("ix_item_categories_company_id");
 
                     b.ToTable("item_categories", "erp");
                 });
@@ -980,9 +2062,11 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("to_unit");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_item_uom_conversions");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_item_uom_conversions_item_id");
 
                     b.ToTable("item_uom_conversions", "erp");
                 });
@@ -1004,6 +2088,10 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("company_id");
 
+                    b.Property<decimal>("HourlyRate")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("hourly_rate");
+
                     b.Property<int>("JobGrade")
                         .HasColumnType("integer")
                         .HasColumnName("job_grade");
@@ -1018,7 +2106,8 @@ namespace KayanERP.Api.Migrations
                         .HasName("job_titles_pkey");
 
                     b.HasIndex(new[] { "CompanyId", "TitleName" }, "ux_job_titles_company_title")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_job_titles_company_id_title_name");
 
                     b.ToTable("job_titles", "erp");
                 });
@@ -1065,9 +2154,10 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("reference_type");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_journal_entries");
 
-                    b.ToTable("journal_entries");
+                    b.ToTable("journal_entries", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.JournalEntryLine", b =>
@@ -1099,13 +2189,16 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("journal_entry_id");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_journal_entry_lines");
 
-                    b.HasIndex("AccountId");
+                    b.HasIndex("AccountId")
+                        .HasDatabaseName("ix_journal_entry_lines_account_id");
 
-                    b.HasIndex("JournalEntryId");
+                    b.HasIndex("JournalEntryId")
+                        .HasDatabaseName("ix_journal_entry_lines_journal_entry_id");
 
-                    b.ToTable("journal_entry_lines");
+                    b.ToTable("journal_entry_lines", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.MaintenanceAsset", b =>
@@ -1168,10 +2261,12 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("maintenance_assets_pkey");
 
-                    b.HasIndex("DepartmentId");
+                    b.HasIndex("DepartmentId")
+                        .HasDatabaseName("ix_maintenance_assets_department_id");
 
                     b.HasIndex(new[] { "CompanyId", "AssetCode" }, "maintenance_assets_company_id_asset_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_maintenance_assets_company_id_asset_code");
 
                     b.ToTable("maintenance_assets", "erp");
                 });
@@ -1265,12 +2360,165 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("maintenance_orders_pkey");
 
-                    b.HasIndex(new[] { "AssetId" }, "idx_maintenance_asset");
+                    b.HasIndex(new[] { "AssetId" }, "idx_maintenance_asset")
+                        .HasDatabaseName("ix_maintenance_orders_asset_id");
 
                     b.HasIndex(new[] { "CompanyId", "OrderNumber" }, "maintenance_orders_company_id_order_number_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_maintenance_orders_company_id_order_number");
 
                     b.ToTable("maintenance_orders", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.MaterialRequisition", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<DateTime?>("DispatchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispatched_at");
+
+                    b.Property<string>("DispatchedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("dispatched_by");
+
+                    b.Property<long>("FromWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("from_warehouse_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("ReceivedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("received_by");
+
+                    b.Property<string>("RequestedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("requested_by");
+
+                    b.Property<string>("RequisitionNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("requisition_number");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<long?>("ToWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("to_warehouse_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_material_requisitions");
+
+                    b.HasIndex("DepartmentId")
+                        .HasDatabaseName("ix_material_requisitions_department_id");
+
+                    b.HasIndex("FromWarehouseId")
+                        .HasDatabaseName("ix_material_requisitions_from_warehouse_id");
+
+                    b.HasIndex("ToWarehouseId")
+                        .HasDatabaseName("ix_material_requisitions_to_warehouse_id");
+
+                    b.ToTable("material_requisitions", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.MaterialRequisitionLine", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("batch_number");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DiscrepancyReason")
+                        .HasColumnType("text")
+                        .HasColumnName("discrepancy_reason");
+
+                    b.Property<decimal>("DispatchedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("dispatched_qty");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expiry_date");
+
+                    b.Property<long?>("FromWarehouseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("from_warehouse_id");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("LineStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("line_status");
+
+                    b.Property<decimal>("ReceivedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("received_qty");
+
+                    b.Property<decimal>("RequestedQty")
+                        .HasColumnType("numeric")
+                        .HasColumnName("requested_qty");
+
+                    b.Property<long>("RequisitionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("requisition_id");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasColumnType("numeric")
+                        .HasColumnName("unit_cost");
+
+                    b.Property<string>("WarehouseNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("warehouse_notes");
+
+                    b.HasKey("Id")
+                        .HasName("pk_material_requisition_lines");
+
+                    b.HasIndex("FromWarehouseId")
+                        .HasDatabaseName("ix_material_requisition_lines_from_warehouse_id");
+
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_material_requisition_lines_item_id");
+
+                    b.HasIndex("RequisitionId")
+                        .HasDatabaseName("ix_material_requisition_lines_requisition_id");
+
+                    b.ToTable("material_requisition_lines", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.ProductionOrder", b =>
@@ -1313,7 +2561,8 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("order_number");
 
                     b.Property<long?>("RecipeId")
-                        .HasColumnType("bigint");
+                        .HasColumnType("bigint")
+                        .HasColumnName("recipe_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1336,14 +2585,18 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("production_orders_pkey");
 
-                    b.HasIndex("RecipeId");
+                    b.HasIndex("RecipeId")
+                        .HasDatabaseName("ix_production_orders_recipe_id");
 
-                    b.HasIndex("WarehouseId");
+                    b.HasIndex("WarehouseId")
+                        .HasDatabaseName("ix_production_orders_warehouse_id");
 
-                    b.HasIndex(new[] { "Status" }, "idx_production_orders_status");
+                    b.HasIndex(new[] { "Status" }, "idx_production_orders_status")
+                        .HasDatabaseName("ix_production_orders_status");
 
                     b.HasIndex(new[] { "CompanyId", "OrderNumber" }, "production_orders_company_order_number_unique")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_production_orders_company_id_order_number");
 
                     b.ToTable("production_orders", "erp");
                 });
@@ -1356,6 +2609,14 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("batch_number");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<long?>("EmployeeId")
                         .HasColumnType("bigint")
@@ -1383,7 +2644,7 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("production_order_id");
 
-                    b.Property<long>("RecipeId")
+                    b.Property<long?>("RecipeId")
                         .HasColumnType("bigint")
                         .HasColumnName("recipe_id");
 
@@ -1394,6 +2655,15 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("character varying(30)")
                         .HasColumnName("status")
                         .HasDefaultValueSql("'PENDING'");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("unit");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.Property<decimal>("WasteQuantity")
                         .HasPrecision(14, 3)
@@ -1408,13 +2678,17 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("production_order_details_pkey");
 
-                    b.HasIndex("EmployeeId");
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_production_order_details_employee_id");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_production_order_details_item_id");
 
-                    b.HasIndex("ProductionOrderId");
+                    b.HasIndex("ProductionOrderId")
+                        .HasDatabaseName("ix_production_order_details_production_order_id");
 
-                    b.HasIndex("RecipeId");
+                    b.HasIndex("RecipeId")
+                        .HasDatabaseName("ix_production_order_details_recipe_id");
 
                     b.ToTable("production_order_details", "erp");
                 });
@@ -1457,7 +2731,8 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("production_order_detail_id");
 
                     b.Property<long?>("RecipeId")
-                        .HasColumnType("bigint");
+                        .HasColumnType("bigint")
+                        .HasColumnName("recipe_id");
 
                     b.Property<long?>("RecipeStageId")
                         .HasColumnType("bigint")
@@ -1484,16 +2759,21 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("production_order_stages_pkey");
 
-                    b.HasIndex("RecipeId");
+                    b.HasIndex("RecipeId")
+                        .HasDatabaseName("ix_production_order_stages_recipe_id");
 
-                    b.HasIndex(new[] { "ProductionOrderDetailId" }, "idx_production_stages_detail");
+                    b.HasIndex(new[] { "ProductionOrderDetailId" }, "idx_production_stages_detail")
+                        .HasDatabaseName("ix_production_order_stages_production_order_detail_id");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_production_stages_item");
+                    b.HasIndex(new[] { "ItemId" }, "idx_production_stages_item")
+                        .HasDatabaseName("ix_production_order_stages_item_id");
 
-                    b.HasIndex(new[] { "RecipeStageId" }, "idx_production_stages_recipe_stage");
+                    b.HasIndex(new[] { "RecipeStageId" }, "idx_production_stages_recipe_stage")
+                        .HasDatabaseName("ix_production_order_stages_recipe_stage_id");
 
                     b.HasIndex(new[] { "ProductionOrderDetailId", "StageNumber" }, "production_stages_unique")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_production_order_stages_production_order_detail_id_stage_nu");
 
                     b.ToTable("production_order_stages", "erp");
                 });
@@ -1553,11 +2833,14 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("production_stage_materials_pkey");
 
-                    b.HasIndex(new[] { "RecipeLineId" }, "idx_production_material_recipe_line");
+                    b.HasIndex(new[] { "RecipeLineId" }, "idx_production_material_recipe_line")
+                        .HasDatabaseName("ix_production_stage_materials_recipe_line_id");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_production_materials_item");
+                    b.HasIndex(new[] { "ItemId" }, "idx_production_materials_item")
+                        .HasDatabaseName("ix_production_stage_materials_item_id");
 
-                    b.HasIndex(new[] { "ProductionStageId" }, "idx_production_materials_stage");
+                    b.HasIndex(new[] { "ProductionStageId" }, "idx_production_materials_stage")
+                        .HasDatabaseName("ix_production_stage_materials_production_stage_id");
 
                     b.ToTable("production_stage_materials", "erp");
                 });
@@ -1571,16 +2854,37 @@ namespace KayanERP.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("AttendanceStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("attendance_status");
+
+                    b.Property<TimeOnly?>("CheckIn")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("check_in");
+
+                    b.Property<TimeOnly?>("CheckOut")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("check_out");
+
                     b.Property<long>("EmployeeId")
                         .HasColumnType("bigint")
                         .HasColumnName("employee_id");
+
+                    b.Property<decimal>("HourlyRate")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("hourly_rate");
 
                     b.Property<decimal>("HoursWorked")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("hours_worked");
 
+                    b.Property<decimal>("LaborCost")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("labor_cost");
+
                     b.Property<string>("Notes")
-                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("notes");
@@ -1593,17 +2897,29 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("production_order_id");
 
+                    b.Property<decimal>("WasteQuantity")
+                        .HasColumnType("decimal(18,3)")
+                        .HasColumnName("waste_quantity");
+
+                    b.Property<string>("WasteType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("waste_type");
+
                     b.Property<DateTime>("WorkDate")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("work_date");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_productivity_logs");
 
-                    b.HasIndex("EmployeeId");
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_productivity_logs_employee_id");
 
-                    b.HasIndex("ProductionOrderId");
+                    b.HasIndex("ProductionOrderId")
+                        .HasDatabaseName("ix_productivity_logs_production_order_id");
 
-                    b.ToTable("productivity_logs");
+                    b.ToTable("productivity_logs", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.PurchaseInvoice", b =>
@@ -1632,7 +2948,8 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("total_amount");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_purchase_invoices");
 
                     b.ToTable("purchase_invoices", "erp");
                 });
@@ -1666,9 +2983,11 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("unit_price");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_purchase_invoice_lines");
 
-                    b.HasIndex("PurchaseInvoiceId");
+                    b.HasIndex("PurchaseInvoiceId")
+                        .HasDatabaseName("ix_purchase_invoice_lines_purchase_invoice_id");
 
                     b.ToTable("purchase_invoice_lines", "erp");
                 });
@@ -1697,7 +3016,8 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("created_by");
 
                     b.Property<long?>("CreatedByNavigationId")
-                        .HasColumnType("bigint");
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_navigation_id");
 
                     b.Property<decimal>("DiscountAmount")
                         .HasPrecision(18, 2)
@@ -1764,14 +3084,18 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("purchase_orders_pkey");
 
-                    b.HasIndex("CreatedByNavigationId");
+                    b.HasIndex("CreatedByNavigationId")
+                        .HasDatabaseName("ix_purchase_orders_created_by_navigation_id");
 
-                    b.HasIndex("SupplierId");
+                    b.HasIndex("SupplierId")
+                        .HasDatabaseName("ix_purchase_orders_supplier_id");
 
-                    b.HasIndex("WarehouseId");
+                    b.HasIndex("WarehouseId")
+                        .HasDatabaseName("ix_purchase_orders_warehouse_id");
 
                     b.HasIndex(new[] { "CompanyId", "OrderNumber" }, "purchase_orders_company_id_order_number_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_purchase_orders_company_id_order_number");
 
                     b.ToTable("purchase_orders", "erp");
                 });
@@ -1794,7 +3118,7 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("item_id");
 
-                    b.Property<decimal?>("LineTotal")
+                    b.Property<decimal>("LineTotal")
                         .ValueGeneratedOnAddOrUpdate()
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)")
@@ -1832,9 +3156,11 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("purchase_order_lines_pkey");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_purchase_order_lines_item_id");
 
-                    b.HasIndex("PurchaseOrderId");
+                    b.HasIndex("PurchaseOrderId")
+                        .HasDatabaseName("ix_purchase_order_lines_purchase_order_id");
 
                     b.ToTable("purchase_order_lines", "erp");
                 });
@@ -1871,16 +3197,20 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("inspection_type");
 
                     b.Property<string>("InspectorName")
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("inspector_name");
 
                     b.Property<bool>("IsGmpPassed")
-                        .HasColumnType("boolean");
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_gmp_passed");
 
                     b.Property<bool>("IsHaccpPassed")
-                        .HasColumnType("boolean");
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_haccp_passed");
 
                     b.Property<bool>("IsWeightsPassed")
-                        .HasColumnType("boolean");
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_weights_passed");
 
                     b.Property<long>("ItemId")
                         .HasColumnType("bigint")
@@ -1899,7 +3229,8 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("production_stage_id");
 
                     b.Property<decimal>("QualityScore")
-                        .HasColumnType("numeric(5,2)");
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("quality_score");
 
                     b.Property<decimal>("Quantity")
                         .HasPrecision(18, 6)
@@ -1925,15 +3256,20 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("quality_inspections_pkey");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_quality_inspections_company_id");
 
-                    b.HasIndex("ProductionStageId");
+                    b.HasIndex("ProductionStageId")
+                        .HasDatabaseName("ix_quality_inspections_production_stage_id");
 
-                    b.HasIndex("WarehouseId");
+                    b.HasIndex("WarehouseId")
+                        .HasDatabaseName("ix_quality_inspections_warehouse_id");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_quality_item");
+                    b.HasIndex(new[] { "ItemId" }, "idx_quality_item")
+                        .HasDatabaseName("ix_quality_inspections_item_id");
 
-                    b.HasIndex(new[] { "ProductionOrderId" }, "idx_quality_production");
+                    b.HasIndex(new[] { "ProductionOrderId" }, "idx_quality_production")
+                        .HasDatabaseName("ix_quality_inspections_production_order_id");
 
                     b.ToTable("quality_inspections", "erp");
                 });
@@ -2038,10 +3374,12 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("recipes_pkey");
 
-                    b.HasIndex("ProductItemId");
+                    b.HasIndex("ProductItemId")
+                        .HasDatabaseName("ix_recipes_product_item_id");
 
                     b.HasIndex(new[] { "CompanyId", "RecipeCode" }, "recipes_company_id_recipe_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_recipes_company_id_recipe_code");
 
                     b.ToTable("recipes", "erp");
                 });
@@ -2110,12 +3448,15 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("recipe_lines_pkey");
 
-                    b.HasIndex("ComponentItemId");
+                    b.HasIndex("ComponentItemId")
+                        .HasDatabaseName("ix_recipe_lines_component_item_id");
 
-                    b.HasIndex(new[] { "StageId" }, "idx_recipe_lines_stage");
+                    b.HasIndex(new[] { "StageId" }, "idx_recipe_lines_stage")
+                        .HasDatabaseName("ix_recipe_lines_stage_id");
 
                     b.HasIndex(new[] { "RecipeId", "LineNumber" }, "recipe_lines_recipe_id_line_number_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_recipe_lines_recipe_id_line_number");
 
                     b.ToTable("recipe_lines", "erp");
                 });
@@ -2176,16 +3517,84 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("recipe_stages_pkey");
 
-                    b.HasIndex(new[] { "OutputItemId" }, "idx_recipe_stages_output_item");
+                    b.HasIndex(new[] { "OutputItemId" }, "idx_recipe_stages_output_item")
+                        .HasDatabaseName("ix_recipe_stages_output_item_id");
 
-                    b.HasIndex(new[] { "RecipeId" }, "idx_recipe_stages_recipe");
+                    b.HasIndex(new[] { "RecipeId" }, "idx_recipe_stages_recipe")
+                        .HasDatabaseName("ix_recipe_stages_recipe_id");
 
-                    b.HasIndex(new[] { "StageRecipeId" }, "idx_recipe_stages_stage_recipe");
+                    b.HasIndex(new[] { "StageRecipeId" }, "idx_recipe_stages_stage_recipe")
+                        .HasDatabaseName("ix_recipe_stages_stage_recipe_id");
 
                     b.HasIndex(new[] { "RecipeId", "StageNumber" }, "recipe_stages_recipe_id_stage_number_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_recipe_stages_recipe_id_stage_number");
 
                     b.ToTable("recipe_stages", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.RefreshToken", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("CreatedByIp")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by_ip");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("ReplacedByToken")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("replaced_by_token");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("RevokedReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("revoked_reason");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("token");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("refresh_tokens_pkey");
+
+                    b.HasIndex(new[] { "ExpiresAt" }, "idx_refresh_tokens_expires_at")
+                        .HasDatabaseName("ix_refresh_tokens_expires_at");
+
+                    b.HasIndex(new[] { "UserId" }, "idx_refresh_tokens_user_id")
+                        .HasDatabaseName("ix_refresh_tokens_user_id");
+
+                    b.HasIndex(new[] { "Token" }, "ux_refresh_tokens_token")
+                        .IsUnique()
+                        .HasDatabaseName("ix_refresh_tokens_token");
+
+                    b.ToTable("refresh_tokens", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.Role", b =>
@@ -2198,10 +3607,52 @@ namespace KayanERP.Api.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
                     b.Property<bool>("Active")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(true)
                         .HasColumnName("active");
+
+                    b.Property<long>("CompanyId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("company_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("RoleCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("role_code");
+
+                    b.Property<string>("RoleName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("role_name");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_role");
+
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_role_company_id");
+
+                    b.ToTable("role", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.SalesInvoice", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("BranchId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("branch_id");
 
                     b.Property<long>("CompanyId")
                         .HasColumnType("bigint")
@@ -2213,44 +3664,6 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
-                    b.Property<string>("RoleCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("role_code");
-
-                    b.Property<string>("RoleName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("role_name");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id")
-                        .HasName("roles_pkey");
-
-                    b.HasIndex(new[] { "CompanyId" }, "idx_roles_company");
-
-                    b.HasIndex(new[] { "CompanyId", "RoleCode" }, "roles_company_id_role_code_key")
-                        .IsUnique();
-
-                    b.ToTable("roles", "erp");
-                });
-
-            modelBuilder.Entity("KayanERP.Api.Models.SalesInvoice", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
                     b.Property<long>("CustomerId")
                         .HasColumnType("bigint")
                         .HasColumnName("customer_id");
@@ -2261,14 +3674,30 @@ namespace KayanERP.Api.Migrations
 
                     b.Property<string>("InvoiceNumber")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("invoice_number");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("numeric")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
                         .HasColumnName("total_amount");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("sales_invoices_pkey");
+
+                    b.HasIndex(new[] { "BranchId" }, "idx_sales_invoices_branch_id")
+                        .HasDatabaseName("ix_sales_invoices_branch_id");
+
+                    b.HasIndex(new[] { "CustomerId" }, "idx_sales_invoices_customer_id")
+                        .HasDatabaseName("ix_sales_invoices_customer_id");
+
+                    b.HasIndex(new[] { "InvoiceDate" }, "idx_sales_invoices_date")
+                        .HasDatabaseName("ix_sales_invoices_invoice_date");
+
+                    b.HasIndex(new[] { "InvoiceNumber" }, "ux_sales_invoices_invoice_number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_sales_invoices_invoice_number");
 
                     b.ToTable("sales_invoices", "erp");
                 });
@@ -2280,31 +3709,38 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("InvoiceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("invoice_id");
 
                     b.Property<long>("ItemId")
                         .HasColumnType("bigint")
                         .HasColumnName("item_id");
 
                     b.Property<decimal>("LineTotal")
-                        .HasColumnType("numeric")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
                         .HasColumnName("line_total");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer")
                         .HasColumnName("quantity");
 
-                    b.Property<long>("SalesInvoiceId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("sales_invoice_id");
-
                     b.Property<decimal>("UnitPrice")
-                        .HasColumnType("numeric")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
                         .HasColumnName("unit_price");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("sales_invoice_lines_pkey");
 
-                    b.HasIndex("SalesInvoiceId");
+                    b.HasIndex(new[] { "InvoiceId" }, "idx_sales_invoice_lines_invoice_id")
+                        .HasDatabaseName("ix_sales_invoice_lines_invoice_id");
+
+                    b.HasIndex(new[] { "ItemId" }, "idx_sales_invoice_lines_item_id")
+                        .HasDatabaseName("ix_sales_invoice_lines_item_id");
 
                     b.ToTable("sales_invoice_lines", "erp");
                 });
@@ -2393,16 +3829,21 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("sales_orders_pkey");
 
-                    b.HasIndex("BranchId");
+                    b.HasIndex("BranchId")
+                        .HasDatabaseName("ix_sales_orders_branch_id");
 
-                    b.HasIndex(new[] { "CompanyId" }, "idx_sales_orders_company");
+                    b.HasIndex(new[] { "CompanyId" }, "idx_sales_orders_company")
+                        .HasDatabaseName("ix_sales_orders_company_id");
 
-                    b.HasIndex(new[] { "CustomerId" }, "idx_sales_orders_customer");
+                    b.HasIndex(new[] { "CustomerId" }, "idx_sales_orders_customer")
+                        .HasDatabaseName("ix_sales_orders_customer_id");
 
-                    b.HasIndex(new[] { "WarehouseId" }, "idx_sales_orders_warehouse");
+                    b.HasIndex(new[] { "WarehouseId" }, "idx_sales_orders_warehouse")
+                        .HasDatabaseName("ix_sales_orders_warehouse_id");
 
                     b.HasIndex(new[] { "CompanyId", "OrderNumber" }, "sales_orders_company_id_order_number_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_sales_orders_company_id_order_number");
 
                     b.ToTable("sales_orders", "erp");
                 });
@@ -2419,7 +3860,7 @@ namespace KayanERP.Api.Migrations
                     b.Property<decimal>("DeliveredQuantity")
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)")
-                        .HasColumnName("delivered_quantity");
+                        .HasColumnName("delivred_quantity");
 
                     b.Property<decimal>("DiscountAmount")
                         .HasPrecision(18, 2)
@@ -2461,9 +3902,11 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("sales_order_lines_pkey");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_sales_lines_item");
+                    b.HasIndex(new[] { "ItemId" }, "idx_sales_lines_item")
+                        .HasDatabaseName("ix_sales_order_lines_item_id");
 
-                    b.HasIndex(new[] { "SalesOrderId" }, "idx_sales_lines_order");
+                    b.HasIndex(new[] { "SalesOrderId" }, "idx_sales_lines_order")
+                        .HasDatabaseName("ix_sales_order_lines_sales_order_id");
 
                     b.ToTable("sales_order_lines", "erp");
                 });
@@ -2475,14 +3918,12 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
                     b.Property<decimal?>("AvailableQuantity")
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)")
-                        .HasColumnName("available_quantity")
-                        .HasComputedColumnSql("(quantity - reserved_quantity)", true);
+                        .HasColumnType("numeric")
+                        .HasColumnName("available_quantity");
 
                     b.Property<long>("CompanyId")
                         .HasColumnType("bigint")
@@ -2493,19 +3934,15 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("item_id");
 
                     b.Property<DateTime>("LastUpdatedAt")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_updated_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+                        .HasColumnName("last_updated_at");
 
                     b.Property<decimal>("Quantity")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)")
+                        .HasColumnType("numeric")
                         .HasColumnName("quantity");
 
                     b.Property<decimal>("ReservedQuantity")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)")
+                        .HasColumnType("numeric")
                         .HasColumnName("reserved_quantity");
 
                     b.Property<long>("WarehouseId")
@@ -2513,16 +3950,16 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("warehouse_id");
 
                     b.HasKey("Id")
-                        .HasName("stock_balances_pkey");
+                        .HasName("pk_stock_balances");
 
-                    b.HasIndex(new[] { "CompanyId" }, "idx_stock_balances_company");
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_stock_balances_company_id");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_stock_balances_item");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_stock_balances_item_id");
 
-                    b.HasIndex(new[] { "WarehouseId" }, "idx_stock_balances_warehouse");
-
-                    b.HasIndex(new[] { "WarehouseId", "ItemId" }, "stock_balances_warehouse_id_item_id_key")
-                        .IsUnique();
+                    b.HasIndex("WarehouseId")
+                        .HasDatabaseName("ix_stock_balances_warehouse_id");
 
                     b.ToTable("stock_balances", "erp");
                 });
@@ -2549,9 +3986,6 @@ namespace KayanERP.Api.Migrations
                     b.Property<long?>("CreatedBy")
                         .HasColumnType("bigint")
                         .HasColumnName("created_by");
-
-                    b.Property<long?>("CreatedByNavigationId")
-                        .HasColumnType("bigint");
 
                     b.Property<long>("ItemId")
                         .HasColumnType("bigint")
@@ -2599,17 +4033,23 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("stock_movements_pkey");
 
-                    b.HasIndex("CreatedByNavigationId");
+                    b.HasIndex("CreatedBy")
+                        .HasDatabaseName("ix_stock_movements_created_by");
 
-                    b.HasIndex(new[] { "CompanyId" }, "idx_stock_movements_company");
+                    b.HasIndex(new[] { "CompanyId" }, "idx_stock_movements_company")
+                        .HasDatabaseName("ix_stock_movements_company_id");
 
-                    b.HasIndex(new[] { "MovementAt" }, "idx_stock_movements_date");
+                    b.HasIndex(new[] { "MovementAt" }, "idx_stock_movements_date")
+                        .HasDatabaseName("ix_stock_movements_movement_at");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_stock_movements_item");
+                    b.HasIndex(new[] { "ItemId" }, "idx_stock_movements_item")
+                        .HasDatabaseName("ix_stock_movements_item_id");
 
-                    b.HasIndex(new[] { "ReferenceType", "ReferenceId" }, "idx_stock_movements_reference");
+                    b.HasIndex(new[] { "ReferenceType", "ReferenceId" }, "idx_stock_movements_reference")
+                        .HasDatabaseName("ix_stock_movements_reference_type_reference_id");
 
-                    b.HasIndex(new[] { "WarehouseId" }, "idx_stock_movements_warehouse");
+                    b.HasIndex(new[] { "WarehouseId" }, "idx_stock_movements_warehouse")
+                        .HasDatabaseName("ix_stock_movements_warehouse_id");
 
                     b.ToTable("stock_movements", "erp");
                 });
@@ -2623,15 +4063,33 @@ namespace KayanERP.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<long>("CompanyId")
+                    b.Property<long?>("CompanyId")
                         .HasColumnType("bigint")
                         .HasColumnName("company_id");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime?>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DispatchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispatched_at");
+
+                    b.Property<string>("DriverName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("driver_name");
 
                     b.Property<long>("FromWarehouseId")
                         .HasColumnType("bigint")
@@ -2641,19 +4099,24 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("notes");
 
+                    b.Property<string>("ReceivedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("received_by");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)")
                         .HasColumnName("status")
-                        .HasDefaultValueSql("'DRAFT'");
+                        .HasDefaultValueSql("'IN_TRANSIT'");
 
                     b.Property<long>("ToWarehouseId")
                         .HasColumnType("bigint")
                         .HasColumnName("to_warehouse_id");
 
-                    b.Property<DateOnly>("TransferDate")
+                    b.Property<DateOnly?>("TransferDate")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("date")
                         .HasColumnName("transfer_date")
@@ -2665,21 +4128,29 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("transfer_number");
 
-                    b.Property<DateTime>("UpdatedAt")
+                    b.Property<DateTime?>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<string>("VehicleNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("vehicle_number");
+
                     b.HasKey("Id")
                         .HasName("stock_transfers_pkey");
 
-                    b.HasIndex(new[] { "FromWarehouseId" }, "idx_stock_transfers_from");
+                    b.HasIndex(new[] { "FromWarehouseId" }, "idx_stock_transfers_from")
+                        .HasDatabaseName("ix_stock_transfers_from_warehouse_id");
 
-                    b.HasIndex(new[] { "ToWarehouseId" }, "idx_stock_transfers_to");
+                    b.HasIndex(new[] { "ToWarehouseId" }, "idx_stock_transfers_to")
+                        .HasDatabaseName("ix_stock_transfers_to_warehouse_id");
 
                     b.HasIndex(new[] { "CompanyId", "TransferNumber" }, "stock_transfers_company_id_transfer_number_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_stock_transfers_company_id_transfer_number");
 
                     b.ToTable("stock_transfers", "erp");
                 });
@@ -2693,9 +4164,41 @@ namespace KayanERP.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("BatchNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("batch_number");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("DiscrepancyReason")
+                        .HasColumnType("text")
+                        .HasColumnName("discrepancy_reason");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expiry_date");
+
                     b.Property<long>("ItemId")
                         .HasColumnType("bigint")
                         .HasColumnName("item_id");
+
+                    b.Property<string>("LineStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("line_status")
+                        .HasDefaultValueSql("'PENDING'");
+
+                    b.Property<decimal>("LossQty")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("loss_qty");
 
                     b.Property<decimal>("Quantity")
                         .HasPrecision(18, 6)
@@ -2707,16 +4210,27 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("numeric(18,6)")
                         .HasColumnName("received_quantity");
 
+                    b.Property<string>("ResolutionNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("resolution_notes");
+
                     b.Property<long>("TransferId")
                         .HasColumnType("bigint")
                         .HasColumnName("transfer_id");
 
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("unit_cost");
+
                     b.HasKey("Id")
                         .HasName("stock_transfer_lines_pkey");
 
-                    b.HasIndex("TransferId");
+                    b.HasIndex("TransferId")
+                        .HasDatabaseName("ix_stock_transfer_lines_transfer_id");
 
-                    b.HasIndex(new[] { "ItemId" }, "idx_stock_transfer_lines_item");
+                    b.HasIndex(new[] { "ItemId" }, "idx_stock_transfer_lines_item")
+                        .HasDatabaseName("ix_stock_transfer_lines_item_id");
 
                     b.ToTable("stock_transfer_lines", "erp");
                 });
@@ -2760,6 +4274,10 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("email");
 
+                    b.Property<bool>("IsApproved")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_approved");
+
                     b.Property<string>("Notes")
                         .HasColumnType("text")
                         .HasColumnName("notes");
@@ -2800,15 +4318,72 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("suppliers_pkey");
 
-                    b.HasIndex(new[] { "CompanyId" }, "ix_suppliers_company_id");
+                    b.HasIndex(new[] { "CompanyId" }, "ix_suppliers_company_id")
+                        .HasDatabaseName("ix_suppliers_company_id");
 
                     b.HasIndex(new[] { "CompanyId", "SupplierCode" }, "suppliers_company_id_supplier_code_key")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "CompanyId", "SupplierCode" }, "ux_suppliers_company_code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_suppliers_company_id_supplier_code");
 
                     b.ToTable("suppliers", "erp");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.SupplierItemPrice", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("currency");
+
+                    b.Property<DateOnly>("EffectiveDate")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_date");
+
+                    b.Property<bool>("IsPreferred")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_preferred");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("item_id");
+
+                    b.Property<int>("LeadTimeDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("lead_time_days");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<decimal>("Price")
+                        .HasColumnType("numeric")
+                        .HasColumnName("price");
+
+                    b.Property<long>("SupplierId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("supplier_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_supplier_item_prices");
+
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_supplier_item_prices_item_id");
+
+                    b.HasIndex("SupplierId")
+                        .HasDatabaseName("ix_supplier_item_prices_supplier_id");
+
+                    b.ToTable("supplier_item_prices", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.Unit", b =>
@@ -2845,10 +4420,12 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("units_pkey");
 
-                    b.HasIndex(new[] { "CompanyId" }, "idx_units_company");
+                    b.HasIndex(new[] { "CompanyId" }, "idx_units_company")
+                        .HasDatabaseName("ix_units_company_id");
 
                     b.HasIndex(new[] { "CompanyId", "UnitCode" }, "units_company_id_unit_code_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_units_company_id_unit_code");
 
                     b.ToTable("units", "erp");
                 });
@@ -2882,12 +4459,15 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("unit_conversions_pkey");
 
-                    b.HasIndex(new[] { "FromUnitId" }, "idx_unit_conversions_from");
+                    b.HasIndex(new[] { "FromUnitId" }, "idx_unit_conversions_from")
+                        .HasDatabaseName("ix_unit_conversions_from_unit_id");
 
-                    b.HasIndex(new[] { "ToUnitId" }, "idx_unit_conversions_to");
+                    b.HasIndex(new[] { "ToUnitId" }, "idx_unit_conversions_to")
+                        .HasDatabaseName("ix_unit_conversions_to_unit_id");
 
                     b.HasIndex(new[] { "CompanyId", "FromUnitId", "ToUnitId" }, "unit_conversions_company_id_from_unit_id_to_unit_id_key")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("ix_unit_conversions_company_id_from_unit_id_to_unit_id");
 
                     b.ToTable("unit_conversions", "erp");
                 });
@@ -3267,10 +4847,12 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
 
                     b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
+                        .HasDefaultValue(true)
                         .HasColumnName("active");
 
                     b.Property<long?>("BranchId")
@@ -3281,9 +4863,11 @@ namespace KayanERP.Api.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("company_id");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime?>("CreatedAt")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Description")
                         .HasColumnType("text")
@@ -3294,31 +4878,40 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("parent_warehouse_id");
 
                     b.Property<DateTime?>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("WarehouseCode")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("warehouse_code");
 
                     b.Property<string>("WarehouseName")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("warehouse_name");
 
                     b.Property<string>("WarehouseType")
-                        .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("warehouse_type");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("warehouses_pkey");
 
-                    b.HasIndex("BranchId");
+                    b.HasIndex("ParentWarehouseId")
+                        .HasDatabaseName("ix_warehouses_parent_warehouse_id");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex(new[] { "BranchId" }, "idx_warehouses_branch_id")
+                        .HasDatabaseName("ix_warehouses_branch_id");
 
-                    b.HasIndex("ParentWarehouseId");
+                    b.HasIndex(new[] { "CompanyId", "WarehouseCode" }, "ux_warehouses_company_code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_warehouses_company_id_warehouse_code");
 
                     b.ToTable("warehouses", "erp");
                 });
@@ -3347,7 +4940,8 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("created_by");
 
                     b.Property<long?>("CreatedByNavigationId")
-                        .HasColumnType("bigint");
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_navigation_id");
 
                     b.Property<long>("ItemId")
                         .HasColumnType("bigint")
@@ -3389,30 +4983,40 @@ namespace KayanERP.Api.Migrations
                     b.HasKey("Id")
                         .HasName("waste_records_pkey");
 
-                    b.HasIndex("CompanyId");
+                    b.HasIndex("CompanyId")
+                        .HasDatabaseName("ix_waste_records_company_id");
 
-                    b.HasIndex("CreatedByNavigationId");
+                    b.HasIndex("CreatedByNavigationId")
+                        .HasDatabaseName("ix_waste_records_created_by_navigation_id");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_waste_records_item_id");
 
-                    b.HasIndex("ProductionStageId");
+                    b.HasIndex("ProductionStageId")
+                        .HasDatabaseName("ix_waste_records_production_stage_id");
 
-                    b.HasIndex("WarehouseId");
+                    b.HasIndex("WarehouseId")
+                        .HasDatabaseName("ix_waste_records_warehouse_id");
 
-                    b.HasIndex(new[] { "ProductionOrderId" }, "idx_waste_production");
+                    b.HasIndex(new[] { "ProductionOrderId" }, "idx_waste_production")
+                        .HasDatabaseName("ix_waste_records_production_order_id");
 
                     b.ToTable("waste_records", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.AppUser", b =>
                 {
-                    b.HasOne("KayanERP.Api.Models.Company", null)
+                    b.HasOne("KayanERP.Api.Models.Company", "Company")
                         .WithMany("AppUsers")
-                        .HasForeignKey("CompanyId");
+                        .HasForeignKey("CompanyId")
+                        .HasConstraintName("fk_users_companies_company_id");
 
                     b.HasOne("KayanERP.Api.Models.Role", null)
                         .WithMany("Users")
-                        .HasForeignKey("RoleId");
+                        .HasForeignKey("RoleId")
+                        .HasConstraintName("fk_users_role_role_id");
+
+                    b.Navigation("Company");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.AssetBalance", b =>
@@ -3432,6 +5036,18 @@ namespace KayanERP.Api.Migrations
                     b.Navigation("Company");
 
                     b.Navigation("Item");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.AssetHistoryLog", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.FixedAsset", "FixedAsset")
+                        .WithMany("HistoryLogs")
+                        .HasForeignKey("FixedAssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_history_logs_fixed_assets_fixed_asset_id");
+
+                    b.Navigation("FixedAsset");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.AssetMovement", b =>
@@ -3464,13 +5080,62 @@ namespace KayanERP.Api.Migrations
                     b.Navigation("Company");
                 });
 
+            modelBuilder.Entity("KayanERP.Api.Models.BranchTransfer", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_branch_transfers_companies_company_id");
+
+                    b.HasOne("KayanERP.Api.Models.Branch", "DestinationBranch")
+                        .WithMany()
+                        .HasForeignKey("DestinationBranchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_branch_transfers_branches_destination_branch_id");
+
+                    b.HasOne("KayanERP.Api.Models.Warehouse", "DestinationWarehouse")
+                        .WithMany()
+                        .HasForeignKey("DestinationWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_branch_transfers_warehouses_destination_warehouse_id");
+
+                    b.HasOne("KayanERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_branch_transfers_items_item_id");
+
+                    b.HasOne("KayanERP.Api.Models.Warehouse", "SourceWarehouse")
+                        .WithMany()
+                        .HasForeignKey("SourceWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_branch_transfers_warehouses_source_warehouse_id");
+
+                    b.Navigation("Company");
+
+                    b.Navigation("DestinationBranch");
+
+                    b.Navigation("DestinationWarehouse");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("SourceWarehouse");
+                });
+
             modelBuilder.Entity("KayanERP.Api.Models.CrateClientTransaction", b =>
                 {
                     b.HasOne("KayanERP.Api.Models.CrateClient", "CrateClient")
                         .WithMany()
                         .HasForeignKey("CrateClientId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_crate_client_transactions_crate_clients_crate_client_id");
 
                     b.Navigation("CrateClient");
                 });
@@ -3481,7 +5146,8 @@ namespace KayanERP.Api.Migrations
                         .WithMany("CrateTransactions")
                         .HasForeignKey("CrateId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_crate_transactions_crates_crate_id");
 
                     b.Navigation("Crate");
                 });
@@ -3520,13 +5186,15 @@ namespace KayanERP.Api.Migrations
                 {
                     b.HasOne("KayanERP.Api.Models.Branch", "Branch")
                         .WithMany()
-                        .HasForeignKey("BranchId");
+                        .HasForeignKey("BranchId")
+                        .HasConstraintName("fk_employees_branches_branch_id");
 
                     b.HasOne("KayanERP.Api.Models.Company", "Company")
                         .WithMany()
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_employees_companies_company_id");
 
                     b.HasOne("KayanERP.Api.Models.Department", "Department")
                         .WithMany("Employees")
@@ -3536,7 +5204,8 @@ namespace KayanERP.Api.Migrations
 
                     b.HasOne("KayanERP.Api.Models.JobTitle", "JobTitle")
                         .WithMany()
-                        .HasForeignKey("JobTitleId");
+                        .HasForeignKey("JobTitleId")
+                        .HasConstraintName("fk_employees_job_titles_job_title_id");
 
                     b.HasOne("KayanERP.Api.Models.Employee", "Manager")
                         .WithMany()
@@ -3553,6 +5222,36 @@ namespace KayanERP.Api.Migrations
                     b.Navigation("JobTitle");
 
                     b.Navigation("Manager");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.FinishedGoodsTransfer", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.Warehouse", "DestinationWarehouse")
+                        .WithMany()
+                        .HasForeignKey("DestinationWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_finished_goods_transfers_warehouses_destination_warehouse_id");
+
+                    b.HasOne("KayanERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_finished_goods_transfers_items_item_id");
+
+                    b.HasOne("KayanERP.Api.Models.Warehouse", "SourceWarehouse")
+                        .WithMany()
+                        .HasForeignKey("SourceWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_finished_goods_transfers_warehouses_source_warehouse_id");
+
+                    b.Navigation("DestinationWarehouse");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("SourceWarehouse");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.FormSubmission", b =>
@@ -3572,18 +5271,30 @@ namespace KayanERP.Api.Migrations
                     b.HasOne("KayanERP.Api.Models.ItemCategory", "ItemCategory")
                         .WithMany("Items")
                         .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("items_category_id_fkey");
 
                     b.HasOne("KayanERP.Api.Models.Company", null)
                         .WithMany("Items")
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_items_companies_company_id");
+
+                    b.HasOne("KayanERP.Api.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("items_department_id_fkey");
 
                     b.HasOne("KayanERP.Api.Models.Item", "ParentItem")
                         .WithMany("Variants")
-                        .HasForeignKey("ParentItemId");
+                        .HasForeignKey("ParentItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("items_parent_item_id_fkey");
+
+                    b.Navigation("Department");
 
                     b.Navigation("ItemCategory");
 
@@ -3605,7 +5316,8 @@ namespace KayanERP.Api.Migrations
                 {
                     b.HasOne("KayanERP.Api.Models.Item", "Item")
                         .WithMany()
-                        .HasForeignKey("ItemId");
+                        .HasForeignKey("ItemId")
+                        .HasConstraintName("fk_item_uom_conversions_items_item_id");
 
                     b.Navigation("Item");
                 });
@@ -3616,7 +5328,8 @@ namespace KayanERP.Api.Migrations
                         .WithMany()
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_job_titles_companies_company_id");
 
                     b.Navigation("Company");
                 });
@@ -3627,13 +5340,15 @@ namespace KayanERP.Api.Migrations
                         .WithMany()
                         .HasForeignKey("AccountId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_journal_entry_lines_accounts_account_id");
 
                     b.HasOne("KayanERP.Api.Models.JournalEntry", "JournalEntry")
                         .WithMany("Lines")
                         .HasForeignKey("JournalEntryId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_journal_entry_lines_journal_entries_journal_entry_id");
 
                     b.Navigation("Account");
 
@@ -3677,6 +5392,62 @@ namespace KayanERP.Api.Migrations
                     b.Navigation("Company");
                 });
 
+            modelBuilder.Entity("KayanERP.Api.Models.MaterialRequisition", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_material_requisitions_departments_department_id");
+
+                    b.HasOne("KayanERP.Api.Models.Warehouse", "FromWarehouse")
+                        .WithMany()
+                        .HasForeignKey("FromWarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_material_requisitions_warehouses_from_warehouse_id");
+
+                    b.HasOne("KayanERP.Api.Models.Warehouse", "ToWarehouse")
+                        .WithMany()
+                        .HasForeignKey("ToWarehouseId")
+                        .HasConstraintName("fk_material_requisitions_warehouses_to_warehouse_id");
+
+                    b.Navigation("Department");
+
+                    b.Navigation("FromWarehouse");
+
+                    b.Navigation("ToWarehouse");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.MaterialRequisitionLine", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.Warehouse", "FromWarehouse")
+                        .WithMany()
+                        .HasForeignKey("FromWarehouseId")
+                        .HasConstraintName("fk_material_requisition_lines_warehouses_from_warehouse_id");
+
+                    b.HasOne("KayanERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_material_requisition_lines_items_item_id");
+
+                    b.HasOne("KayanERP.Api.Models.MaterialRequisition", "Requisition")
+                        .WithMany("Lines")
+                        .HasForeignKey("RequisitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_material_requisition_lines_material_requisitions_requisitio");
+
+                    b.Navigation("FromWarehouse");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("Requisition");
+                });
+
             modelBuilder.Entity("KayanERP.Api.Models.ProductionOrder", b =>
                 {
                     b.HasOne("KayanERP.Api.Models.Company", "Company")
@@ -3687,7 +5458,8 @@ namespace KayanERP.Api.Migrations
 
                     b.HasOne("KayanERP.Api.Models.Recipe", null)
                         .WithMany("ProductionOrders")
-                        .HasForeignKey("RecipeId");
+                        .HasForeignKey("RecipeId")
+                        .HasConstraintName("fk_production_orders_recipes_recipe_id");
 
                     b.HasOne("KayanERP.Api.Models.Warehouse", "Warehouse")
                         .WithMany("ProductionOrders")
@@ -3704,7 +5476,8 @@ namespace KayanERP.Api.Migrations
                 {
                     b.HasOne("KayanERP.Api.Models.Employee", "Employee")
                         .WithMany()
-                        .HasForeignKey("EmployeeId");
+                        .HasForeignKey("EmployeeId")
+                        .HasConstraintName("fk_production_order_details_employees_employee_id");
 
                     b.HasOne("KayanERP.Api.Models.Item", "Item")
                         .WithMany()
@@ -3722,7 +5495,6 @@ namespace KayanERP.Api.Migrations
                     b.HasOne("KayanERP.Api.Models.Recipe", "Recipe")
                         .WithMany()
                         .HasForeignKey("RecipeId")
-                        .IsRequired()
                         .HasConstraintName("production_order_details_recipe_fk");
 
                     b.Navigation("Employee");
@@ -3751,7 +5523,8 @@ namespace KayanERP.Api.Migrations
 
                     b.HasOne("KayanERP.Api.Models.Recipe", null)
                         .WithMany("ProductionOrderStages")
-                        .HasForeignKey("RecipeId");
+                        .HasForeignKey("RecipeId")
+                        .HasConstraintName("fk_production_order_stages_recipes_recipe_id");
 
                     b.HasOne("KayanERP.Api.Models.RecipeStage", "RecipeStage")
                         .WithMany("ProductionOrderStages")
@@ -3798,13 +5571,15 @@ namespace KayanERP.Api.Migrations
                         .WithMany()
                         .HasForeignKey("EmployeeId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_productivity_logs_employees_employee_id");
 
                     b.HasOne("KayanERP.Api.Models.ProductionOrder", "ProductionOrder")
                         .WithMany()
                         .HasForeignKey("ProductionOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_productivity_logs_production_orders_production_order_id");
 
                     b.Navigation("Employee");
 
@@ -3817,7 +5592,8 @@ namespace KayanERP.Api.Migrations
                         .WithMany("InvoiceLines")
                         .HasForeignKey("PurchaseInvoiceId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_purchase_invoice_lines_purchase_invoices_purchase_invoice_id");
 
                     b.Navigation("PurchaseInvoice");
                 });
@@ -3832,7 +5608,8 @@ namespace KayanERP.Api.Migrations
 
                     b.HasOne("KayanERP.Api.Models.AppUser", "CreatedByNavigation")
                         .WithMany()
-                        .HasForeignKey("CreatedByNavigationId");
+                        .HasForeignKey("CreatedByNavigationId")
+                        .HasConstraintName("fk_purchase_orders_users_created_by_navigation_id");
 
                     b.HasOne("KayanERP.Api.Models.Supplier", "Supplier")
                         .WithMany("PurchaseOrders")
@@ -3927,7 +5704,8 @@ namespace KayanERP.Api.Migrations
                         .WithMany()
                         .HasForeignKey("ProductItemId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_recipes_items_product_item_id");
 
                     b.Navigation("Company");
 
@@ -3988,26 +5766,65 @@ namespace KayanERP.Api.Migrations
                     b.Navigation("StageRecipe");
                 });
 
+            modelBuilder.Entity("KayanERP.Api.Models.RefreshToken", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("refresh_tokens_user_id_fkey");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("KayanERP.Api.Models.Role", b =>
                 {
                     b.HasOne("KayanERP.Api.Models.Company", "Company")
                         .WithMany("Roles")
                         .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("roles_company_fk");
+                        .HasConstraintName("fk_role_companies_company_id");
 
                     b.Navigation("Company");
                 });
 
+            modelBuilder.Entity("KayanERP.Api.Models.SalesInvoice", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("sales_invoices_branch_id_fkey");
+
+                    b.HasOne("KayanERP.Api.Models.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("sales_invoices_customer_id_fkey");
+                });
+
             modelBuilder.Entity("KayanERP.Api.Models.SalesInvoiceLine", b =>
                 {
-                    b.HasOne("KayanERP.Api.Models.SalesInvoice", "SalesInvoice")
+                    b.HasOne("KayanERP.Api.Models.SalesInvoice", "Invoice")
                         .WithMany("InvoiceLines")
-                        .HasForeignKey("SalesInvoiceId")
+                        .HasForeignKey("InvoiceId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("sales_invoice_lines_invoice_id_fkey");
 
-                    b.Navigation("SalesInvoice");
+                    b.HasOne("KayanERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("sales_invoice_lines_item_id_fkey");
+
+                    b.Navigation("Invoice");
+
+                    b.Navigation("Item");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.SalesOrder", b =>
@@ -4067,20 +5884,23 @@ namespace KayanERP.Api.Migrations
                     b.HasOne("KayanERP.Api.Models.Company", "Company")
                         .WithMany("StockBalances")
                         .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("stock_balances_company_id_fkey");
+                        .HasConstraintName("fk_stock_balances_companies_company_id");
 
                     b.HasOne("KayanERP.Api.Models.Item", "Item")
                         .WithMany()
                         .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("stock_balances_item_id_fkey");
+                        .HasConstraintName("fk_stock_balances_items_item_id");
 
                     b.HasOne("KayanERP.Api.Models.Warehouse", "Warehouse")
                         .WithMany("StockBalances")
                         .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("stock_balances_warehouse_id_fkey");
+                        .HasConstraintName("fk_stock_balances_warehouses_warehouse_id");
 
                     b.Navigation("Company");
 
@@ -4099,7 +5919,9 @@ namespace KayanERP.Api.Migrations
 
                     b.HasOne("KayanERP.Api.Models.AppUser", "CreatedByNavigation")
                         .WithMany()
-                        .HasForeignKey("CreatedByNavigationId");
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_stock_movements_users_created_by");
 
                     b.HasOne("KayanERP.Api.Models.Item", "Item")
                         .WithMany()
@@ -4127,7 +5949,6 @@ namespace KayanERP.Api.Migrations
                     b.HasOne("KayanERP.Api.Models.Company", "Company")
                         .WithMany("StockTransfers")
                         .HasForeignKey("CompanyId")
-                        .IsRequired()
                         .HasConstraintName("stock_transfers_company_fk");
 
                     b.HasOne("KayanERP.Api.Models.Warehouse", "FromWarehouse")
@@ -4160,6 +5981,7 @@ namespace KayanERP.Api.Migrations
                     b.HasOne("KayanERP.Api.Models.StockTransfer", "Transfer")
                         .WithMany("StockTransferLines")
                         .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("stock_transfer_lines_transfer_fk");
 
@@ -4177,6 +5999,27 @@ namespace KayanERP.Api.Migrations
                         .HasConstraintName("suppliers_company_id_fkey");
 
                     b.Navigation("Company");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.SupplierItemPrice", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_supplier_item_prices_items_item_id");
+
+                    b.HasOne("KayanERP.Api.Models.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_supplier_item_prices_suppliers_supplier_id");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("Supplier");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.Unit", b =>
@@ -4219,19 +6062,28 @@ namespace KayanERP.Api.Migrations
 
             modelBuilder.Entity("KayanERP.Api.Models.Warehouse", b =>
                 {
-                    b.HasOne("KayanERP.Api.Models.Branch", null)
+                    b.HasOne("KayanERP.Api.Models.Branch", "Branch")
                         .WithMany("Warehouses")
-                        .HasForeignKey("BranchId");
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("warehouses_branch_id_fkey");
 
-                    b.HasOne("KayanERP.Api.Models.Company", null)
+                    b.HasOne("KayanERP.Api.Models.Company", "Company")
                         .WithMany("Warehouses")
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_warehouses_companies_company_id");
 
                     b.HasOne("KayanERP.Api.Models.Warehouse", "ParentWarehouse")
-                        .WithMany("ChildWarehouses")
-                        .HasForeignKey("ParentWarehouseId");
+                        .WithMany("InverseParentWarehouse")
+                        .HasForeignKey("ParentWarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("warehouses_parent_warehouse_id_fkey");
+
+                    b.Navigation("Branch");
+
+                    b.Navigation("Company");
 
                     b.Navigation("ParentWarehouse");
                 });
@@ -4246,7 +6098,8 @@ namespace KayanERP.Api.Migrations
 
                     b.HasOne("KayanERP.Api.Models.AppUser", "CreatedByNavigation")
                         .WithMany()
-                        .HasForeignKey("CreatedByNavigationId");
+                        .HasForeignKey("CreatedByNavigationId")
+                        .HasConstraintName("fk_waste_records_users_created_by_navigation_id");
 
                     b.HasOne("KayanERP.Api.Models.Item", "Item")
                         .WithMany()
@@ -4360,6 +6213,11 @@ namespace KayanERP.Api.Migrations
                     b.Navigation("FormSubmissions");
                 });
 
+            modelBuilder.Entity("KayanERP.Api.Models.FixedAsset", b =>
+                {
+                    b.Navigation("HistoryLogs");
+                });
+
             modelBuilder.Entity("KayanERP.Api.Models.Item", b =>
                 {
                     b.Navigation("Variants");
@@ -4378,6 +6236,11 @@ namespace KayanERP.Api.Migrations
             modelBuilder.Entity("KayanERP.Api.Models.MaintenanceAsset", b =>
                 {
                     b.Navigation("MaintenanceOrders");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.MaterialRequisition", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.ProductionOrder", b =>
@@ -4464,7 +6327,7 @@ namespace KayanERP.Api.Migrations
 
             modelBuilder.Entity("KayanERP.Api.Models.Warehouse", b =>
                 {
-                    b.Navigation("ChildWarehouses");
+                    b.Navigation("InverseParentWarehouse");
 
                     b.Navigation("ProductionOrders");
 

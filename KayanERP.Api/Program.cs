@@ -22,8 +22,13 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    options.UseNpgsql(connectionString)
-           .UseSnakeCaseNamingConvention();
+    options.UseNpgsql(connectionString, npgsqlOptions =>
+    {
+        // ⚠️ مهم: نحدد مكان جدول Migrations History بشكل صريح
+        // الجدول موجود في `public` schema (قديم) — لازم نقوله يقرأ من هناك
+        npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", "public");
+    })
+    .UseSnakeCaseNamingConvention();
 });
 
 // ==============================================================

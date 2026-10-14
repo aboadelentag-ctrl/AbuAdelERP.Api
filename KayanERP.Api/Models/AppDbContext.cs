@@ -39,6 +39,7 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<JobTitle> JobTitles { get; set; }
     public virtual DbSet<AppRole> Roles { get; set; }
     public virtual DbSet<AppUser> Users { get; set; }
+    public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
     public virtual DbSet<ProductivityLog> ProductivityLogs { get; set; }
     public virtual DbSet<BranchTransfer> BranchTransfers { get; set; }
 
@@ -140,6 +141,61 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<AppUser>(entity =>
         {
             entity.ToTable("users");
+        });
+
+        // ----------------------------------------------------
+        // Refresh Tokens — لتجديد Access Tokens بدون Login
+        // ----------------------------------------------------
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("refresh_tokens_pkey");
+            entity.ToTable("refresh_tokens");
+
+            // فهارس مهمة للأداء
+            entity.HasIndex(e => e.Token, "ux_refresh_tokens_token").IsUnique();
+            entity.HasIndex(e => e.UserId, "idx_refresh_tokens_user_id");
+            entity.HasIndex(e => e.ExpiresAt, "idx_refresh_tokens_expires_at");
+
+            // Properties
+            entity.Property(e => e.Id)
+                .UseIdentityAlwaysColumn()
+                .HasColumnName("id");
+
+            entity.Property(e => e.UserId)
+                .HasColumnName("user_id");
+
+            entity.Property(e => e.Token)
+                .HasMaxLength(500)
+                .HasColumnName("token");
+
+            entity.Property(e => e.ExpiresAt)
+                .HasColumnName("expires_at");
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.RevokedAt)
+                .HasColumnName("revoked_at");
+
+            entity.Property(e => e.ReplacedByToken)
+                .HasMaxLength(500)
+                .HasColumnName("replaced_by_token");
+
+            entity.Property(e => e.RevokedReason)
+                .HasMaxLength(100)
+                .HasColumnName("revoked_reason");
+
+            entity.Property(e => e.CreatedByIp)
+                .HasMaxLength(50)
+                .HasColumnName("created_by_ip");
+
+            // علاقة مع AppUser
+            entity.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("refresh_tokens_user_id_fkey");
         });
 
         // ----------------------------------------------------
