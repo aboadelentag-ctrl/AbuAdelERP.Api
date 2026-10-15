@@ -1,6 +1,5 @@
-using System.Text;
-using System.Text.Json.Serialization;
 using KayanERP.Api.Extensions;
+using KayanERP.Api.Middleware;
 using KayanERP.Api.Models;
 using KayanERP.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -9,6 +8,8 @@ using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using System.Text;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -160,6 +161,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// ✅ Global Exception Handler — يجب أن يكون أول Middleware
+app.UseExceptionHandling();
 app.UseHttpsRedirection();
 app.UseCors("KayanPolicy");
 

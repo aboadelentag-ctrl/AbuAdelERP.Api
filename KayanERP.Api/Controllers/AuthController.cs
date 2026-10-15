@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using KayanERP.Api.Exceptions;          // ← جديد
 using KayanERP.Api.Models;
 using KayanERP.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -323,7 +324,7 @@ namespace KayanERP.Api.Controllers
                 });
             }
         }
-    }
+          }
 
     // ===== DTOs =====
     public class TenantVerifyRequest
