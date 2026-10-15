@@ -3,11 +3,12 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
+using KayanERP.Api.Models.Interfaces;
 
 namespace KayanERP.Api.Models;
 
 [Table("items", Schema = "erp")]
-public class Item
+public class Item : ITenantEntity
 {
     [Key]
     [Column("id")]
@@ -74,7 +75,6 @@ public class Item
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    // الخصائص التوافقية مع قاعدة البيانات ونظام كيان
     [Column("department_name")]
     public string? DepartmentName { get; set; }
 

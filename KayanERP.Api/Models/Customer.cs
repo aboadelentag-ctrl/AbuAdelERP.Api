@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using KayanERP.Api.Models.Interfaces;
 
 namespace KayanERP.Api.Models;
 
-public partial class Customer
+public partial class Customer : ITenantEntity
 {
     public long Id { get; set; }
 

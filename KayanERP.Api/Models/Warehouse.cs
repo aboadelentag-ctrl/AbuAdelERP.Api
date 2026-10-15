@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
+using KayanERP.Api.Models.Interfaces;
 
 namespace KayanERP.Api.Models;
 
 [Table("warehouses", Schema = "erp")]
-public partial class Warehouse
+public partial class Warehouse : ITenantEntity
 {
     [Column("id")]
     public long Id { get; set; }
@@ -34,7 +35,6 @@ public partial class Warehouse
     [Column("active")]
     public bool Active { get; set; } = true;
 
-    // توافقية مزدوجة مع أي كود يستدعي IsActive
     [NotMapped]
     public bool IsActive
     {
@@ -48,9 +48,7 @@ public partial class Warehouse
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
-    // ==========================================
-    // العلاقات الهرمية والمؤسسية (Navigation Properties)
-    // ==========================================
+    // ===== Navigation Properties =====
     public virtual Branch? Branch { get; set; }
     public virtual Company Company { get; set; } = null!;
     public virtual Warehouse? ParentWarehouse { get; set; }

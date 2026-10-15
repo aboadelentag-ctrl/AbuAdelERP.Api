@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
+using KayanERP.Api.Models.Interfaces;
 
 namespace KayanERP.Api.Models;
 
 [Table("suppliers", Schema = "erp")]
-public partial class Supplier
+public partial class Supplier : ITenantEntity
 {
     public long Id { get; set; }
 

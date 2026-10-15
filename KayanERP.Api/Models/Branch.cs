@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
+using KayanERP.Api.Models.Interfaces;
 
 namespace KayanERP.Api.Models;
 
 [Table("branches")]
-public partial class Branch
+public partial class Branch : ITenantEntity
 {
     [Column("id")]
     public long Id { get; set; }
@@ -34,12 +35,12 @@ public partial class Branch
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
-    // العلاقات الأساسية التي تحتاجها الخدمات والمستودعات
+    // ===== Navigation Properties =====
     public virtual Company Company { get; set; } = null!;
     public virtual ICollection<Warehouse> Warehouses { get; set; } = new List<Warehouse>();
     public virtual ICollection<SalesOrder> SalesOrders { get; set; } = new List<SalesOrder>();
 
-    // خصائص إضافية ميسرة لدعم واجهة بوابة الفروع المركزية
+    // ===== Computed Properties =====
     [NotMapped]
     public string Code => BranchCode;
 

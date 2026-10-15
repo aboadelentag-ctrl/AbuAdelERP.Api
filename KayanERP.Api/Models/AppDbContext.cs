@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;              // ← جديد
 using Microsoft.EntityFrameworkCore;
+using KayanERP.Api.Models.Interfaces;      // ← جديد
 using KayanERP.Api.Services;
 
 namespace KayanERP.Api.Models;
@@ -114,27 +116,7 @@ public partial class AppDbContext : DbContext
         // ----------------------------------------------------
         modelBuilder.HasDefaultSchema("erp");
 
-        // ----------------------------------------------------
-        // عزل المستأجر الآلي لمنصة كيان (SaaS Global Query Filters)
-        // ----------------------------------------------------
-        modelBuilder.Entity<Branch>()
-            .HasQueryFilter(b => _tenantContext == null || b.CompanyId == _tenantContext.CompanyId);
-
-        modelBuilder.Entity<Warehouse>()
-            .HasQueryFilter(w => _tenantContext == null || w.CompanyId == _tenantContext.CompanyId);
-
-        modelBuilder.Entity<Customer>()
-            .HasQueryFilter(c => _tenantContext == null || c.CompanyId == _tenantContext.CompanyId);
-
-        modelBuilder.Entity<SalesInvoice>()
-            .HasQueryFilter(s => _tenantContext == null || s.CompanyId == _tenantContext.CompanyId);
-
-        modelBuilder.Entity<ProductionOrder>()
-            .HasQueryFilter(p => _tenantContext == null || p.CompanyId == _tenantContext.CompanyId);
-
-        modelBuilder.Entity<StockBalance>()
-            .HasQueryFilter(sb => _tenantContext == null || sb.CompanyId == _tenantContext.CompanyId);
-
+       
         // ----------------------------------------------------
         // 1. المستخدمين (Users / AppUser)
         // ----------------------------------------------------
@@ -1629,7 +1611,60 @@ public partial class AppDbContext : DbContext
         });
 
         modelBuilder.HasSequence("production_order_number_seq");
+
+        // ⚠️ ده السطر الجديد — يطبّق الفلاتر تلقائيًا
+        ApplyTenantQueryFilters(modelBuilder);
+
         OnModelCreatingPartial(modelBuilder);
+    }
+
+    /// <summary>
+    /// يضيف Global Query Filter لكل Entity بيطبق ITenantEntity.
+    /// كل استعلام على الجداول دي هيرجع بس بيانات الشركة الحالية.
+    /// </summary>
+    private void ApplyTenantQueryFilters(ModelBuilder modelBuilder)
+    {
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            // هل الـ entity بيطبق ITenantEntity؟
+            if (!typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType))
+                continue;
+
+            // نبني الـ Filter Expression: e => _tenantContext == null || e.CompanyId == _tenantContext.CompanyId
+            var parameter = Expression.Parameter(entityType.ClrType, "e");
+            var companyIdProperty = Expression.Property(parameter, nameof(ITenantEntity.CompanyId));
+
+            // الـ TenantContext
+            var tenantContextField = Expression.Field(
+                Expression.Constant(this),
+                "_tenantContext");
+
+            // _tenantContext == null
+            var tenantNullCheck = Expression.Equal(
+                tenantContextField,
+                Expression.Constant(null, typeof(ITenantContext)));
+
+            // _tenantContext.CompanyId
+            var tenantCompanyIdProperty = Expression.Property(
+                tenantContextField,
+                nameof(ITenantContext.CompanyId));
+
+            // e.CompanyId == _tenantContext.CompanyId
+            var companyIdComparison = Expression.Equal(
+                companyIdProperty,
+                Expression.Convert(tenantCompanyIdProperty, typeof(long)));
+
+            // الـ Expression النهائي:
+            // _tenantContext == null OR e.CompanyId == _tenantContext.CompanyId
+            var body = Expression.OrElse(
+                tenantNullCheck,
+                companyIdComparison);
+
+            var lambda = Expression.Lambda(body, parameter);
+
+            modelBuilder.Entity(entityType.ClrType)
+                .HasQueryFilter(lambda);
+        }
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);
