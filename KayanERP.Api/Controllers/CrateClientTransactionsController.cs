@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using KayanERP.Api.DTOs;
 using KayanERP.Api.Services;
@@ -9,6 +10,7 @@ namespace KayanERP.Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class CrateClientTransactionsController : ControllerBase
     {
         private readonly ICrateService _crateService;
@@ -24,39 +26,26 @@ namespace KayanERP.Api.Controllers
         [HttpGet("factory-balance")]
         public async Task<ActionResult<int>> GetFactoryBalance()
         {
-            try
-            {
-                var balance = await _crateService.GetFactoryBalanceAsync();
-                return Ok(balance);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء جلب رصيد المصنع: {ex.Message}");
-            }
+            var balance = await _crateService.GetFactoryBalanceAsync();
+            return Ok(balance);
         }
 
         // ========================================================
         // 2. كشف حركات عهدة العميل
         // ========================================================
-        [HttpGet("client/{clientId:int}")]
-        public async Task<ActionResult<List<CrateClientTransactionViewDto>>> GetClientTransactions(int clientId)
+        [HttpGet("client/{clientId:long}")]
+        public async Task<ActionResult<List<CrateClientTransactionViewDto>>> GetClientTransactions(long clientId)
         {
-            try
-            {
-                var transactions = await _crateService.GetClientTransactionsAsync(clientId);
-                return Ok(transactions);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء جلب حركات العميل: {ex.Message}");
-            }
+            var transactions = await _crateService.GetClientTransactionsAsync(clientId);
+            return Ok(transactions);
         }
 
         // ========================================================
-        // 3. قيد حركة عهدة مع العميل (منصرف / مستلم)
+        // 3. قيد حركة عهدة مع العميل (DISPATCH / RETURN)
         // ========================================================
         [HttpPost]
-        public async Task<ActionResult<CrateClientTransactionViewDto>> PostTransaction([FromBody] CreateCrateClientTransactionDto dto)
+        public async Task<ActionResult<CrateClientTransactionViewDto>> PostTransaction(
+            [FromBody] CreateCrateClientTransactionDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -68,11 +57,7 @@ namespace KayanERP.Api.Controllers
             }
             catch (InvalidOperationException ex)
             {
-                return BadRequest(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء تسجيل حركة العهدة: {ex.Message}");
+                return BadRequest(new { message = ex.Message });
             }
         }
     }

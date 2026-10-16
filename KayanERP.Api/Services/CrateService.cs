@@ -10,6 +10,10 @@ namespace KayanERP.Api.Services
 {
     public class CrateService : ICrateService
     {
+        // ثوابت أنواع الحركة — بدل النصوص العربية
+        public const string TransactionTypeDispatch = "DISPATCH";
+        public const string TransactionTypeReturn = "RETURN";
+
         private readonly AppDbContext _context;
 
         public CrateService(AppDbContext context)
@@ -33,7 +37,7 @@ namespace KayanERP.Api.Services
         {
             if (partyType?.ToLower() == "client" || partyType?.Contains("عميل") == true)
             {
-                var client = await _context.CrateClients.FindAsync((int)partyId);
+                var client = await _context.CrateClients.FindAsync(partyId); // ✅ بدون cast
                 return new { PartyId = partyId, Balance = client?.CrateBalance ?? 0 };
             }
 
@@ -129,14 +133,16 @@ namespace KayanERP.Api.Services
             {
                 if (container.InPackagingWarehouseQuantity < dto.DispatchedQuantity)
                 {
-                    throw new InvalidOperationException($"الرصيد المتاح من {dto.ContainerName} في مخزن التعبئة ({container.InPackagingWarehouseQuantity}) غير كافٍ لصرف ({dto.DispatchedQuantity})!");
+                    throw new InvalidOperationException(
+                        $"الرصيد المتاح من {dto.ContainerName} في مخزن التعبئة ({container.InPackagingWarehouseQuantity}) غير كافٍ لصرف ({dto.DispatchedQuantity})!");
                 }
             }
 
             var empCode = !string.IsNullOrWhiteSpace(dto.DispatchedByCode) ? dto.DispatchedByCode : fallbackEmpCode;
             var empName = !string.IsNullOrWhiteSpace(dto.DispatchedByName) ? dto.DispatchedByName : fallbackEmpName;
 
-            var movementNumber = $"CRT-{DateTime.UtcNow:yyyyMMdd}-{new Random().Next(100, 999)}";
+            // ✅ استخدام Guid بدل Random لضمان عدم التصادم
+            var movementNumber = $"CRT-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
 
             var movement = new CrateMovement
             {
@@ -162,7 +168,8 @@ namespace KayanERP.Api.Services
         // ========================================================
         // 6. استلام الحاويات وفصل المهام الرقابي (طرف ثانٍ)
         // ========================================================
-        public async Task<(bool Success, string Message, CrateMovementViewDto? Movement)> ReceiveCratesAsync(long id, ReceiveCrateDto dto, string fallbackEmpCode, string fallbackEmpName)
+        public async Task<(bool Success, string Message, CrateMovementViewDto? Movement)> ReceiveCratesAsync(
+            long id, ReceiveCrateDto dto, string fallbackEmpCode, string fallbackEmpName)
         {
             var movement = await _context.CrateMovements.FirstOrDefaultAsync(m => m.Id == id);
             if (movement == null)
@@ -174,12 +181,17 @@ namespace KayanERP.Api.Services
             var empCode = !string.IsNullOrWhiteSpace(dto.ReceivedByCode) ? dto.ReceivedByCode : fallbackEmpCode;
             var empName = !string.IsNullOrWhiteSpace(dto.ReceivedByName) ? dto.ReceivedByName : fallbackEmpName;
 
-            // تطبيق مبدأ فصل المهام الرقابي الصارم مع السماح للمشرفين والمسؤولين بالاختبار والاعتماد
-            bool isAdminOrSuper = empCode.Contains("ADMIN", StringComparison.OrdinalIgnoreCase) || empCode.Equals("SUPERADMIN", StringComparison.OrdinalIgnoreCase);
+            // تطبيق مبدأ فصل المهام الرقابي الصارم
+            bool isAdminOrSuper = empCode.Contains("ADMIN", StringComparison.OrdinalIgnoreCase)
+                               || empCode.Equals("SUPERADMIN", StringComparison.OrdinalIgnoreCase);
 
-            if (!isAdminOrSuper && !string.IsNullOrWhiteSpace(movement.DispatchedByCode) && movement.DispatchedByCode.Equals(empCode, StringComparison.OrdinalIgnoreCase))
+            if (!isAdminOrSuper
+                && !string.IsNullOrWhiteSpace(movement.DispatchedByCode)
+                && movement.DispatchedByCode.Equals(empCode, StringComparison.OrdinalIgnoreCase))
             {
-                return (false, "ممنوع رقابياً: لا يجوز للموظف المُسلِّم تأكيد الاستلام لنفسه (Segregation of Duties)! يرجى تأكيد الاستلام بواسطة مستلم الفرع أو مدير النظام.", null);
+                return (false,
+                    "ممنوع رقابياً: لا يجوز للموظف المُسلِّم تأكيد الاستلام لنفسه (Segregation of Duties)! يرجى تأكيد الاستلام بواسطة مستلم الفرع أو مدير النظام.",
+                    null);
             }
 
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -202,41 +214,23 @@ namespace KayanERP.Api.Services
                 {
                     if (movement.MovementType == "DISPATCH_BRANCH")
                     {
-                        // 1. خصم إجمالي الكمية المنصرفة من مخزن التعبئة
                         container.InPackagingWarehouseQuantity = Math.Max(0, container.InPackagingWarehouseQuantity - movement.DispatchedQuantity);
-
-                        // 2. إيداع الكمية السليمة في عهدة الفرع / السائق
                         container.WithDriversAndBranchesQuantity += soundReceivedQty;
                     }
                     else if (movement.MovementType == "RETURN_FACTORY")
                     {
-                        // 1. خصم إجمالي المنصرف من عهدة الفرع / السائق
                         container.WithDriversAndBranchesQuantity = Math.Max(0, container.WithDriversAndBranchesQuantity - movement.DispatchedQuantity);
-
-                        // 2. إيداع الكمية السليمة المرتجعة في مخزن التعبئة
                         container.InPackagingWarehouseQuantity += soundReceivedQty;
                     }
 
-                    // 3. إثبات التالف والعجز المتنازع عليه
                     if (dto.DamagedCount > 0)
-                    {
                         container.DamagedQuantity += dto.DamagedCount;
-                    }
 
                     if (movement.ShortageQuantity > 0)
-                    {
                         container.DisputedQuantity += movement.ShortageQuantity;
-                    }
                 }
 
-                if (movement.ShortageQuantity > 0 || dto.DamagedCount > 0)
-                {
-                    movement.Status = "DISPUTED";
-                }
-                else
-                {
-                    movement.Status = "COMPLETED";
-                }
+                movement.Status = (movement.ShortageQuantity > 0 || dto.DamagedCount > 0) ? "DISPUTED" : "COMPLETED";
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -257,7 +251,8 @@ namespace KayanERP.Api.Services
         // ========================================================
         // 7. فض وتسوية النزاع (لجنة الرقابة والتحكيم)
         // ========================================================
-        public async Task<(bool Success, string Message, CrateMovementViewDto? Movement)> SettleDisputeAsync(long id, SettleDisputeDto dto, string fallbackEmpCode, string fallbackEmpName)
+        public async Task<(bool Success, string Message, CrateMovementViewDto? Movement)> SettleDisputeAsync(
+            long id, SettleDisputeDto dto, string fallbackEmpCode, string fallbackEmpName)
         {
             var movement = await _context.CrateMovements.FirstOrDefaultAsync(m => m.Id == id);
             if (movement == null)
@@ -284,24 +279,24 @@ namespace KayanERP.Api.Services
 
                 if (container != null)
                 {
-                    // فك تجميد كمية العجز من رصيد النزاعات
                     container.DisputedQuantity = Math.Max(0, container.DisputedQuantity - movement.ShortageQuantity);
 
-                    // معالجة كسر وتلف الصاجات: تصفير رصيد التالف المسجل وإسقاطه من إجمالي المصنع
                     if (movement.DamagedCount > 0)
                     {
                         container.DamagedQuantity = Math.Max(0, container.DamagedQuantity - movement.DamagedCount);
                         container.TotalFactoryQuantity = Math.Max(0, container.TotalFactoryQuantity - movement.DamagedCount);
                     }
 
-                    // إذا كان القرار هو تحميل غرامة أو إثبات فقد، تسقط الصاجات المفقودة من إجمالي رصيد المصنع
-                    if (dto.ArbitrationDecision.Contains("غرامة") || dto.ArbitrationDecision.Contains("تحميل") || dto.ArbitrationDecision.Contains("فقد") || dto.ArbitrationDecision.Contains("إهلاك"))
+                    if (dto.ArbitrationDecision.Contains("غرامة")
+                        || dto.ArbitrationDecision.Contains("تحميل")
+                        || dto.ArbitrationDecision.Contains("فقد")
+                        || dto.ArbitrationDecision.Contains("إهلاك"))
                     {
                         container.TotalFactoryQuantity = Math.Max(0, container.TotalFactoryQuantity - movement.ShortageQuantity);
                     }
-                    else if (dto.ArbitrationDecision.Contains("إعادة") || dto.ArbitrationDecision.Contains("تسليم"))
+                    else if (dto.ArbitrationDecision.Contains("إعادة")
+                          || dto.ArbitrationDecision.Contains("تسليم"))
                     {
-                        // في حال العثور على الصاجات المفقودة وإعادتها لمخزن التعبئة
                         container.InPackagingWarehouseQuantity += movement.ShortageQuantity;
                     }
                 }
@@ -327,7 +322,7 @@ namespace KayanERP.Api.Services
             return factoryCrate != null ? factoryCrate.TotalFactoryBalance : 0;
         }
 
-        public async Task<List<CrateClientTransactionViewDto>> GetClientTransactionsAsync(int clientId)
+        public async Task<List<CrateClientTransactionViewDto>> GetClientTransactionsAsync(long clientId)
         {
             var list = await _context.CrateClientTransactions
                 .AsNoTracking()
@@ -377,6 +372,7 @@ namespace KayanERP.Api.Services
 
                 var entity = new CrateClientTransaction
                 {
+                    CompanyId = client.CompanyId,
                     CrateClientId = dto.CrateClientId,
                     TransactionType = dto.TransactionType,
                     Quantity = dto.Quantity,
@@ -386,12 +382,13 @@ namespace KayanERP.Api.Services
 
                 _context.CrateClientTransactions.Add(entity);
 
-                if (dto.TransactionType == "منصرف للعميل")
+                // ✅ استخدام الثوابت بدل النصوص العربية
+                if (dto.TransactionType == TransactionTypeDispatch)
                 {
                     client.CrateBalance += dto.Quantity;
                     factoryCrate.TotalFactoryBalance -= dto.Quantity;
                 }
-                else if (dto.TransactionType == "مستلم من العميل")
+                else if (dto.TransactionType == TransactionTypeReturn)
                 {
                     client.CrateBalance -= dto.Quantity;
                     factoryCrate.TotalFactoryBalance += dto.Quantity;

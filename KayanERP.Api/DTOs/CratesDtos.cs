@@ -114,7 +114,7 @@ namespace KayanERP.Api.DTOs
     public class CreateCrateClientTransactionDto
     {
         [Required(ErrorMessage = "يجب تحديد معرف العميل.")]
-        public int CrateClientId { get; set; }
+        public long CrateClientId { get; set; }                  // ← اتغيّر من int لـ long
 
         [Required(ErrorMessage = "يجب تحديد نوع الحركة (منصرف للعميل / مستلم من العميل).")]
         public string TransactionType { get; set; } = string.Empty;
@@ -128,8 +128,8 @@ namespace KayanERP.Api.DTOs
 
     public class CrateClientTransactionViewDto
     {
-        public int Id { get; set; }
-        public int CrateClientId { get; set; }
+        public long Id { get; set; }                             // ← اتغيّر من int لـ long
+        public long CrateClientId { get; set; }                  // ← اتغيّر من int لـ long
         public string ClientName { get; set; } = string.Empty;
         public string TransactionType { get; set; } = string.Empty;
         public int Quantity { get; set; }

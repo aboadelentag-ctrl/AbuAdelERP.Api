@@ -181,6 +181,130 @@ public partial class AppDbContext : DbContext
         });
 
         // ----------------------------------------------------
+        // Crate Clients — عهد الأسبات مع العملاء
+        // ----------------------------------------------------
+        modelBuilder.Entity<CrateClient>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("crate_clients_pkey");
+            entity.ToTable("crate_clients");
+
+            entity.HasIndex(e => e.CompanyId, "ix_crate_clients_company_id");
+            entity.HasIndex(e => new { e.CompanyId, e.Name }, "crate_clients_company_id_name_key").IsUnique();
+
+            entity.Property(e => e.Id)
+                .UseIdentityAlwaysColumn()
+                .HasColumnName("id");
+
+            entity.Property(e => e.CompanyId)
+                .HasColumnName("company_id");
+
+            entity.Property(e => e.Name)
+                .HasMaxLength(200)
+                .HasColumnName("name");
+
+            entity.Property(e => e.CrateBalance)
+                .HasDefaultValue(0)
+                .HasColumnName("crate_balance");
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Company)
+                .WithMany()
+                .HasForeignKey(d => d.CompanyId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("crate_clients_company_id_fkey");
+        });
+
+               // ----------------------------------------------------
+        // Crate Clients — عهد الأسبات مع العملاء
+        // ----------------------------------------------------
+        modelBuilder.Entity<CrateClient>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("crate_clients_pkey");
+            entity.ToTable("crate_clients");
+
+            entity.HasIndex(e => e.CompanyId, "ix_crate_clients_company_id");
+            entity.HasIndex(e => new { e.CompanyId, e.Name }, "crate_clients_company_id_name_key").IsUnique();
+
+            entity.Property(e => e.Id)
+                .UseIdentityAlwaysColumn()
+                .HasColumnName("id");
+
+            entity.Property(e => e.CompanyId)
+                .HasColumnName("company_id");
+
+            entity.Property(e => e.Name)
+                .HasMaxLength(200)
+                .HasColumnName("name");
+
+            entity.Property(e => e.CrateBalance)
+                .HasDefaultValue(0)
+                .HasColumnName("crate_balance");
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Company)
+                .WithMany()
+                .HasForeignKey(d => d.CompanyId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("crate_clients_company_id_fkey");
+        });
+
+        // ----------------------------------------------------
+        // Crate Client Transactions — حركات عهد العملاء
+        // ----------------------------------------------------
+        modelBuilder.Entity<CrateClientTransaction>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("crate_client_transactions_pkey");
+            entity.ToTable("crate_client_transactions");
+
+            entity.HasIndex(e => e.CompanyId, "ix_crate_client_transactions_company_id");
+            entity.HasIndex(e => e.CrateClientId, "ix_crate_client_transactions_crate_client_id");
+            entity.HasIndex(e => e.TransactionDate, "ix_crate_client_transactions_date");
+
+            entity.Property(e => e.Id)
+                .UseIdentityAlwaysColumn()
+                .HasColumnName("id");
+
+            entity.Property(e => e.CompanyId)
+                .HasColumnName("company_id");
+
+            entity.Property(e => e.CrateClientId)
+                .HasColumnName("crate_client_id");
+
+            entity.Property(e => e.TransactionType)
+                .HasMaxLength(20)
+                .HasColumnName("transaction_type");
+
+            entity.Property(e => e.Quantity)
+                .HasColumnName("quantity");
+
+            entity.Property(e => e.TransactionDate)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("transaction_date");
+
+            entity.Property(e => e.Notes)
+                .HasMaxLength(500)
+                .HasColumnName("notes");
+
+            entity.HasOne(d => d.CrateClient)
+                .WithMany(p => p.Transactions)
+                .HasForeignKey(d => d.CrateClientId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("crate_client_transactions_crate_client_id_fkey");
+
+            entity.HasOne(d => d.Company)
+                .WithMany()
+                .HasForeignKey(d => d.CompanyId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("crate_client_transactions_company_id_fkey");
+        });
+
+        // ----------------------------------------------------
         // 2. الفروع (Branches)
         // ----------------------------------------------------
         modelBuilder.Entity<Branch>(entity =>

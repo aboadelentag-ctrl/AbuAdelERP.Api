@@ -762,43 +762,68 @@ namespace KayanERP.Api.Migrations
 
             modelBuilder.Entity("KayanERP.Api.Models.CrateClient", b =>
                 {
-                    b.Property<int>("Id")
+                    b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
+                        .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CompanyId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("company_id");
 
                     b.Property<int>("CrateBalance")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
+                        .HasDefaultValue(0)
                         .HasColumnName("crate_balance");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
                     b.HasKey("Id")
-                        .HasName("pk_crate_clients");
+                        .HasName("crate_clients_pkey");
+
+                    b.HasIndex(new[] { "CompanyId", "Name" }, "crate_clients_company_id_name_key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_crate_clients_company_id_name");
+
+                    b.HasIndex(new[] { "CompanyId" }, "ix_crate_clients_company_id")
+                        .HasDatabaseName("ix_crate_clients_company_id");
 
                     b.ToTable("crate_clients", "erp");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.CrateClientTransaction", b =>
                 {
-                    b.Property<int>("Id")
+                    b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
+                        .HasColumnType("bigint")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
 
-                    b.Property<int>("CrateClientId")
-                        .HasColumnType("integer")
+                    b.Property<long>("CompanyId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("company_id");
+
+                    b.Property<long>("CrateClientId")
+                        .HasColumnType("bigint")
                         .HasColumnName("crate_client_id");
 
                     b.Property<string>("Notes")
-                        .HasColumnType("text")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("notes");
 
                     b.Property<int>("Quantity")
@@ -806,20 +831,28 @@ namespace KayanERP.Api.Migrations
                         .HasColumnName("quantity");
 
                     b.Property<DateTime>("TransactionDate")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("transaction_date");
+                        .HasColumnName("transaction_date")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("TransactionType")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("transaction_type");
 
                     b.HasKey("Id")
-                        .HasName("pk_crate_client_transactions");
+                        .HasName("crate_client_transactions_pkey");
 
-                    b.HasIndex("CrateClientId")
+                    b.HasIndex(new[] { "CompanyId" }, "ix_crate_client_transactions_company_id")
+                        .HasDatabaseName("ix_crate_client_transactions_company_id");
+
+                    b.HasIndex(new[] { "CrateClientId" }, "ix_crate_client_transactions_crate_client_id")
                         .HasDatabaseName("ix_crate_client_transactions_crate_client_id");
+
+                    b.HasIndex(new[] { "TransactionDate" }, "ix_crate_client_transactions_date")
+                        .HasDatabaseName("ix_crate_client_transactions_transaction_date");
 
                     b.ToTable("crate_client_transactions", "erp");
                 });
@@ -5125,14 +5158,33 @@ namespace KayanERP.Api.Migrations
                     b.Navigation("SourceWarehouse");
                 });
 
+            modelBuilder.Entity("KayanERP.Api.Models.CrateClient", b =>
+                {
+                    b.HasOne("KayanERP.Api.Models.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .IsRequired()
+                        .HasConstraintName("crate_clients_company_id_fkey");
+
+                    b.Navigation("Company");
+                });
+
             modelBuilder.Entity("KayanERP.Api.Models.CrateClientTransaction", b =>
                 {
-                    b.HasOne("KayanERP.Api.Models.CrateClient", "CrateClient")
+                    b.HasOne("KayanERP.Api.Models.Company", "Company")
                         .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .IsRequired()
+                        .HasConstraintName("crate_client_transactions_company_id_fkey");
+
+                    b.HasOne("KayanERP.Api.Models.CrateClient", "CrateClient")
+                        .WithMany("Transactions")
                         .HasForeignKey("CrateClientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_crate_client_transactions_crate_clients_crate_client_id");
+                        .HasConstraintName("crate_client_transactions_crate_client_id_fkey");
+
+                    b.Navigation("Company");
 
                     b.Navigation("CrateClient");
                 });
@@ -6189,6 +6241,11 @@ namespace KayanERP.Api.Migrations
             modelBuilder.Entity("KayanERP.Api.Models.Crate", b =>
                 {
                     b.Navigation("CrateTransactions");
+                });
+
+            modelBuilder.Entity("KayanERP.Api.Models.CrateClient", b =>
+                {
+                    b.Navigation("Transactions");
                 });
 
             modelBuilder.Entity("KayanERP.Api.Models.Customer", b =>
