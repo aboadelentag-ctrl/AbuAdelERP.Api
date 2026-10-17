@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace KayanERP.Api.DTOs;
+namespace KayanERP.Shared.DTOs;
 
 // ==============================================================
 // 1. DTOs خاصة بـ ItemsController

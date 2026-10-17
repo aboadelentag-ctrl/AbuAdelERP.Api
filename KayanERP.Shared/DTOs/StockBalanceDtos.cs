@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace KayanERP.Api.DTOs;
+namespace KayanERP.Shared.DTOs;
 
 /// <summary>
 /// ملخص مؤشرات المخزون.

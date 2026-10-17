@@ -1,4 +1,4 @@
-using KayanERP.Api.Extensions;
+global using KayanERP.Shared.DTOs;
 using KayanERP.Api.Middleware;
 using KayanERP.Api.Models;
 using KayanERP.Api.Services;

@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="KayanERP.Api/KayanERP.Api.csproj" />
+  <Project Path="KayanERP.Shared/KayanERP.Shared.csproj" Id="719938e3-42f4-4118-ac92-755d2c2ec7c5" />
   <Project Path="KayanERP.UI/KayanERP.UI.csproj" Id="980edd9d-3409-4718-bb80-f45e0317a7d4" />
 </Solution>

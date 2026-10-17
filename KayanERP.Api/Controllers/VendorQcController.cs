@@ -1,5 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using KayanERP.Api.DTOs;
+using KayanERP.Shared.DTOs;
 using KayanERP.Api.Services;
 using System;
 using System.Collections.Generic;

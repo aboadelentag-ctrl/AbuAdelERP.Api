@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 using KayanERP.Api.Services;
-using KayanERP.Api.DTOs;
+using KayanERP.Shared.DTOs;
 
 namespace KayanERP.Api.Controllers;
 

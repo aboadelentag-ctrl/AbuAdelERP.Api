@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
-namespace KayanERP.Api.DTOs;
+namespace KayanERP.Shared.DTOs;
 
 public class PurchaseInvoiceCreateDto
 {

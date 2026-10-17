@@ -1,4 +1,4 @@
-﻿namespace KayanERP.Api.DTOs;
+﻿namespace KayanERP.Shared.DTOs;
 
 public class CustomerItemDto
 {

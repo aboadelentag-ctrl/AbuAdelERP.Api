@@ -14,4 +14,7 @@
 	<ItemGroup>
 		<PackageReference Include="Blazored.LocalStorage" Version="4.4.0" />
 	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\KayanERP.Shared\KayanERP.Shared.csproj" />
+	</ItemGroup>
 </Project>

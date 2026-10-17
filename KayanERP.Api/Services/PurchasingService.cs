@@ -1,6 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using KayanERP.Api.Models;
-using KayanERP.Api.DTOs;
+using KayanERP.Shared.DTOs;
 using System;
 using System.Collections.Generic;
 using System.Linq;

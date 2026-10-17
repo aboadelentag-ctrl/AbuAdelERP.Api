@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using KayanERP.Api.DTOs;
+using KayanERP.Shared.DTOs;
 using KayanERP.Api.Services;
 
 namespace KayanERP.Api.Controllers

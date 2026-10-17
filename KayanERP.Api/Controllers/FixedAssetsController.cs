@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using KayanERP.Api.Models;
-using KayanERP.Api.DTOs;
+using KayanERP.Shared.DTOs;
 using System;
 using System.Linq;
 using System.Security.Claims;

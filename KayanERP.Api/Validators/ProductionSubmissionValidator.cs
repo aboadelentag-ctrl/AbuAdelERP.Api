@@ -1,5 +1,5 @@
 ﻿using FluentValidation;
-using KayanERP.Api.DTOs;
+using KayanERP.Shared.DTOs;
 
 namespace KayanERP.Api.Validators;
 

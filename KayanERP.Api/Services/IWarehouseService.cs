@@ -1,5 +1,5 @@
 ﻿using KayanERP.Api.Models;
-using KayanERP.Api.DTOs;
+using KayanERP.Shared.DTOs;
 
 namespace KayanERP.Api.Services;
 

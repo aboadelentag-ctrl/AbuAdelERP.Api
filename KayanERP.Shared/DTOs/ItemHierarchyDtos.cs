@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace KayanERP.Api.DTOs;
+namespace KayanERP.Shared.DTOs;
 
 // DTOs معاملات تحويل الوحدات
 public class UomConversionDto

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
-using KayanERP.UI.DTOs;
+using KayanERP.Shared.DTOs;
 
 namespace KayanERP.UI.Services
 {

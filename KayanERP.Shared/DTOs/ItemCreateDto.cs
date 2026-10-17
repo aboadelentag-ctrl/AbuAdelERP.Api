@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace KayanERP.Api.DTOs;
+namespace KayanERP.Shared.DTOs;
 
 public class ItemCreateDto
 {
