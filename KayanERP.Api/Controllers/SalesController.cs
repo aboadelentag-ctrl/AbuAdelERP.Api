@@ -2,161 +2,136 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using KayanERP.Api.Services;
 using KayanERP.Api.DTOs;
 using KayanERP.Api.Models;
+using KayanERP.Api.Services;
 
 namespace KayanERP.Api.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
+    [ApiController]
+    [Authorize]
     public class SalesController : ControllerBase
     {
         private readonly ISalesService _salesService;
         private readonly AppDbContext _context;
+        private readonly ITenantContext _tenantContext;
 
-        public SalesController(ISalesService salesService, AppDbContext context)
+        public SalesController(
+            ISalesService salesService,
+            AppDbContext context,
+            ITenantContext tenantContext)
         {
             _salesService = salesService;
             _context = context;
+            _tenantContext = tenantContext;
         }
 
         // ==============================================================
-        // 1. القوائم المرجعية لشاشة الفاتورة (العملاء + الأصناف التامة + المخازن)
+        // 1. القوائم المرجعية (العملاء + الأصناف + المخازن)
         // ==============================================================
         [HttpGet("lookups")]
         public async Task<ActionResult<SalesLookupsDto>> GetLookups()
         {
-            try
-            {
-                var result = await _salesService.GetLookupsAsync();
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ في جلب بيانات المبيعات المرجعية: {ex.Message}");
-            }
+            var result = await _salesService.GetLookupsAsync();
+            return Ok(result);
         }
 
         // ==============================================================
-        // 2. استعراض كافة فواتير المبيعات لجدول العرض
+        // 2. استعراض كافة فواتير المبيعات
         // ==============================================================
         [HttpGet]
         public async Task<ActionResult<List<SalesInvoiceViewDto>>> GetAllInvoices()
         {
-            try
-            {
-                var invoices = await _salesService.GetAllInvoicesAsync();
-                return Ok(invoices);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ في جلب فواتير المبيعات: {ex.Message}");
-            }
+            var invoices = await _salesService.GetAllInvoicesAsync();
+            return Ok(invoices);
         }
 
         // ==============================================================
-        // 3. استعراض تفاصيل فاتورة مبيعات محددة
+        // 3. تفاصيل فاتورة مبيعات محددة
         // ==============================================================
         [HttpGet("{id:long}")]
         public async Task<ActionResult<SalesInvoiceViewDto>> GetInvoiceById(long id)
         {
-            try
-            {
-                var invoice = await _salesService.GetInvoiceByIdAsync(id);
-                if (invoice == null)
-                    return NotFound("فاتورة المبيعات غير موجودة.");
+            var invoice = await _salesService.GetInvoiceByIdAsync(id);
 
-                return Ok(invoice);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء جلب الفاتورة: {ex.Message}");
-            }
+            if (invoice == null)
+                return NotFound(new { message = "فاتورة المبيعات غير موجودة." });
+
+            return Ok(invoice);
         }
 
         // ==============================================================
-        // 4. إنشاء واعتماد فاتورة مبيعات وترحيل الأثر المخزني والمالي المزدوج
+        // 4. إنشاء فاتورة مبيعات
         // ==============================================================
-        [HttpPost]
         [HttpPost("create-invoice")]
-        public async Task<ActionResult<SalesInvoiceResultDto>> CreateInvoice([FromBody] ExtendedSalesInvoiceCreateDto dto)
+        public async Task<ActionResult<SalesInvoiceResultDto>> CreateInvoice(
+            [FromBody] ExtendedSalesInvoiceCreateDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            try
+            var companyId = _tenantContext.CompanyId;
+
+            // ⚠️ تأكيد إن العميل يخص نفس الشركة
+            var customer = await _context.Customers.FindAsync(dto.CustomerId);
+            if (customer == null)
+                return BadRequest(new { error = "العميل المحدد غير موجود." });
+
+            if (customer.CompanyId != companyId)
+                return Forbid();
+
+            // ⚠️ تأكيد إن الفرع يخص نفس الشركة
+            var branch = await _context.Branches.FindAsync(dto.BranchId);
+            if (branch == null)
+                return BadRequest(new { error = "الفرع المحدد غير موجود." });
+
+            if (branch.CompanyId != companyId)
+                return Forbid();
+
+            // فحص السقف الائتماني (للبيع الآجل)
+            decimal invoiceTotal = dto.InvoiceLines.Sum(l => l.Quantity * l.UnitPrice);
+
+            if (dto.PaymentMethod == "CREDIT" && customer.CreditLimit > 0)
             {
-                // 1. فحص السقف الائتماني للعميل إن كانت الفاتورة آجلة (Credit)
-                var customer = await _context.Customers.FindAsync(dto.CustomerId);
-                if (customer == null)
-                    return BadRequest(new { Error = "العميل المحدد غير موجود في قاعدة البيانات." });
-
-                decimal invoiceTotal = dto.InvoiceLines.Sum(l => l.Quantity * l.UnitPrice);
-
-                if (dto.PaymentMethod == "CREDIT" && customer.CreditLimit > 0)
+                if (invoiceTotal > customer.CreditLimit)
                 {
-                    // فحص ألا يتجاوز السقف الائتماني
-                    if (invoiceTotal > customer.CreditLimit)
+                    return BadRequest(new
                     {
-                        return BadRequest(new { Error = $"قيمة الفاتورة ({invoiceTotal:N2} ج.م) تتجاوز الحد الائتماني المسموح به للتاجر [{customer.CustomerName}] البالغ ({customer.CreditLimit:N2} ج.م)." });
-                    }
+                        error = $"قيمة الفاتورة ({invoiceTotal:N2} ج.م) تتجاوز الحد الائتماني المسموح به للتاجر [{customer.CustomerName}] البالغ ({customer.CreditLimit:N2} ج.م)."
+                    });
                 }
-
-                // 2. ترحيل الفاتورة وحركة المخزون عبر خدمة المبيعات
-                var result = await _salesService.CreateInvoiceAsync(dto);
-                if (!result.Success)
-                    return BadRequest(new { Error = result.Message });
-
-                // 3. الترحيل المالي وتوليد قيد اليومية المزدوج المتزن
-                string branchName = "المركز الرئيسي";
-                var branch = await _context.Branches.FindAsync(dto.BranchId);
-                if (branch != null) branchName = branch.BranchName;
-
-                bool isDistBranch = branchName.Contains("توزيع") || branchName.Contains("خارجي");
-                string revenueAccountCode = isDistBranch ? "41" : "42";
-                string revenueAccountName = isDistBranch ? "إيرادات مبيعات التوزيع والطلبيات" : "إيرادات مبيعات المعارض المباشرة";
-
-                string debitAccountCode;
-                string debitAccountName;
-
-                if (dto.PaymentMethod == "CASH")
-                {
-                    debitAccountCode = isDistBranch ? "1212" : "1211";
-                    debitAccountName = isDistBranch ? "خزينة فرع التوزيع الخارجي" : "الخزينة الرئيسية - المصنع";
-                }
-                else
-                {
-                    debitAccountCode = "1221";
-                    debitAccountName = $"حسابات التجار والعملاء ({customer.CustomerName})";
-
-                    // تحديث تاريخ آخر تعامل مالي للعميل
-                    customer.UpdatedAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
-                }
-
-                // رسالة نجاح معززة برقم الاعتماد المالي والمخزني
-                result.Message = $"{result.Message} | تم الترحيل المالي آلياً: [من حـ/ {debitAccountName}] إلى [حـ/ {revenueAccountName}] متزناً 100%.";
-
-                return Ok(result);
             }
-            catch (InvalidOperationException ex)
+
+            // ترحيل الفاتورة عبر الخدمة
+            var result = await _salesService.CreateInvoiceAsync(dto);
+            if (!result.Success)
+                return BadRequest(new { error = result.Message });
+
+            // الترحيل المالي
+            string branchName = branch.BranchName;
+            bool isDistBranch = branchName.Contains("توزيع") || branchName.Contains("خارجي");
+            string revenueAccountName = isDistBranch
+                ? "إيرادات مبيعات التوزيع والطلبيات"
+                : "إيرادات مبيعات المعارض المباشرة";
+
+            string debitAccountName = dto.PaymentMethod == "CASH"
+                ? (isDistBranch ? "خزينة فرع التوزيع الخارجي" : "الخزينة الرئيسية - المصنع")
+                : $"حسابات التجار والعملاء ({customer.CustomerName})";
+
+            // تحديث آخر تعامل للعميل (للبيع الآجل)
+            if (dto.PaymentMethod != "CASH")
             {
-                return BadRequest(new { Error = ex.Message });
+                customer.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Error = $"خطأ أثناء تسجيل وترحيل فاتورة المبيعات: {ex.GetBaseException().Message}" });
-            }
+
+            result.Message = $"{result.Message} | تم الترحيل المالي آلياً: [من حـ/ {debitAccountName}] إلى [حـ/ {revenueAccountName}] متزناً 100%.";
+
+            return Ok(result);
         }
-    }
-
-    // DTO لتمرير خيارات السداد والترحيل المالي بسلاسة وبدون كسر الكود القديم
-    public class ExtendedSalesInvoiceCreateDto : SalesInvoiceCreateDto
-    {
-        public string PaymentMethod { get; set; } = "CASH"; // CASH (نقدي) | CREDIT (آجل على الحساب)
-        public string? FinancialNotes { get; set; }
     }
 }
