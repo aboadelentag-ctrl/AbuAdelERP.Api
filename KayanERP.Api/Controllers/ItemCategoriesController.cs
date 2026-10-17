@@ -1,187 +1,224 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using KayanERP.Api.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using KayanERP.Api.DTOs;
+using KayanERP.Api.Models;
+using KayanERP.Api.Services;
 
 namespace KayanERP.Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ItemCategoriesController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly ITenantContext _tenantContext;
 
-        public ItemCategoriesController(AppDbContext context)
+        public ItemCategoriesController(AppDbContext context, ITenantContext tenantContext)
         {
             _context = context;
+            _tenantContext = tenantContext;
         }
 
         // ==============================================================
-        // 1. جلب كافة التصنيفات
+        // 1. جلب كافة التصنيفات (مفلترة تلقائيًا بواسطة Global Query Filter)
         // ==============================================================
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<ItemCategory>>> GetItemCategories()
+        public async Task<ActionResult<IEnumerable<ItemCategoryDto>>> GetItemCategories()
         {
-            try
-            {
-                return await _context.ItemCategories
-                    .AsNoTracking()
-                    .OrderBy(c => c.CategoryCode)
-                    .ToListAsync();
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء جلب التصنيفات: {ex.GetBaseException().Message}");
-            }
+            var categories = await _context.ItemCategories
+                .AsNoTracking()
+                .OrderBy(c => c.CategoryCode)
+                .Select(c => new ItemCategoryDto
+                {
+                    Id = c.Id,
+                    CompanyId = c.CompanyId,
+                    CategoryCode = c.CategoryCode,
+                    CategoryName = c.CategoryName,
+                    ItemType = c.ItemType,
+                    Description = c.Description,
+                    Active = c.Active,
+                    CreatedAt = c.CreatedAt,
+                    UpdatedAt = c.UpdatedAt
+                })
+                .ToListAsync();
+
+            return Ok(categories);
         }
 
         // ==============================================================
         // 2. جلب تصنيف محدد
         // ==============================================================
         [HttpGet("{id:long}")]
-        public async Task<ActionResult<ItemCategory>> GetItemCategory(long id)
+        public async Task<ActionResult<ItemCategoryDto>> GetItemCategory(long id)
         {
-            try
+            var category = await _context.ItemCategories
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == id);
+
+            if (category == null)
+                return NotFound(new { message = "التصنيف غير موجود." });
+
+            return Ok(new ItemCategoryDto
             {
-                var category = await _context.ItemCategories.FindAsync(id);
-                if (category == null) return NotFound("التصنيف غير موجود.");
-                return Ok(category);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ في استعلام التصنيف: {ex.GetBaseException().Message}");
-            }
+                Id = category.Id,
+                CompanyId = category.CompanyId,
+                CategoryCode = category.CategoryCode,
+                CategoryName = category.CategoryName,
+                ItemType = category.ItemType,
+                Description = category.Description,
+                Active = category.Active,
+                CreatedAt = category.CreatedAt,
+                UpdatedAt = category.UpdatedAt
+            });
         }
 
         // ==============================================================
         // 3. إضافة تصنيف جديد
         // ==============================================================
         [HttpPost]
-        public async Task<ActionResult<ItemCategory>> PostItemCategory([FromBody] ItemCategory category)
+        public async Task<ActionResult<ItemCategoryDto>> PostItemCategory([FromBody] CreateItemCategoryDto dto)
         {
-            if (category == null) return BadRequest("بيانات غير صالحة.");
+            if (!ModelState.IsValid ||
+                string.IsNullOrWhiteSpace(dto.CategoryCode) ||
+                string.IsNullOrWhiteSpace(dto.CategoryName))
+                return BadRequest(new { message = "كود واسم التصنيف مطلوبان." });
 
-            if (string.IsNullOrWhiteSpace(category.CategoryCode) || string.IsNullOrWhiteSpace(category.CategoryName))
-                return BadRequest("كود واسم التصنيف مطلوبان.");
+            var companyId = _tenantContext.CompanyId;
+            var code = dto.CategoryCode.Trim();
+            var name = dto.CategoryName.Trim();
 
-            category.CategoryCode = category.CategoryCode.Trim();
-            category.CategoryName = category.CategoryName.Trim();
+            // فحص التكرار داخل نفس الشركة
+            var codeExists = await _context.ItemCategories
+                .AnyAsync(c => c.CompanyId == companyId &&
+                               c.CategoryCode.ToLower() == code.ToLower());
 
-            // فحص عدم تكرار كود التصنيف
-            var codeExists = await _context.ItemCategories.AnyAsync(c => c.CategoryCode.ToLower() == category.CategoryCode.ToLower());
             if (codeExists)
-                return BadRequest($"كود التصنيف [{category.CategoryCode}] مسجل مسبقاً. يرجى اختيار كود آخر.");
+                return Conflict(new { message = $"كود التصنيف [{code}] مسجل مسبقاً." });
 
-            category.CompanyId = category.CompanyId > 0 ? category.CompanyId : 1;
-            category.CreatedAt = DateTime.UtcNow;
-            category.UpdatedAt = DateTime.UtcNow;
+            var category = new ItemCategory
+            {
+                CompanyId = companyId,
+                CategoryCode = code,
+                CategoryName = name,
+                ItemType = dto.ItemType?.Trim() ?? string.Empty,
+                Description = dto.Description?.Trim(),
+                Active = dto.Active,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
 
-            try
+            _context.ItemCategories.Add(category);
+            await _context.SaveChangesAsync();
+
+            var result = new ItemCategoryDto
             {
-                _context.ItemCategories.Add(category);
-                await _context.SaveChangesAsync();
-                return CreatedAtAction(nameof(GetItemCategory), new { id = category.Id }, category);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"رفضت قاعدة البيانات الحفظ: {ex.GetBaseException().Message}");
-            }
+                Id = category.Id,
+                CompanyId = category.CompanyId,
+                CategoryCode = category.CategoryCode,
+                CategoryName = category.CategoryName,
+                ItemType = category.ItemType,
+                Description = category.Description,
+                Active = category.Active,
+                CreatedAt = category.CreatedAt,
+                UpdatedAt = category.UpdatedAt
+            };
+
+            return CreatedAtAction(nameof(GetItemCategory), new { id = category.Id }, result);
         }
 
         // ==============================================================
-        // 4. تعديل تصنيف قائم
+        // 4. تعديل تصنيف
         // ==============================================================
         [HttpPut("{id:long}")]
-        public async Task<IActionResult> PutItemCategory(long id, [FromBody] ItemCategory category)
+        public async Task<IActionResult> PutItemCategory(long id, [FromBody] CreateItemCategoryDto dto)
         {
-            if (category == null) return BadRequest("بيانات غير صالحة.");
-
             var existingCategory = await _context.ItemCategories.FindAsync(id);
-            if (existingCategory == null) return NotFound("التصنيف غير موجود.");
+            if (existingCategory == null)
+                return NotFound(new { message = "التصنيف غير موجود." });
 
-            var trimmedCode = category.CategoryCode?.Trim() ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(trimmedCode))
-            {
-                var codeExists = await _context.ItemCategories.AnyAsync(c => c.Id != id && c.CategoryCode.ToLower() == trimmedCode.ToLower());
-                if (codeExists)
-                    return BadRequest($"كود التصنيف [{trimmedCode}] مسجل مسبقاً لتصنيف آخر.");
-            }
+            // تأكيد ملكية التصنيف للشركة
+            if (existingCategory.CompanyId != _tenantContext.CompanyId)
+                return Forbid();
 
+            var trimmedCode = dto.CategoryCode?.Trim() ?? string.Empty;
+            var trimmedName = dto.CategoryName?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(trimmedCode) || string.IsNullOrWhiteSpace(trimmedName))
+                return BadRequest(new { message = "كود واسم التصنيف مطلوبان." });
+
+            // فحص التكرار داخل نفس الشركة (استثناء التصنيف الحالي)
+            var codeExists = await _context.ItemCategories
+                .AnyAsync(c => c.Id != id &&
+                               c.CompanyId == existingCategory.CompanyId &&
+                               c.CategoryCode.ToLower() == trimmedCode.ToLower());
+
+            if (codeExists)
+                return Conflict(new { message = $"كود التصنيف [{trimmedCode}] مسجل مسبقاً لتصنيف آخر." });
+
+            // نحدّث الحقول المسموح بها فقط — نتجاهل CompanyId
             existingCategory.CategoryCode = trimmedCode;
-            existingCategory.CategoryName = category.CategoryName?.Trim() ?? existingCategory.CategoryName;
-            existingCategory.ItemType = string.IsNullOrWhiteSpace(category.ItemType) ? existingCategory.ItemType : category.ItemType;
-            existingCategory.Description = category.Description;
-            existingCategory.Active = category.Active;
+            existingCategory.CategoryName = trimmedName;
+            if (!string.IsNullOrWhiteSpace(dto.ItemType))
+                existingCategory.ItemType = dto.ItemType.Trim();
+            existingCategory.Description = dto.Description?.Trim();
+            existingCategory.Active = dto.Active;
             existingCategory.UpdatedAt = DateTime.UtcNow;
 
-            if (category.CompanyId > 0) existingCategory.CompanyId = category.CompanyId;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-                return Ok(existingCategory);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"رفضت قاعدة البيانات التعديل: {ex.GetBaseException().Message}");
-            }
+            await _context.SaveChangesAsync();
+            return NoContent();
         }
 
         // ==============================================================
-        // 5. تبديل حالة التصنيف (تفعيل / إيقاف)
+        // 5. تبديل حالة التصنيف
         // ==============================================================
         [HttpPatch("{id:long}/toggle-status")]
         public async Task<IActionResult> ToggleStatus(long id)
         {
-            try
-            {
-                var category = await _context.ItemCategories.FindAsync(id);
-                if (category == null) return NotFound("التصنيف غير موجود.");
+            var category = await _context.ItemCategories.FindAsync(id);
+            if (category == null)
+                return NotFound(new { message = "التصنيف غير موجود." });
 
-                category.Active = !category.Active;
-                category.UpdatedAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
+            if (category.CompanyId != _tenantContext.CompanyId)
+                return Forbid();
 
-                return Ok(new { success = true, active = category.Active });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء تحديث الحالة: {ex.GetBaseException().Message}");
-            }
+            category.Active = !category.Active;
+            category.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { success = true, active = category.Active });
         }
 
         // ==============================================================
-        // 6. حذف التصنيف
+        // 6. حذف التصنيف (Soft Delete دايمًا)
         // ==============================================================
         [HttpDelete("{id:long}")]
         public async Task<IActionResult> DeleteItemCategory(long id)
         {
-            try
-            {
-                var category = await _context.ItemCategories.FindAsync(id);
-                if (category == null) return NotFound("التصنيف غير موجود.");
+            var category = await _context.ItemCategories.FindAsync(id);
+            if (category == null)
+                return NotFound(new { message = "التصنيف غير موجود." });
 
-                // فحص إذا كان هناك أصناف مرتبطة بالتصنيف
-                bool hasItems = await _context.Items.AnyAsync(i => i.CategoryId == id);
-                if (hasItems)
-                {
-                    category.Active = false; // تعطيل ناعم للحفاظ على سلامة شجرة الأصناف
-                    category.UpdatedAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
-                    return Ok(new { success = true, message = "تم تعطيل التصنيف بدلاً من حذفه نظراً لوجود أصناف مرتبطة به." });
-                }
+            if (category.CompanyId != _tenantContext.CompanyId)
+                return Forbid();
 
-                _context.ItemCategories.Remove(category);
-                await _context.SaveChangesAsync();
-                return Ok(new { success = true, message = "تم حذف التصنيف بنجاح." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"خطأ أثناء حذف التصنيف: {ex.GetBaseException().Message}");
-            }
+            // فحص وجود أصناف مرتبطة
+            bool hasItems = await _context.Items.AnyAsync(i => i.CategoryId == id);
+
+            // Soft Delete دايمًا — أأمن من Hard Delete
+            category.Active = false;
+            category.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            var message = hasItems
+                ? "تم تعطيل التصنيف بدلاً من حذفه نظراً لوجود أصناف مرتبطة به."
+                : "تم تعطيل التصنيف بنجاح.";
+
+            return Ok(new { success = true, message });
         }
     }
 }
