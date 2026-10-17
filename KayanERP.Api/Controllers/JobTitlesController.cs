@@ -1,33 +1,41 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using KayanERP.Api.Models;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using KayanERP.Api.DTOs;
+using KayanERP.Api.Models;
+using KayanERP.Api.Services;
 
 namespace KayanERP.Api.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
+    [ApiController]
+    [Authorize]
     public class JobTitlesController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly ITenantContext _tenantContext;
 
-        public JobTitlesController(AppDbContext context)
+        public JobTitlesController(AppDbContext context, ITenantContext tenantContext)
         {
             _context = context;
+            _tenantContext = tenantContext;
         }
 
-        // GET: api/jobtitles
+        // ==============================================================
+        // 1. جلب المسميات الوظيفية
+        // ==============================================================
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<JobTitleDto>>> GetJobTitles()
+        public async Task<ActionResult<IEnumerable<JobTitleLookupDto>>> GetJobTitles()
         {
             var list = await _context.JobTitles
                 .AsNoTracking()
                 .Where(j => j.Active)
                 .OrderBy(j => j.JobGrade)
                 .ThenBy(j => j.TitleName)
-                .Select(j => new JobTitleDto
+                .Select(j => new JobTitleLookupDto
                 {
                     Id = j.Id,
                     TitleName = j.TitleName,
@@ -40,28 +48,39 @@ namespace KayanERP.Api.Controllers
             return Ok(list);
         }
 
-        // POST: api/jobtitles (إضافة مسمى وظيفي جديد سريعاً)
+        // ==============================================================
+        // 2. إضافة مسمى وظيفي جديد
+        // ==============================================================
         [HttpPost]
-        public async Task<ActionResult<JobTitleDto>> CreateJobTitle([FromBody] CreateJobTitleRequestDto request)
+        public async Task<ActionResult<JobTitleLookupDto>> CreateJobTitle([FromBody] CreateJobTitleDto dto)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.TitleName))
-            {
-                return BadRequest("يرجى إدخال اسم المسمى الوظيفي.");
-            }
+            if (!ModelState.IsValid || string.IsNullOrWhiteSpace(dto.TitleName))
+                return BadRequest(new { message = "يرجى إدخال اسم المسمى الوظيفي." });
+
+            var trimmedName = dto.TitleName.Trim();
+            var companyId = _tenantContext.CompanyId;
+
+            // ⚠️ التحقق من التكرار داخل نفس الشركة
+            var existing = await _context.JobTitles
+                .FirstOrDefaultAsync(j => j.CompanyId == companyId &&
+                                          j.TitleName.ToLower() == trimmedName.ToLower());
+
+            if (existing != null)
+                return Conflict(new { message = $"المسمى الوظيفي ({trimmedName}) مسجل بالفعل." });
 
             var jobTitle = new JobTitle
             {
-                CompanyId = request.CompanyId > 0 ? request.CompanyId : 1,
-                TitleName = request.TitleName.Trim(),
-                HourlyRate = request.HourlyRate,
-                JobGrade = request.JobGrade > 0 ? request.JobGrade : 1,
+                CompanyId = companyId,
+                TitleName = trimmedName,
+                HourlyRate = dto.HourlyRate > 0 ? dto.HourlyRate : 25,
+                JobGrade = dto.JobGrade > 0 ? dto.JobGrade : 1,
                 Active = true
             };
 
             _context.JobTitles.Add(jobTitle);
             await _context.SaveChangesAsync();
 
-            return Ok(new JobTitleDto
+            return CreatedAtAction(nameof(GetJobTitles), new JobTitleLookupDto
             {
                 Id = jobTitle.Id,
                 TitleName = jobTitle.TitleName,
@@ -69,23 +88,6 @@ namespace KayanERP.Api.Controllers
                 JobGrade = jobTitle.JobGrade,
                 Active = jobTitle.Active
             });
-        }
-
-        public class JobTitleDto
-        {
-            public long Id { get; set; }
-            public string TitleName { get; set; } = string.Empty;
-            public decimal HourlyRate { get; set; }
-            public int JobGrade { get; set; }
-            public bool Active { get; set; }
-        }
-
-        public class CreateJobTitleRequestDto
-        {
-            public long CompanyId { get; set; } = 1;
-            public string TitleName { get; set; } = string.Empty;
-            public decimal HourlyRate { get; set; } = 25;
-            public int JobGrade { get; set; } = 1;
         }
     }
 }

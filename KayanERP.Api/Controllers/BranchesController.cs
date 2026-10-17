@@ -1,53 +1,51 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using KayanERP.Api.Models;
 
 namespace KayanERP.Api.Controllers;
 
 [ApiController]
-[Route("api/v1/[controller]")]
+[Route("api/[controller]")]
+[Authorize]
 public class BranchesController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly ILogger<BranchesController> _logger;
 
-    public BranchesController(AppDbContext context, ILogger<BranchesController> logger)
+    public BranchesController(AppDbContext context)
     {
         _context = context;
-        _logger = logger;
     }
 
     /// <summary>
-    /// جلب قائمة الفروع ومنافذ التشغيل النشطة لبوابة العمليات المركزية
+    /// جلب قائمة الفروع ومنافذ التشغيل النشطة لبوابة العمليات المركزية.
+    /// يتم فلترتها تلقائيًا بواسطة Global Query Filter (ITenantEntity).
     /// </summary>
     [HttpGet("operations-summary")]
     public async Task<ActionResult<IEnumerable<BranchOperationsSummaryDto>>> GetOperationsSummary()
     {
-        try
-        {
-            var branches = await _context.Branches
-                .AsNoTracking()
-                .Where(b => b.Active)
-                .Select(b => new BranchOperationsSummaryDto
-                {
-                    Id = b.Id,
-                    Code = b.BranchCode,
-                    NameAr = b.BranchName,
-                    BranchType = b.Warehouses.Any(w => w.WarehouseType == "RawMaterials") ? "Factory" : "Retail",
-                    ActiveWarehousesCount = b.Warehouses.Count(w => w.Active),
-                    TodaySalesVolume = 0.00m,
-                    IsActive = b.Active
-                })
-                .OrderBy(b => b.Code)
-                .ToListAsync();
+        var branches = await _context.Branches
+            .AsNoTracking()
+            .Where(b => b.Active)
+            .Select(b => new BranchOperationsSummaryDto
+            {
+                Id = b.Id,
+                Code = b.BranchCode,
+                NameAr = b.BranchName,
+                BranchType = b.Warehouses.Any(w => w.WarehouseType == "RawMaterials")
+                    ? "Factory"
+                    : "Retail",
+                ActiveWarehousesCount = b.Warehouses.Count(w => w.Active),
+                TodaySalesVolume = 0.00m,
+                IsActive = b.Active
+            })
+            .OrderBy(b => b.Code)
+            .ToListAsync();
 
-            return Ok(branches);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "فشل أثناء جلب بيانات الفروع من قاعدة بيانات Neon");
-            return StatusCode(500, new { message = "حدث خطأ أثناء الاتصال بقاعدة البيانات", detail = ex.Message });
-        }
+        return Ok(branches);
     }
 }
 
